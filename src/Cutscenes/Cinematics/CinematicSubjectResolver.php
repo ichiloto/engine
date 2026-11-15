@@ -63,7 +63,7 @@ final class CinematicSubjectResolver
     };
   }
 
-  /** A live field identity for effects that explicitly follow their selected subject. */
+  /** A live field identity shared by following effects and framing phases. */
   public function getSpriteSubject(array $reference): Player|Npc|WorldObject|StagedActor
   {
     self::validateReference($reference);
@@ -75,11 +75,11 @@ final class CinematicSubjectResolver
       'npc' => $this->gameScene->npcManager?->findPresentById($id),
       'world_object' => $this->findWorldObject($id),
       'staged_actor' => $this->gameScene->cinematicStage?->find($id),
-      default => throw new RuntimeException('Following effects require a live field subject.'),
+      default => throw new RuntimeException('The selection requires a live field subject.'),
     };
     if ($subject === null || ($subject instanceof StagedActor && !$subject->isVisible)
       || ($subject instanceof Npc && $this->gameScene->npcManager?->findPresentById($subject->id ?? '') !== $subject)) {
-      throw new RuntimeException('The selected effect subject is not present.');
+      throw new RuntimeException(sprintf('The selected field subject %s%s is not present.', $kind, $id !== '' ? ':' . $id : ''));
     }
     return $subject;
   }

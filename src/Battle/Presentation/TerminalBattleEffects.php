@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Animations\Timelines\EffectFlashStrength;
+
 use Ichiloto\Engine\Animations\AnimationTargetPosition;
 use Ichiloto\Engine\Battle\PartyBattlerPositions;
 use Ichiloto\Engine\Core\Vector2;
@@ -273,6 +275,7 @@ final class TerminalBattleEffects
         $data = $command['payload'] ?? [];
         $anchor = $data['anchor'] ?? 'target';
         if ($segment['layer'] === 'flash' && !$reducedMotion) {
+          if (EffectFlashStrength::getStrength($data) === 0.0) { continue; }
           // Full-screen flashes and camera movement are deliberately absent in Terminal.
           if (in_array($anchor, ['screen', 'legacy-screen'], true) || ($data['scope'] ?? '') === 'screen') { continue; }
           $color = self::resolveNamedColor($data['color'] ?? $command['color'] ?? 'white');

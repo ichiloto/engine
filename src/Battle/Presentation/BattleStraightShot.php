@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Animations\Timelines\EffectFlightContact;
+use Ichiloto\Engine\Animations\Timelines\EffectHorizontalFacing;
 use Ichiloto\Engine\Animations\Timelines\EffectStraightFlightFallback;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
@@ -25,7 +26,7 @@ final class BattleStraightShot
    * @return array{path: BattlePresentationPath, fallback: ?EffectStraightFlightFallback, targetOrder: list<int>}|null
    */
   public static function planRoute(Vector2 $origin, array $targets, string $assetRoot, float $arenaWidth,
-    bool $partySide, EffectFlightContact $contactMode, ?EffectStraightFlightFallback $fallback): ?array
+    EffectHorizontalFacing $exitFacing, EffectFlightContact $contactMode, ?EffectStraightFlightFallback $fallback): ?array
   {
     $bounds = self::getVisibleTargetBounds($targets, $assetRoot);
     $path = self::planThroughVisibleBounds($origin, $targets, $bounds, $assetRoot, $contactMode);
@@ -35,7 +36,7 @@ final class BattleStraightShot
     $path = match ($fallback) {
       EffectStraightFlightFallback::HORIZONTAL_EXIT => new BattlePresentationPath([
         [$origin->x, $origin->y],
-        [BattleEffectDirection::getOpponentsSign($partySide) < 0 ? -1.0 : $arenaWidth + 1.0, $origin->y],
+        [$exitFacing === EffectHorizontalFacing::WEST ? -1.0 : $arenaWidth + 1.0, $origin->y],
       ]),
     };
     $distance = array_map(static fn(CanvasRectangle $body): float => hypot(

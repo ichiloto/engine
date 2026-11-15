@@ -8,6 +8,7 @@ use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasViewportFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasFrameBudget;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasIndicatorReferences, CanvasComposite};
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use InvalidArgumentException;
@@ -176,6 +177,7 @@ final class RendererPresentation
   private function validateCanvasFrame(array $canvases): void
   {
     CanvasFrameBudget::assertCanvases($canvases);
+    CanvasIndicatorReferences::assertCanvases($canvases);
     $canvases = CanvasFrameBudget::getCanvases($canvases);
     if (!$this->client->supports(RendererSessionConfig::CANVAS_LABEL_INSTANCES)
       && array_sum(array_map(static fn($canvas) => count($canvas->textLayers) + count($canvas->labels), $canvases))
@@ -184,17 +186,29 @@ final class RendererPresentation
     }
   }
 
-  private function validateCanvas(PresentationCanvas $canvas, bool $isOverlay = false): void
+  private function validateCanvas(PresentationCanvas $canvas, bool $isOverlay = false,
+    ?PresentationCanvas $referenceRoot = null): void
   {
+    $referenceRoot ??= $canvas;
+    if (array_any($canvas->indicators, static fn($indicator): bool => $indicator->imagePath !== null)
+      && (!$this->client->supports(RendererSessionConfig::CANVAS_INDICATOR_IMAGE_PATH)
+        || !$this->client->supports(RendererSessionConfig::CANVAS_GROUPS))) {
+      throw new RendererProtocolException('Qualified indicator paths require negotiated canvas_indicator_image_path and canvas_groups support.');
+    }
     if ($canvas->groups !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_GROUPS)) {
       throw new RendererProtocolException('Canvas groups require negotiated canvas_groups support.');
     }
     foreach ($canvas->groups as $group) {
+      if ($group->scale !== null && $group->scale->factor !== 1.0
+        && (!$this->client->supports(RendererSessionConfig::CANVAS_GROUP_SCALE)
+          || !$this->client->supports(RendererSessionConfig::CANVAS_REGION_BUDGET))) {
+        throw new RendererProtocolException('Group scale requires negotiated canvas_group_scale and canvas_region_budget support.');
+      }
       if ($group->colorTransform !== null && (!$this->client->supports(RendererSessionConfig::CANVAS_GROUP_COLOR)
         || !$this->client->supports(RendererSessionConfig::CANVAS_REGION_BUDGET))) {
         throw new RendererProtocolException('Group colour requires negotiated canvas_group_color and canvas_region_budget support.');
       }
-      $this->validateCanvas($group->canvas, $isOverlay);
+      $this->validateCanvas($group->canvas, $isOverlay, $referenceRoot);
     }
 
     if (!$this->client->supports(RendererSessionConfig::GRAPHICAL_CANVAS)) {
@@ -217,9 +231,8 @@ final class RendererPresentation
           ($mask['flipX'] ?? false) || ($mask['flipY'] ?? false))))) {
       throw new RendererProtocolException('Mirrored image-alpha masks require negotiated canvas_image_alpha_flip support.');
     }
-    $compositeIds = array_fill_keys(array_column($canvas->composites, 'id'), true);
-    $imageIds = array_fill_keys(array_column($canvas->images, 'id'), true);
-    if (array_any($canvas->indicators, static fn($indicator) => !isset($imageIds[$indicator->imageId]) && isset($compositeIds[$indicator->imageId]))
+    if (array_any($canvas->indicators, static fn($indicator): bool =>
+        CanvasIndicatorReferences::resolve($referenceRoot, $canvas, $indicator) instanceof CanvasComposite)
       && !$this->client->supports(RendererSessionConfig::CANVAS_COMPOSITE_INDICATORS)) {
       throw new RendererProtocolException('Composite indicators require negotiated canvas_composite_indicators support.');
     }

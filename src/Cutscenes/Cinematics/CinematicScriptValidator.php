@@ -19,9 +19,13 @@ use Ichiloto\Engine\Events\Interpreter\MovementRouteRunner;
 final class CinematicScriptValidator
 {
   /** @param array<int, mixed> $commands */
-  public static function validate(array $commands, string $cinematicId = 'cinematic'): void
+  public static function validate(array $commands, string $cinematicId = 'cinematic', ?CinematicFramingDefinition $framing = null): void
   {
     self::validateCommands($commands, $cinematicId, 'script');
+    if ($framing !== null) {
+      \Ichiloto\Engine\Events\Interpreter\EventCommandRequirements::validate($commands,
+        \Ichiloto\Engine\Events\Interpreter\EventScriptContext::CINEMATIC, framing: $framing, path: $cinematicId . ':script');
+    }
   }
 
   /** @param array<int, mixed> $commands */
@@ -60,6 +64,7 @@ final class CinematicScriptValidator
         'text' => self::validateText($command, $cinematicId, $commandPath),
         'play_skit' => self::validateStableReference($command, 'skit', $cinematicId, $commandPath),
         'play_storybook' => self::validateStorybookPlayback($command, $cinematicId, $commandPath),
+        'framing' => self::validateFraming($command, $cinematicId, $commandPath),
         'sequence' => self::validateRequiredBlock($command, 'commands', $cinematicId, "$commandPath/sequence"),
         'parallel' => self::validateParallel($command, $cinematicId, $commandPath),
         'branch' => self::validateBranch($command, $cinematicId, $commandPath),
@@ -82,6 +87,17 @@ final class CinematicScriptValidator
         default => null,
       };
     }
+  }
+
+  private static function validateFraming(array $command, string $cinematicId, string $path): void
+  {
+    if (!is_array($command['subjects'] ?? null) || !is_array($command['commands'] ?? null)
+      || $command['commands'] === []) {
+      throw self::failure($cinematicId, $path, 'framing needs required subjects and a non-empty command body.');
+    }
+    try { CinematicFramingDefinition::validateRequirements($command['subjects']); }
+    catch (InvalidArgumentException $error) { throw self::failure($cinematicId, $path, $error->getMessage()); }
+    self::validateRequiredBlock($command, 'commands', $cinematicId, $path . '/' . CinematicCommandSchema::FRAMING_BODY_LANE);
   }
 
   /** @param array<string, mixed> $command */

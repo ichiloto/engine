@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Animations\Timelines;
 
-/** The authored horizontal direction of a drawing, independent of its recipient. */
+/** Horizontal orientation shared by authored drawings and resolved battle geometry. */
 enum EffectHorizontalFacing: string
 {
   case EAST = 'east';

@@ -141,7 +141,7 @@ final class CinematicStageManager
       subject: $subject !== null ? $leases[spl_object_id($subject)] : null,
       suppressedSubjects: array_values($leases),
       assetRoot: $subject !== null || $graphicalSprites instanceof CharacterSheet || $graphicalSprites instanceof FieldPoseAnimation
-        ? $this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() : null,
+        ? $this->gameScene->getFieldAssetRoot() : null,
       attachment: $attachment,
       hasAuthoredFacing: CinematicFacing::isDeclared($entry) || ($independentActor?->hasAuthoredFacing ?? false),
       sharesPresentNpcCell: $isNpcSnapshot

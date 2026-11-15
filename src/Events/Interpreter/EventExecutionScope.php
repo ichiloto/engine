@@ -28,9 +28,10 @@ enum EventExecutionScope: string
   ];
 
   /** Whether a built-in command type may run in this scope. */
-  public function allowsBuiltInCommand(string $type): bool
+  public function allowsBuiltInCommand(string $type, bool $hasCinematic = false): bool
   {
-    return in_array($type, match ($this) {
+    return EventCommandRequirements::isAvailable($type, EventScriptContext::getForScope($this, $hasCinematic))
+      && in_array($type, match ($this) {
       self::FIELD => CinematicCommandSchema::COMMAND_TYPES,
       self::BATTLE => self::BATTLE_COMMAND_TYPES,
     }, true);

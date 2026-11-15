@@ -59,6 +59,9 @@ final class StagedActor implements ThicketSubjectInterface, GraphicalSpriteVisib
   public bool $isGraphicallyVisible {
     get => $this->isVisible && $this->graphicalVisible;
   }
+  /** Authored or inherited graphical intent remains observable when decoding fails. */
+  public bool $hasGraphicalArtwork { get => $this->getGraphicalSprites() !== null; }
+
   private MovementHeading $localFacing;
   private Vector2 $localPosition;
   private ?array $baseSprite;

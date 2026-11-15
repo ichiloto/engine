@@ -4726,6 +4726,65 @@ have Engine implementations and windowless qualification; see the current
 contracts in `effect-animation.md`. Game production binding, assembled native
 checks and player acceptance remain separate work.
 
+### Authored group scale and battlefield coverage (15 November 2026)
+
+`CanvasGroup.scale` is optional and uses `CanvasGroupScale`:
+
+```json
+{"factor": 1.5, "origin": {"x": 0.25, "y": 0.5}}
+```
+
+The origin is normalized in the child canvas. For local point `p`, child size
+`size`, normalized origin `o` and existing group translation `t`, the parent
+point is `t + o * size + factor * (p - o * size)`. Translation follows scale.
+The factor is finite, positive and at most the existing viewport ceiling8.
+Identity scale omits the wire field and needs no new capability. Fractional
+coordinates remain fractional until final rasterization. Both existing neutral
+placement bounds and transformed child edges must satisfy the unchanged
+16384coordinate bound.
+
+The fixed group clip is in parent coordinates, after the transform. Child
+clipping and nested drawing semantics remain local; all descendants, masks,
+glyphs, shadows, attached effects and colour inherit the same geometry. Group
+colour applies to completed child colour before its parent blend. An untreated
+group draws descendants at transformed geometry, preserving source detail;
+it must not first raster the child canvas at neutral size and enlarge that
+intermediate. A1pixel solid line at factor2 has2hard-edged output pixels.
+
+`canvas_group_scale` is opt-in and requires `graphical_canvas`, `canvas_groups`
+and `canvas_region_budget`. Engine refuses unnegotiated nonidentity scale
+before sending a partial frame. Group updates retain child content and stable
+identity; unchanged HUD drawings are not replayed. Preparation is keyed by
+child content, not scale/origin/placement. A changing factor is paint-time state,
+not a new prepared region. Region and composite budgets remain in child pixels
+with unchanged aggregate count, work, source and coordinate limits. Overlay
+protection, qualified indicator paths and group copies preserve/project scale.
+
+Battle field-motion samples may explicitly author uniform centre scale along
+with their logical offsets. The host checks every viewport corner against the
+inverse camera and backdrop rectangle/clip before admitting that transform,
+including rotated backdrop coverage. Uncovered offsets are now refused with
+a presentation diagnostic and a neutral field; they no longer expose backing
+edges. No automatic zoom, motion clamp, strip fill or game-specific value is
+introduced. Gameplay/save/formation/target/release coordinates remain neutral;
+HUD and screen UI are neither moved nor scaled. Reduced motion has neither
+transform. Current source and preview behavior is in `effect-animation.md`.
+
+Claude chose an explicit authored impact punch-in for Last Legend. No arena
+repaint or source crop is requested. The arena bindings already own an optional
+pixel source rectangle and the GUI editor exposes it source-preservingly. A
+future scene that requires artwork bleed beyond its neutral view still needs
+an explicit larger drawing extent retained until the final viewport clip;
+that coverage is not invented by this scale mechanism.
+
+Native renderer and GUI Editor remain Claude's owners. Their handoff includes
+fractional destination rectangles, a hard-edge2xline oracle and changing-scale
+preparation/retained cases. Editor field-motion sample authoring must expose
+scale separately from rigid battler offsets, preserve source/undo and negotiate
+it explicitly in battle previews/still rasters. No new arena field or Terminal
+graphical workflow is required. Engine tests do not establish those ports,
+Game bindings, live/native rendering or author acceptance.
+
 ### Group colour treatment
 
 `CanvasGroup.colorTransform` is optional and uses `CanvasColorTransform`:
@@ -4789,7 +4848,51 @@ artwork interleaves with untreated effects, preserve the original stable depth
 order with appropriately placed groups sharing the same treatment. Putting all
 bodies into one atomic group and all effects after it changes that order.
 
+
+### Qualified indicator associations
+
+An optional indicator `imagePath` names groups from the complete root canvas,
+then an existing image/composite leaf. It contains 2..9 stable string IDs;
+`imageId` remains required and equals the leaf. With no path, association stays
+local. The pointer is a lifecycle association: bounds, stroke, colour and depth
+remain explicit, and the indicator receives its own containing group's colour
+treatment. No source image is duplicated or drawn only to satisfy a reference.
+
+`CanvasIndicatorReferences::resolve()` and `assertCanvases()` own complete-root
+resolution. Intermediate child canvases can hold qualified references before
+root assembly; final runtime/still resource admission and renderer submission
+validate the complete graph before preparing or transmitting it. Missing groups
+or leaves refuse the complete candidate. Group identities stay unique among
+siblings. Local image-before-composite precedence at a shared leaf ID is
+preserved. Every root in a world/still/overlay collection owns an independent
+graph; references cannot escape into another root or a previous retained frame.
+
+The optional v2 capability `canvas_indicator_image_path` requires
+`graphical_canvas` and `canvas_groups`. It is negotiable without becoming a
+mandatory startup requirement. A client lacking it receives no qualified path.
+Composite-indicator capability is checked at the resolved source canvas.
+Paths add no drawing, prepared region or change to resource accounting; existing
+colour variants and aggregate group limits still apply.
+
+`PresentationCanvas::composeOverlay()` prefixes root IDs and the corresponding
+first group element of every qualified path, including paths held inside
+nested child canvases. Descendant IDs and leaf `imageId` remain unchanged when
+they were not renamed. `CanvasGroup::wrapRoot()` promotes a complete root into
+a placed group and prepends that identity to all qualified paths. Ordinary
+`new CanvasGroup` holds an already scoped local child. Neither operation changes
+geometry, clipping, original source models or treatment composition. An
+unrepresentable ninth group level is refused.
+
+This enables contiguous treatment runs to retain original layer/type/tie order
+while an image and its outline occupy different placed groups. Field partitioning
+and actual native/CPU ports remain separately qualified work. Retained
+replacement/removal, backend overlay namespacing and typed source validation
+must preserve or refuse these associations atomically.
+
 Engine model, transport and mathematical tests are windowless. Claude owns native
 and Editor CPU raster ports, including preparation accounting and equivalence at
 their raster precision. Field-colour timeline authoring and live battle binding
 remain work. No native launch, final cinematic or author acceptance is claimed.
+
+
+Canvas overlay layers are complete independent reference roots. composeOverlay validates each input root before prefixing or merging, including null-base and empty-prefix calls. A qualified reference cannot borrow a source from another layer. To assemble a deliberate sibling-group association, construct its one complete PresentationCanvas root before overlay composition. This closes cross-layer admission without renaming or changing any instance-specific caller.

@@ -11,6 +11,7 @@ use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePaginationBuilder;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -42,18 +43,43 @@ final class CinematicTextPresentation
 
     public function getCanvas(DialogueScenePresentation $dialogue, int $width, int $height): ?PresentationCanvas
     {
+        $snapshot = $this->getGraphicalSnapshot($dialogue, $width);
+        return $snapshot === null ? null : $dialogue->composeSnapshot($snapshot, $width, $height);
+    }
+
+    /** Same snapshot and shared page geometry used by the actual narration/title drawing. */
+    public function getProtectedBounds(DialogueScenePresentation $dialogue, int $width, int $height): ?array
+    {
+        $snapshot = $this->getGraphicalSnapshot($dialogue, $width);
+        return $snapshot === null ? null : $dialogue->getProtectedBounds($snapshot, $width, $height);
+    }
+
+    private function getGraphicalSnapshot(DialogueScenePresentation $dialogue, int $width): ?DialogueSnapshot
+    {
         $context = new DialogueContext();
         $layout = $dialogue->getPageLayout($this->title, $context, '', $width, interactive: false);
         if ($layout === null) { return null; }
         $pages = DialoguePaginationBuilder::buildPagination($this->text, $this->title, '', $context,
             $layout->columns + 4, $layout->proseRows + 2, $layout, $this->getPosition());
         $snapshot = $pages->getSnapshot($this->getPageIndex($pages));
-        return $dialogue->composeSnapshot(new DialogueSnapshot($snapshot->speaker, $snapshot->page,
+        return new DialogueSnapshot($snapshot->speaker, $snapshot->page,
             $snapshot->visibleText, false, $snapshot->pageIndex, $snapshot->pageCount, false,
-            $snapshot->position, $context, interactive: false, textAlignment: $this->getTextAlignment()), $width, $height);
+            $snapshot->position, $context, interactive: false, textAlignment: $this->getTextAlignment());
     }
 
     public function renderTerminal(int $width, int $height): void
+    {
+        $this->createTerminalWindow($width, $height)->render();
+    }
+
+    /** Cell geometry comes from the very window that the Terminal draws. */
+    public function getTerminalBounds(int $width, int $height): CanvasRectangle
+    {
+        $bounds = $this->createTerminalWindow($width, $height)->getBounds();
+        return new CanvasRectangle($bounds->getX(), $bounds->getY(), $bounds->getWidth(), $bounds->getHeight());
+    }
+
+    private function createTerminalWindow(int $width, int $height): Window
     {
         $titleCard = $this->kind === 'title_card';
         $hasBodyTitle = $titleCard && $this->title !== '' && $height >= 4;
@@ -68,7 +94,7 @@ final class CinematicTextPresentation
             heightPolicy: WindowHeightPolicy::FIXED);
         $window->setContent([...($hasBodyTitle ? [$this->title] : []),
             ...explode("\n", $pages->pages[$this->getPageIndex($pages)])]);
-        $window->render();
+        return $window;
     }
 
     private function getPageIndex(DialoguePagination $pagination): int

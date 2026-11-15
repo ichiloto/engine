@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Animations\EffectScale;
+use Ichiloto\Engine\Animations\Timelines\EffectFlashStrength;
 use Ichiloto\Engine\Animations\Timelines\EffectImageDepth;
 use Ichiloto\Engine\Animations\Timelines\EffectFlightMode;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
@@ -54,21 +55,22 @@ final class GraphicalBattleEffects
   /** @param array<int, CanvasRectangle> $bounds Combatant instance identity => its drawn body; head, centre and feet attach to it.
    * @param array<int, CanvasImage> $battlerImages Current visible poses, including crop, motion and opacity.
    * @param array<int, Vector2>|null $groundAnchors Current posed ground points; rectangle-only hosts use bottom centres.
-   * @param array<int, bool> $partySides Combatant identity => whether it stands with the party; opponent-facing tracks read it.
+   * @param array<int, bool> $partySides Combatant identity => whether it stands with the party; opponent-facing tracks resolve the actual opposing ground extent from it.
    * @param array<int, array<string, Vector2>> $attachmentPoints Named points projected from each current pose cell.
    * @param array<string, int>|null $subjectFrontImages Optional output map of effect image id to subject identity.
+   * @param ?\Closure(object, ?string): void $recordSource Producer provenance, independent of final render IDs.
    */
   public static function compose(BattleEffectPlayback $playback, BattleCanvasLayout $arena,
     array $bounds, string $assetRoot, bool $reducedMotion, array $battlerImages = [], bool $imageFlips = true,
     bool $compositing = true, ?array $groundAnchors = null, array $partySides = [], bool $maskFlips = true,
     array $attachmentPoints = [], bool $imageRotation = false, bool $imageClips = true,
-    bool $coverageDabs = false, bool $textureStrip = false, ?array &$subjectFrontImages = null): PresentationCanvas
+    bool $coverageDabs = false, bool $textureStrip = false, ?array &$subjectFrontImages = null, ?\Closure $recordSource = null): PresentationCanvas
   {
     $groundAnchors ??= array_map(static fn(CanvasRectangle $box): Vector2 =>
       new Vector2($box->x + $box->width / 2, $box->y + $box->height), $bounds);
     $hadConditionFailure = $playback instanceof BattlerConditionEffect && $playback->hasPresentationFailure;
     $images = $text = $composites = [];
-    $tints = $contactRails = $relativeSubjects = [];
+    $tints = $ownedTints = $contactRails = $relativeSubjects = [];
     $summon = $playback instanceof BattleCommandPlayback ? $playback->plan->summon : null;
     if ($summon !== null && !$reducedMotion) {
       if (in_array($playback->phase, ['summon-in', 'summon-out'], true)) {
@@ -91,10 +93,13 @@ final class GraphicalBattleEffects
             mb_strimwidth($line, 0, $columns, ''), PresentationColor::rgb(255, 224, 160)), $lines, array_keys($lines)));
       }
     }
+    foreach ([...$images, ...$text, ...$composites] as $drawing) { $recordSource?->__invoke($drawing, null); }
     foreach ($playback->getActiveSegments($reducedMotion) as $segment) {
-      if (in_array($segment['layer'], ['tone', 'field-motion', 'battler-motion'], true)) { continue; } // Their owners transform the body or the complete field, preserving draw order.
+      if (in_array($segment['layer'], ['tone', 'field-motion', 'field-color', 'battler-motion'], true)) { continue; } // Their owners transform the body or the complete field, preserving draw order.
       foreach ($segment['drawCommands'] as $command) {
         if (!($command['visible'] ?? true)) { continue; }
+        $before = [count($images), count($text), count($composites)];
+        try {
         $data = $command['payload'] ?? [];
         $anchor = $data['anchor'] ?? 'target';
         if ($anchor === 'stage') { continue; }
@@ -176,8 +181,13 @@ final class GraphicalBattleEffects
           if ($isDetached && isset($data['flight']) && $flight === null) { continue; }
           $direction = $flight['direction'] ?? null;
           if ($direction !== null && $casterX !== null) { $recipientX = $casterX + $direction->x; }
-          $oriented = BattleEffectDirection::orientForSubject($command, $casterX, $recipientX,
-            $release['party'] ?? $targetGroup?->partySide ?? ($subject === null ? null : ($partySides[spl_object_id($subject)] ?? null)));
+          $opponentsFacing = $release !== null ? ($release['opponentsFacing'] ?? null)
+            : ($subject === null ? null : BattleEffectDirection::getOpponentsFacing(spl_object_id($subject), $groundAnchors, $partySides));
+          if ($targetGroup !== null && $targetGroup->partySide !== null) {
+            $opponentsFacing = BattleEffectDirection::getOpponentsFacingAt($targetGroup->getGroundOrigin()->x,
+              $targetGroup->partySide, $groundAnchors, $partySides);
+          }
+          $oriented = BattleEffectDirection::orientForFacing($command, $casterX, $recipientX, $opponentsFacing);
           $facing = $data['facing'] ?? null;
           $autoMirrored = ($oriented['payload']['flipX'] ?? false) !== ($data['flipX'] ?? false);
           $data = $oriented['payload'] ?? [];
@@ -241,6 +251,19 @@ final class GraphicalBattleEffects
                 $frameHeight = intdiv($size['height'], $rows);
                 $crop = new SpriteSourceRect(($source % $columns) * $frameWidth,
                   intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight);
+                if (isset($data['groundSpan'])) {
+                  if (!EffectScale::playsAuthoredSize($scale)) {
+                    throw new InvalidArgumentException('Captured ground-span geometry requires binding scale 1.');
+                  }
+                  if (!$compositing || !$textureStrip || !$playback instanceof BattleCommandPlayback) {
+                    throw new RuntimeException('Renderer requires compositing and texture-strip support for a captured ground span.');
+                  }
+                  $snapshot = $playback->getCapturedAnchorSnapshot($data['capturedTargetGroup'] ?? 'snapshot')
+                    ?? throw new RuntimeException('Ground-span effect has no captured caster and recipient ground placement.');
+                  $span = GraphicalBattleGroundSpan::compose($id, $asset, $crop, $snapshot, $arena, $data);
+                  if ($span !== null) { $composites[] = $span; }
+                  break;
+                }
                 if ($compositing && $textureStrip && $targetGroup !== null && isset($data['contactRail'])) {
                   $rail = $contactRails[spl_object_id($targetGroup)] ??= BattleEffectContactRail::fit($targetGroup);
                   $strip = GraphicalBattleStrip::compose($id, $asset, $crop, $rail, $arena, $data, $x - $ground->x, $y - $ground->y);
@@ -353,13 +376,24 @@ final class GraphicalBattleEffects
                   clamp($y, 0, $arena->height - $rows * $arena->uiGrid->cellHeight),
                   new RendererGridConfig($columns, $rows, $arena->uiGrid->cellWidth, $arena->uiGrid->cellHeight), $runs);
                 break;
+              case 'battler-tint':
+                if ($reducedMotion || $subject === null) { break; }
+                $identity = spl_object_id($subject);
+                if (isset($ownedTints[$identity])) {
+                  throw new InvalidArgumentException('Only one authored battler tint may own each resolved subject frame.');
+                }
+                $ownedTints[$identity] = ['color' => PresentationColor::createFromArray($data['color']),
+                  'strength' => EffectFlashStrength::getStrength($data)];
+                break;
               case 'flash':
                 if ($reducedMotion) { break; }
+                $strength = EffectFlashStrength::getStrength($data);
+                if ($strength === 0.0) { break; }
                 $color = self::getColor($data['color'] ?? $command['color'] ?? 'white');
                 if ($subject === null) {
-                  array_push($text, ...self::getWashes($id, new CanvasRectangle(0, 0, $arena->width, $arena->height), $color, .22));
+                  array_push($text, ...self::getWashes($id, new CanvasRectangle(0, 0, $arena->width, $arena->height), $color, $strength));
                 } elseif (isset($battlerImages[spl_object_id($subject)])) {
-                  $tints[spl_object_id($subject)][] = ['color' => $color, 'strength' => .22];
+                  $tints[spl_object_id($subject)][] = ['color' => $color, 'strength' => $strength];
                 }
                 break;
             }
@@ -367,7 +401,14 @@ final class GraphicalBattleEffects
             $playback->recordPresentationFailure($error);
           }
         }
+        } finally {
+          foreach ([...array_slice($images, $before[0]), ...array_slice($text, $before[1]),
+            ...array_slice($composites, $before[2])] as $drawing) { $recordSource?->__invoke($drawing, $command['trackId']); }
+        }
       }
+    }
+    foreach ($ownedTints as $identity => $tint) {
+      if ($tint['strength'] > 0 && isset($battlerImages[$identity])) { $tints[$identity][] = $tint; }
     }
     if (!$reducedMotion && $playback instanceof BattleCommandPlayback) {
       $reacted = [];
@@ -377,7 +418,7 @@ final class GraphicalBattleEffects
         $reacted[$identity] = true;
         $role = $playback->getPoseRole($subject);
         $image = $battlerImages[$identity] ?? null;
-        if ($image !== null && in_array($role, [BattlePoseRole::DAMAGE, BattlePoseRole::HEAL], true)) {
+        if ($image !== null && !isset($ownedTints[$identity]) && in_array($role, [BattlePoseRole::DAMAGE, BattlePoseRole::HEAL], true)) {
           $tints[$identity][] = ['color' => self::getColor($role === BattlePoseRole::DAMAGE ? 'red' : 'green'), 'strength' => .16];
         }
       }
@@ -394,7 +435,7 @@ final class GraphicalBattleEffects
         // Surface opacity cannot be distributed through overlapping operations.
         // Keep faded subjects separate; ordinary subjects share a depth surface.
         if ($tint->opacity === 1.0) { $groups[$tint->layer][] = $tint; }
-        else { $composites[] = $tint; }
+        else { $composites[] = $tint; $recordSource?->__invoke($tint, null); }
       } catch (InvalidArgumentException|RuntimeException $error) {
         $playback->recordPresentationFailure($error);
       }
@@ -404,7 +445,10 @@ final class GraphicalBattleEffects
         'Renderer cannot composite battle tints; poses, effects and result feedback remain.'));
     }
     foreach ($groups as $layer => $group) {
-      try { $composites[] = CanvasImageTint::combine('command-tints-layer-' . $layer, $group); }
+      try {
+        $composites[] = CanvasImageTint::combine('command-tints-layer-' . $layer, $group);
+        $recordSource?->__invoke($composites[array_key_last($composites)], null);
+      }
       catch (InvalidArgumentException|RuntimeException $error) { $playback->recordPresentationFailure($error); }
     }
     try { new PresentationCanvas($arena->width, $arena->height, composites: $composites); }
@@ -415,7 +459,7 @@ final class GraphicalBattleEffects
     }
     if ($playback instanceof BattlerConditionEffect && !$hadConditionFailure && $playback->hasPresentationFailure) {
       return self::compose($playback, $arena, $bounds, $assetRoot, $reducedMotion, $battlerImages,
-        $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips, subjectFrontImages: $subjectFrontImages);
+        $imageFlips, $compositing, $groundAnchors, $partySides, $maskFlips, subjectFrontImages: $subjectFrontImages, recordSource: $recordSource);
     }
     if ($subjectFrontImages !== null) { $subjectFrontImages += $relativeSubjects; }
     return new PresentationCanvas($arena->width, $arena->height, $images, textLayers: $text, composites: $composites,

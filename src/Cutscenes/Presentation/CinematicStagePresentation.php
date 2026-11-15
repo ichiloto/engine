@@ -18,8 +18,9 @@ use InvalidArgumentException;
 /** Seekable retained composition, with no audio, combat or world-camera mutation. */
 final class CinematicStagePresentation
 {
+  /** @param ?\Closure(object, ?string): void $recordSource */
   public static function compose(CinematicStageFrame $frame, array $segments, string $assetRoot,
-    int $width, int $height, bool $imageFlips = true, bool $compositing = true): PresentationCanvas
+    int $width, int $height, bool $imageFlips = true, bool $compositing = true, ?\Closure $recordSource = null): PresentationCanvas
   {
     $images = $composites = [];
     $hasBackground = $frame->active && $frame->stage->data['background'] !== null;
@@ -29,6 +30,7 @@ final class CinematicStagePresentation
     if ($hasBackground) {
       $composites[] = self::createFill('cinematic-stage-background', $width, $height,
         $frame->stage->data['background'], PresentationLayerPolicy::CINEMATIC - 501, 1);
+      $recordSource?->__invoke($composites[array_key_last($composites)], null);
     }
     if ($frame->drawsContent) {
       foreach ($segments as $segment) {
@@ -66,6 +68,7 @@ final class CinematicStagePresentation
           if ($image !== null) {
             $images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer, $image->sourceRect,
               $data['opacity'], $image->clipRect, flipX: $image->flipX, flipY: $image->flipY);
+            $recordSource?->__invoke($images[array_key_last($images)], $command['trackId']);
           }
         }
       }
@@ -73,6 +76,7 @@ final class CinematicStagePresentation
     if ($frame->cover['opacity'] > 0) {
       $composites[] = self::createFill('cinematic-stage-cover', $width, $height, $frame->cover['color'],
         PresentationLayerPolicy::TRANSITION, $frame->cover['opacity']);
+      $recordSource?->__invoke($composites[array_key_last($composites)], null);
     }
     return new PresentationCanvas($width, $height, $images, composites: $composites,
       protectedAreas: $hasBackground || $frame->cover['opacity'] > 0

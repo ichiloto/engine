@@ -279,6 +279,13 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         }
     }
 
+    /** An attached field host owns its optional assets; runtime scenes use their bound Game. */
+    public function getFieldAssetRoot(): ?string
+    {
+        if ($this->presentationContext !== null) { return $this->presentationContext->assetRoot; }
+        return isset($this->sceneManager) ? $this->getGame()->getProjectAssetRoot() : null;
+    }
+
     public function getFieldViewport(): ?FieldViewport { return $this->fieldViewport; }
 
     public function observeDialogueFramingSubjects(): void
@@ -358,7 +365,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         if (!$this->canPresentMapAtlas() || $this->mapManager?->overview === null || $this->player === null) { return null; }
         $context = $this->presentationContext;
         $runtime = $context === null && isset($this->sceneManager) ? $this->getGame()->getRendererRuntime() : null;
-        $root = $context !== null ? $context->assetRoot : $runtime?->getAssetRoot();
+        $root = $this->getFieldAssetRoot();
         $grid = $context !== null ? $context->grid : $runtime?->grid;
         if ($root === null || $grid === null) { return null; }
         $snapshot ??= $this->getMapAtlasSnapshot();
@@ -433,8 +440,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         $stage = $this->canPresentCinematicStage() ? $this->cinematicPresentation?->getStageCanvas($width, $height,
             $this->supportsScenePresentation(RendererSessionConfig::CANVAS_IMAGE_FLIP)) : null;
         if ($stage !== null) { $overlay = PresentationCanvas::composeOverlay($overlay, $stage); }
-        $assetRoot = $this->presentationContext !== null ? $this->presentationContext->assetRoot
-            : (isset($this->sceneManager) ? $this->getGame()->getRendererRuntime()?->getAssetRoot() : null);
+        $assetRoot = $this->getFieldAssetRoot();
         // Images authored above the cover stack over the stage plane, its cover included, below cinematic text.
         $lifted = $this->getAboveCoverSpriteProviders();
         $above = $lifted !== [] && $assetRoot !== null && $this->fieldViewport !== null
@@ -1212,7 +1218,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         return new Player($this, 'Player', $config->playerPosition, $config->playerShape,
             $config->playerSprite, $config->playerHeading, $config->playerSprites,
             graphicalSprites: $presentation->graphicalSubject === PlayerGraphicalSubject::FIXED_PLAYER ? $presentation->graphical : null,
-            assetRoot: $this->getGame()->getRendererRuntime()?->getAssetRoot(),
+            assetRoot: $this->getFieldAssetRoot(),
             party: $presentation->graphicalSubject === PlayerGraphicalSubject::PARTY_LEADER ? $config->party : null);
     }
 

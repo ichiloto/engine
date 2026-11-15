@@ -45,17 +45,17 @@ final class BattleCommandPreview
   }
 
   public function getFrameAtTime(float $seconds, bool $reducedMotion = false, bool $imageRotation = false,
-    bool $coverageDabs = false, bool $textureStrip = false): BattleCommandPreviewFrame
+    bool $coverageDabs = false, bool $textureStrip = false, bool $compositing = true): BattleCommandPreviewFrame
   {
     if (!is_finite($seconds) || $seconds < 0) {
       throw new InvalidArgumentException('Battle preview time must be finite and non-negative.');
     }
     return $this->getFrameAtIndex(min($this->getTotalFrames($reducedMotion) - 1,
-      EffectPlaybackTiming::getFrameCountForElapsed($seconds, 1 / BattleCommandTimeline::FPS)), $reducedMotion, $imageRotation, $coverageDabs, $textureStrip);
+      EffectPlaybackTiming::getFrameCountForElapsed($seconds, 1 / BattleCommandTimeline::FPS)), $reducedMotion, $imageRotation, $coverageDabs, $textureStrip, $compositing);
   }
 
   public function getFrameAtIndex(int $frame, bool $reducedMotion = false, bool $imageRotation = false,
-    bool $coverageDabs = false, bool $textureStrip = false): BattleCommandPreviewFrame
+    bool $coverageDabs = false, bool $textureStrip = false, bool $compositing = true): BattleCommandPreviewFrame
   {
     if ($frame < 0 || $frame >= $this->getTotalFrames($reducedMotion)) {
       throw new InvalidArgumentException('Battle preview frame must be inside the command timeline.');
@@ -67,7 +67,7 @@ final class BattleCommandPreview
     $seconds = $frame / BattleCommandTimeline::FPS;
     $playback->update($seconds);
     $canvas = $this->graphical?->frame(new BattlePresentationSnapshot($playback,
-      poseElapsedSeconds: $seconds), now: $seconds, reducedMotion: $reducedMotion, imageRotation: $imageRotation, coverageDabs: $coverageDabs, textureStrip: $textureStrip);
+      poseElapsedSeconds: $seconds), now: $seconds, reducedMotion: $reducedMotion, imageRotation: $imageRotation, coverageDabs: $coverageDabs, textureStrip: $textureStrip, compositing: $compositing);
     $lines = $this->terminal->getFrame($playback, $reducedMotion, $seconds)['lines'];
     $terminalCanvas = $this->terminalComposer->createCanvasFromLines($lines, new RendererGridConfig(
       $this->terminal->width, $this->terminal->height,
@@ -79,6 +79,28 @@ final class BattleCommandPreview
       array_map($toPreviewCue, $playback->session->getCuesAt()), array_map($toPreviewCue, $cues),
       $playback->presentationFailure === null ? [] : [$playback->presentationFailure->getMessage()],
       $this->plan->getAuthoredFramesAtCommandFrame($playback->session->currentFrame), $terminalCanvas);
+  }
+
+  /** Authoring preflight for this selected troop/target set, at the same capture as live playback.
+   * Traversal applies no damage, rewards, audio or canvas drawing; captures are released before returning.
+   * @return list<string>
+   */
+  public function getGroundSpanDiagnostics(bool $reducedMotion = false): array
+  {
+    if ($this->graphical === null) { return ['Ground-span placement inspection requires a graphical presentation.']; }
+    $capture = array_find($this->plan->timeline->cueSchedule,
+      static fn(array $cue): bool => $cue['type'] === 'commandCaptureTargetSnapshot');
+    if ($capture === null) { return ['Ground-span placement inspection requires an authored targetCaptureFrame.']; }
+    $playback = $this->createPlayback($reducedMotion, static function (): void {});
+    try {
+      $playback->update($playback->getElapsedSecondsAtFrame($capture['frame']));
+      if ($playback->presentationFailure !== null) { throw $playback->presentationFailure; }
+      $snapshot = $playback->getCapturedAnchorSnapshot('snapshot')
+        ?? throw new \RuntimeException('Ground-span placement inspection has no captured source and recipients.');
+      $snapshot->getGroundSpanEndpoint();
+      return [];
+    } catch (\Throwable $error) { return [$error->getMessage()]; }
+    finally { $playback->cancel(); }
   }
 
   public function getTotalFrames(bool $reducedMotion = false): int

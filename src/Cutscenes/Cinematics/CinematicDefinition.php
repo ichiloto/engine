@@ -111,7 +111,12 @@ final class CinematicDefinition
       $commands = $script['commands'];
     }
 
-    CinematicScriptValidator::validate($commands, $id);
+    $framingData = is_array($data['presentation'] ?? null) ? (array_key_exists('framing', $data['presentation']) ? $data['presentation']['framing'] : []) : [];
+    if (!is_array($framingData)) {
+      throw new InvalidArgumentException('Cinematic framing requires subject bindings.');
+    }
+    $framing = new CinematicFramingDefinition($framingData);
+    CinematicScriptValidator::validate($commands, $id, $framing);
 
     if (is_array($data['presentation'] ?? null) && array_key_exists('conversation', $data['presentation'])) {
       if (!is_array($data['presentation']['conversation'])) {

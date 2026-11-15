@@ -564,3 +564,15 @@ it('captures Terminal cells before a same-frame combat impact',function(){
   $presentation=new TerminalBattlePresentation($this->battle);$presentation->bindCommandCapture($p);$p->begin();$p->update(1);
   expect($observed)->not->toBeNull()->and($p->presentationFailure)->toBeNull();
 });
+
+
+it('honours neutral authored flash holds in Terminal while retaining foreground pulses', function (float $strength, bool $reduced) {
+  $effect = terminalPreviewEffect([['payload' => ['anchor' => 'target', 'color' => 'yellow', 'strength' => $strength]]], 'flash');
+  $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1,.1,.1,.1,.1,.1,.1), target: $effect),
+    $this->actor, $this->targets, BattlePoseRole::MAGIC, static fn() => null, static fn() => null);
+  $playback->session->seek($playback->plan->phases['target']['start']);
+  $effects = new TerminalBattleEffects();
+  $frame = $effects->compose($playback, static fn() => null, $reduced);
+  expect($frame['flashes'])->toHaveCount($strength === 0.0 || $reduced ? 0 : count($this->targets));
+  foreach ($frame['flashes'] as $flash) { expect($flash['screen'])->toBeFalse()->and($flash['color'])->toBe(Color::YELLOW); }
+})->with([0.0,.35,1.0])->with([false,true]);

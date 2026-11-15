@@ -72,17 +72,17 @@ it('samples stable recipient identity once with side-relative x and absolute y',
     $p->begin(); $p->update(($plan->phases['target']['start'] + $frame * 5) / 120);
     $expected = [0 => [-10.25, 3.5], 1 => [-10.25, 3.5], 2 => [4.0,-2.0], 3 => null, 4 => [0.0,0.0], 5 => null][$frame];
     foreach ([true, false] as $partySide) {
-      $offset = BattleBattlerMotion::getOffset($p, $subject, $partySide, false);
+      $offset = BattleBattlerMotion::getOffset($p, $subject, $partySide ? \Ichiloto\Engine\Animations\Timelines\EffectHorizontalFacing::WEST : \Ichiloto\Engine\Animations\Timelines\EffectHorizontalFacing::EAST, false);
       if ($expected !== null) {
         expect([$offset->x, $offset->y])->toBe([$expected[0] * ($space === 'opponents' && $partySide ? -1 : 1), $expected[1]]);
       } else { expect($offset)->toBeNull(); }
     }
-    expect(BattleBattlerMotion::getOffset($p, $other, true, false))->toBeNull()
-      ->and(BattleBattlerMotion::getOffset($p, $subject, true, true))->toBeNull();
+    expect(BattleBattlerMotion::getOffset($p, $other, \Ichiloto\Engine\Animations\Timelines\EffectHorizontalFacing::WEST, false))->toBeNull()
+      ->and(BattleBattlerMotion::getOffset($p, $subject, \Ichiloto\Engine\Animations\Timelines\EffectHorizontalFacing::WEST, true))->toBeNull();
     $before = $p->session->currentFrame; $p->pause(); $p->update(10);
     expect($p->session->currentFrame)->toBe($before);
     $p->resume(); $p->cancel();
-    expect(BattleBattlerMotion::getOffset($p, $subject, true, false))->toBeNull();
+    expect(BattleBattlerMotion::getOffset($p, $subject, \Ichiloto\Engine\Animations\Timelines\EffectHorizontalFacing::WEST, false))->toBeNull();
   }
   expect($hits)->toBe(0)->and($actor->stats->currentHp)->toBe(100)->and($target->stats->currentHp)->toBe(100);
 })->with(['caster','target'])->with(['canvas','opponents']);

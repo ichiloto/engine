@@ -17,20 +17,20 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 final class CanvasTextBatch
 {
   /** @param list<CanvasTextLayer> $layers @return list<CanvasTextLayer> */
-  public static function compact(array $layers): array
+  public static function compact(array $layers, ?CanvasTextBatchScopeInterface $scope = null): array
   {
-    return self::packFills(self::batchGlyphs($layers));
+    return self::packFills(self::batchGlyphs($layers, $scope), $scope);
   }
 
   /** @param list<CanvasTextLayer> $layers @return list<CanvasTextLayer> */
-  private static function batchGlyphs(array $layers): array
+  private static function batchGlyphs(array $layers, ?CanvasTextBatchScopeInterface $scope): array
   {
     foreach ($layers as $index => $a) {
       if (count($layers) <= StyledPresentationFrame::MAX_TEXT_LAYERS) { break; }
       if (!isset($layers[$index]) || !self::eligible($a)) { continue; }
       foreach ($layers as $other => $b) {
         if (count($layers) <= StyledPresentationFrame::MAX_TEXT_LAYERS) { break 2; }
-        if ($other <= $index || !self::eligible($b) || $a->layer !== $b->layer || $a->opacity !== $b->opacity
+        if ($other <= $index || ($scope !== null && $scope->getBatchKey($a) !== $scope->getBatchKey($b)) || !self::eligible($b) || $a->layer !== $b->layer || $a->opacity !== $b->opacity
           || $a->grid->cellWidth !== $b->grid->cellWidth || $a->grid->cellHeight !== $b->grid->cellHeight) { continue; }
         // Moving this run group must not change the order of any overlapping same-layer text.
         foreach ($layers as $candidate => $text) {
@@ -53,8 +53,10 @@ final class CanvasTextBatch
               $run->column + (int)(($text->x - $x) / $cw), $run->text, $run->foreground, $run->background);
           }
         }
+        $sources = [$a, $b];
         $a = new CanvasTextLayer($a->id, $a->layer, $x, $y, new RendererGridConfig($columns, $rows, $cw, $ch),
           $runs, new CanvasRectangle($x, $y, $columns * $cw, $rows * $ch), $a->opacity);
+        $scope?->recordBatch($a, $sources);
         $layers[$index] = $a;
         unset($layers[$other]);
       }
@@ -71,11 +73,12 @@ final class CanvasTextBatch
    * @param list<CanvasTextLayer> $layers
    * @return list<CanvasTextLayer>
    */
-  private static function packFills(array $layers): array
+  private static function packFills(array $layers, ?CanvasTextBatchScopeInterface $scope): array
   {
     if (count($layers) <= StyledPresentationFrame::MAX_TEXT_LAYERS) { return $layers; }
     $fills = array_filter(array_map(self::getFill(...), $layers));
-    $key = static fn(int $index): string => "{$layers[$index]->layer}:{$layers[$index]->opacity}";
+    $key = static fn(int $index): string => "{$layers[$index]->layer}:{$layers[$index]->opacity}:"
+      . ($scope?->getBatchKey($layers[$index]) ?? '');
     $groups = [];
     foreach ($fills as $index => $fill) {
       foreach ($layers as $other => $text) {
@@ -108,6 +111,8 @@ final class CanvasTextBatch
       $first = array_key_first($movable);
       $packed = self::packPixels($layers[$first], $movable);
       if (count($packed) >= count($movable)) { continue; }
+      $sources = array_values(array_intersect_key($layers, $movable));
+      foreach ($packed as $replacement) { $scope?->recordBatch($replacement, $sources); }
       foreach (array_keys($movable) as $index) { unset($layers[$index]); }
       // Indices stay put until every group is packed; the first lattice takes its first fill's place.
       $layers[$first] = $packed[0];

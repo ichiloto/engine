@@ -17,11 +17,13 @@ enum EffectTrackType: string
   case TRAIL = 'trail';
   case TETHER = 'tether';
   case FIELD_MOTION = 'field-motion';
+  case FIELD_COLOR = 'field-color';
   case BATTLER_MOTION = 'battler-motion';
+  case BATTLER_TINT = 'battler-tint';
 
   public function requiresGraphicalPresentation(): bool
   {
-    return in_array($this, [self::TRAIL, self::TETHER, self::FIELD_MOTION, self::BATTLER_MOTION], true);
+    return in_array($this, [self::TRAIL, self::TETHER, self::FIELD_MOTION, self::FIELD_COLOR, self::BATTLER_MOTION, self::BATTLER_TINT], true);
   }
 
   public function requiresTerminalPresentation(): bool { return $this === self::GLYPH_LANE; }
@@ -32,7 +34,7 @@ enum EffectTrackType: string
     return array_values(array_map(static fn(self $type): string => $type->value,
       array_filter(self::cases(), static fn(self $type): bool => match ($type) {
         self::IMAGE, self::GLYPH, self::TEXT => true,
-        self::FLASH, self::SHAKE, self::TONE => $forBattle,
+        self::FLASH, self::SHAKE, self::TONE, self::FIELD_COLOR => $forBattle,
         default => $forBattle && !$forSummon,
       })));
   }

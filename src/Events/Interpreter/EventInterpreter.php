@@ -123,6 +123,7 @@ class EventInterpreter
     ?EventSessionCompletionTargetInterface $completionTarget = null,
     array $origin = [],
     bool $strictCommands = false,
+    ?CinematicDefinition $cinematic = null,
   ): ?EventExecutionSession
   {
     if ($this->activeSession !== null) {
@@ -139,6 +140,10 @@ class EventInterpreter
     } else {
       $commands = array_values(array_filter($commands, is_array(...)));
     }
+    EventCommandRequirements::validateRuntimeRequirements($commands,
+      EventScriptContext::getForScope($this->host->getEventScope(), $cinematic !== null),
+      framing: new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicFramingDefinition($cinematic?->presentation['framing'] ?? []),
+      path: $scriptId ?? 'event');
     $origin['map'] ??= $this->gameScene->currentMapId !== ''
       ? $this->gameScene->currentMapId
       : null;
@@ -160,6 +165,7 @@ class EventInterpreter
       $completionTarget,
       ['map' => $this->gameScene->currentMapId, 'source' => 'cinematic:' . $cinematic->id],
       strictCommands: true,
+      cinematic: $cinematic,
     );
 
     if ($session !== null) {
@@ -251,7 +257,8 @@ class EventInterpreter
 
       // Start parallel children on their parent's cue. Elapsed time belongs to
       // the commands already running at the start of this update.
-      if ($result === EventCommandResult::YIELDED && $lane->parallelGroup !== null
+      if ($result === EventCommandResult::YIELDED && ($lane->parallelGroup !== null
+        || $lane->pendingOperation instanceof \Ichiloto\Engine\Cutscenes\Cinematics\CinematicFramingOperation)
         && $this->updatePendingCommand($session, $lane, 0.0)) {
         continue;
       }
@@ -439,6 +446,9 @@ class EventInterpreter
   private function findSkitLane(EventExecutionLane $lane): ?EventExecutionLane
   {
     if ($lane->pendingOperation instanceof SkitPlaybackOperation) { return $lane; }
+    if ($lane->pendingOperation instanceof \Ichiloto\Engine\Cutscenes\Cinematics\CinematicFramingOperation) {
+      return $this->findSkitLane($lane->pendingOperation->body);
+    }
     foreach ($lane->parallelGroup?->lanes() ?? [] as $child) {
       $found = $this->findSkitLane($child);
       if ($found !== null) { return $found; }
@@ -480,8 +490,9 @@ class EventInterpreter
     $type = strval($command['type'] ?? '');
     $scope = $this->host->getEventScope();
 
-    if (in_array($type, self::COMMAND_TYPES, true) && ! $scope->allowsBuiltInCommand($type)) {
-      throw new RuntimeException(sprintf('"%s" cannot run in %s.', $type, $scope->getLabel()));
+    if (in_array($type, self::COMMAND_TYPES, true)) {
+      EventCommandRequirements::assertAvailable($type,
+        EventScriptContext::getForScope($scope, $session->cinematic !== null), $lane->commandPath());
     }
 
     switch ($type) {
@@ -754,6 +765,21 @@ class EventInterpreter
         $lane->queueFrame($commands, 'sequence');
         return EventCommandResult::COMPLETED;
 
+      case 'framing':
+        $commands = $this->commandList($session, $command['commands'] ?? [], 'framing/commands');
+        if ($commands === [] || !is_array($command['subjects'] ?? null)) {
+          throw new RuntimeException('A framing phase requires subjects and a non-empty command body.');
+        }
+        $controller = $this->gameScene->cinematicController
+          ?? throw new RuntimeException('No cinematic controller is available.');
+        $body = new EventExecutionLane($commands, $lane->commandPath() . '/' . CinematicCommandSchema::FRAMING_BODY_LANE, CinematicCommandSchema::FRAMING_BODY_LANE);
+        $phase = $controller->beginFramingPhase($command['subjects'], $body->path);
+        $operation = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicFramingOperation($body,
+          fn(EventExecutionLane $body, float $delta) => $this->tickLane($session, $body, $delta),
+          fn() => $controller->endFramingPhase($phase));
+        $lane->yieldFor($command, ['kind' => 'framing'], $operation);
+        return EventCommandResult::YIELDED;
+
       case 'parallel':
         $entries = $command['lanes'] ?? [];
 
@@ -799,6 +825,8 @@ class EventInterpreter
           $commonEventCommands = array_values(array_filter($commands, is_array(...)));
         }
 
+        EventCommandRequirements::validateRuntimeRequirements($commonEventCommands,
+          EventScriptContext::getForScope($scope, $session->cinematic !== null), path: "common_event:$eventId");
         $lane->queueFrame($commonEventCommands, "common_event:$eventId");
         return EventCommandResult::COMPLETED;
 

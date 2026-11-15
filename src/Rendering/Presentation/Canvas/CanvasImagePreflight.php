@@ -39,6 +39,7 @@ final class CanvasImagePreflight
   public static function inspectCanvasResources(array $canvases, string $root, ?Closure $canInspect = null): array
   {
     if (!array_is_list($canvases)) { throw new \InvalidArgumentException('Canvas resource roots require a list.'); }
+    CanvasIndicatorReferences::assertCanvases($canvases);
     $images = $composites = [];
     foreach ($canvases as $canvas) {
       CanvasFrameBudget::getCanvases([$canvas]);

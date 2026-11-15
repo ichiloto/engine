@@ -149,10 +149,15 @@ it('retains exact rigid image geometry behind each viewport edge and maps tint s
   $startY = ($tint->destination->y - $moved->destination->y) / 40;
   $endX = $startX + $tint->destination->width / 40;
   $endY = $startY + $tint->destination->height / 40;
-  expect($source['x'])->toBe(.25 + ($flipX ? 1 - $endX : $startX) * .5)
-    ->and($source['y'])->toBe(.25 + ($flipY ? 1 - $endY : $startY) * .5)
-    ->and($source['width'])->toBe(($endX - $startX) * .5)
-    ->and($source['height'])->toBe(($endY - $startY) * .5)
+  // Coordinates preserve the source geometry to floating-point precision;
+  // containment stays strict and must never be accepted by an epsilon gate.
+  expect($source['x'])->toEqualWithDelta(.25 + ($flipX ? 1 - $endX : $startX) * .5, PHP_FLOAT_EPSILON)
+    ->and($source['y'])->toEqualWithDelta(.25 + ($flipY ? 1 - $endY : $startY) * .5, PHP_FLOAT_EPSILON)
+    ->and($source['width'])->toEqualWithDelta(($endX - $startX) * .5, PHP_FLOAT_EPSILON)
+    ->and($source['height'])->toEqualWithDelta(($endY - $startY) * .5, PHP_FLOAT_EPSILON)
+    ->and($source['x'])->toBeGreaterThanOrEqual(.25)->and($source['y'])->toBeGreaterThanOrEqual(.25)
+    ->and($source['x'] + $source['width'])->toBeLessThanOrEqual(.75)
+    ->and($source['y'] + $source['height'])->toBeLessThanOrEqual(.75)
     ->and($tint->opacity)->toBe(.75)->and($tint->layer)->toBe(13);
   expect(CanvasImagePreflight::inspect([$moved], $this->root, [$tint])['sources'])->toHaveCount(1);
 })->with([[-30.25,0.0],[30.25,0.0],[0.0,-30.25],[0.0,30.25],[-30.25,-30.25]])->with([false,true])->with([false,true]);
@@ -180,3 +185,69 @@ it('retains pose attachment points and aquatic fade through rigid clipping and i
     ->and($toned->clipRect)->toBe($moved->clipRect)->and($toned->pivot)->toBe($moved->pivot)
     ->and($toned->rotation)->toBe(0)->and($toned->bottomFade)->toBe($fade)->and($toned->brightness)->toBe(.4);
 });
+
+it('keeps fractional tint source intervals contained through clipping and mirroring', function (bool $flipX, bool $flipY) {
+  unlink($this->root . '/pose.png');
+  writeTestPng($this->root . '/pose.png', 31, 23);
+  $x = 212.5332428993514; $y = 94.4111821086262; $width = 162.5; $height = 80.5;
+  $bounds = new CanvasRectangle($x, $y, $width, $height);
+  $clips = [
+    new CanvasRectangle(0, 0, 1350, 720),
+    new CanvasRectangle($x + $width / 4, 0, 1350 - $x - $width / 4, 720),
+    new CanvasRectangle(0, 0, $x + $width * .75, 720),
+    new CanvasRectangle(0, $y + $height / 4, 1350, 720 - $y - $height / 4),
+    new CanvasRectangle(0, 0, 1350, $y + $height * .75),
+    new CanvasRectangle($x + $width / 4, $y + $height / 4, $width / 2, $height / 2),
+  ];
+  foreach ([null, new SpriteSourceRect(5, 4, 26, 19)] as $crop) {
+    foreach ($clips as $index => $clip) {
+      $image = new CanvasImage('fractional', 'pose.png', $bounds, 7, $crop, .6, $clip,
+        flipX: $flipX, flipY: $flipY, rotation: 0,
+        pivot: new \Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot(.5, .5));
+      $tint = CanvasImageTint::compose('tint', $image, PresentationColor::ansi16(1), .16, $this->root);
+      $data = $tint->operations[0]->data;
+      $mask = $data['masks'][0];
+      $source = $mask['source'] ?? ['x' => 0.0, 'y' => 0.0, 'width' => 1.0, 'height' => 1.0];
+      expect($source['x'])->toBeGreaterThanOrEqual(0)
+        ->and($source['y'])->toBeGreaterThanOrEqual(0)
+        ->and($source['width'])->toBeGreaterThan(0)
+        ->and($source['height'])->toBeGreaterThan(0)
+        ->and($source['x'] + $source['width'])->toBeLessThanOrEqual(1)
+        ->and($source['y'] + $source['height'])->toBeLessThanOrEqual(1);
+      $left = max($x, $clip->x); $top = max($y, $clip->y);
+      $right = min($x + $width, $clip->x + $clip->width);
+      $bottom = min($y + $height, $clip->y + $clip->height);
+      $sourceX = $crop?->x ?? 0; $sourceY = $crop?->y ?? 0;
+      $sourceWidth = $crop?->width ?? 31; $sourceHeight = $crop?->height ?? 23;
+      $expectedX = ($sourceX + ($flipX ? ($x + $width - $right) : ($left - $x)) * $sourceWidth / $width) / 31;
+      $expectedY = ($sourceY + ($flipY ? ($y + $height - $bottom) : ($top - $y)) * $sourceHeight / $height) / 23;
+      expect($source['x'])->toEqualWithDelta($expectedX, 1e-14)
+        ->and($source['y'])->toEqualWithDelta($expectedY, 1e-14)
+        ->and($source['width'])->toEqualWithDelta(($right - $left) / $width * $sourceWidth / 31, 1e-14)
+        ->and($source['height'])->toEqualWithDelta(($bottom - $top) / $height * $sourceHeight / 23, 1e-14)
+        ->and($tint->destination->x)->toBe($left)->and($tint->destination->y)->toBe($top)
+        ->and($tint->opacity)->toBe(.6)->and($tint->layer)->toBe(8)
+        ->and(CanvasImagePreflight::inspect([$image], $this->root, [$tint])['sources'])->toHaveCount(1);
+      $wire = json_decode(json_encode($data, JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR);
+      expect(new CanvasCompositeOperation($wire)->data)->toBe($data);
+      if ($index === 0) {
+        expect($tint->destination)->toBe($bounds);
+        if ($crop === null) { expect($mask)->not->toHaveKey('source'); }
+      }
+    }
+  }
+})->with([false, true])->with([false, true]);
+
+it('still rejects genuinely out-of-range normalized tint masks at the descriptor boundary', function (array $source) {
+  expect(fn() => new CanvasCompositeOperation([
+    'type' => 'fill', 'destination' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 12],
+    'brush' => ['type' => 'solid', 'color' => PresentationColor::ansi16(1)->toArray()],
+    'masks' => [['type' => 'image_alpha', 'asset' => 'pose.png',
+      'destination' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 12], 'source' => $source]],
+  ]))->toThrow(InvalidArgumentException::class);
+})->with([
+  [['x' => 0, 'y' => 0, 'width' => 1 + PHP_FLOAT_EPSILON, 'height' => 1]],
+  [['x' => -PHP_FLOAT_EPSILON, 'y' => 0, 'width' => 1, 'height' => 1]],
+  [['x' => .9, 'y' => 0, 'width' => .2, 'height' => 1]],
+  [['x' => 0, 'y' => 0, 'width' => INF, 'height' => 1]],
+]);

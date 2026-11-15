@@ -320,3 +320,28 @@ it('carries what a directional battle track turns toward and refuses it without 
   expect(fn() => $this->effects->compile('undirected-toward', $bad, true))->toThrow(InvalidArgumentException::class, 'facing')
     ->and(fn() => $this->effects->compile('field-toward', $this->imageSequence))->toThrow(InvalidArgumentException::class);
 });
+
+
+it('rejects invalid authored flash strengths at the shared timeline boundary', function (mixed $strength, bool $terminal) {
+  $sequence = ['fps' => 24, 'lengthFrames' => 1, 'tracks' => [['id' => 'flash', 'type' => 'flash',
+    'keyframes' => [['frame' => 0, 'payload' => ['strength' => $strength]]]]]];
+  expect(fn() => $this->effects->compile('invalid-flash-strength', $sequence, true,
+    $terminal ? EffectPresentation::TERMINAL : EffectPresentation::GRAPHICAL))
+    ->toThrow(InvalidArgumentException::class, 'Flash strength must be a finite number within 0..1');
+})->with([[-.1],[1.1],[INF],[NAN],[null],['0.5'],[true],[[]]])->with([false,true]);
+
+
+it('refuses ambiguous held body tint owners and unsupported selected-body contracts', function (string $fault) {
+  $track = ['id' => 'first', 'type' => 'battler-tint', 'anchor' => 'target', 'keyframes' => [
+    ['frame' => 0, 'duration' => 2, 'payload' => ['color' => ['kind'=>'rgb','r'=>255,'g'=>255,'b'=>255], 'strength'=>0]]]];
+  $tracks = [$track];
+  if ($fault === 'overlap') { $tracks[] = [...$track, 'id' => 'second']; }
+  elseif ($fault === 'screen') { $tracks[0]['anchor'] = 'screen'; }
+  elseif ($fault === 'missing-strength') { unset($tracks[0]['keyframes'][0]['payload']['strength']); }
+  elseif ($fault === 'missing-color') { unset($tracks[0]['keyframes'][0]['payload']['color']); }
+  elseif ($fault === 'extra') { $tracks[0]['keyframes'][0]['payload']['default'] = true; }
+  elseif ($fault === 'reduced') { $tracks[0]['motion'] = 'reduced'; }
+  elseif ($fault === 'invalid-color') { $tracks[0]['keyframes'][0]['payload']['color']['r'] = 256; }
+  expect(fn() => $this->effects->compile('invalid-body-owner', ['fps'=>24, 'lengthFrames'=>3, 'tracks'=>$tracks], true))
+    ->toThrow(InvalidArgumentException::class);
+})->with(['overlap','screen','missing-strength','missing-color','extra','reduced','invalid-color']);

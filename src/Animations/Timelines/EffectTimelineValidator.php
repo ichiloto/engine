@@ -131,8 +131,17 @@ final class EffectTimelineValidator
         $hasTerminalLane = true;
         continue;
       }
+      if ($track['type'] === 'battler-tint') {
+        if ($motion === EffectMotionScope::REDUCED) { throw new InvalidArgumentException('Reduced motion suppresses battler tints.'); }
+        $normalized[] = BattleBattlerTintTrack::compile($track, $length, $playback, $cadence);
+        continue;
+      }
       if ($track['type'] === 'battler-motion') {
         $normalized[] = BattleBattlerMotionTrack::compile($track, $length, $playback, $cadence);
+        continue;
+      }
+      if ($track['type'] === 'field-color') {
+        $normalized[] = BattleFieldColorTrack::compile($track, $length, $playback, $cadence);
         continue;
       }
       if ($track['type'] === 'field-motion') {
@@ -177,6 +186,7 @@ final class EffectTimelineValidator
             throw new InvalidArgumentException("Effect {$id} has an invalid presentation keyframe range.");
           }
           self::validateKeyframe($id, $keyframe, $forSummon);
+          if ($track['type'] === 'flash') { EffectFlashStrength::getStrength($keyframe['payload'] ?? []); }
           if ($track['type'] === 'tone') {
             $payload = $keyframe['payload'] ?? [];
             if (!in_array($track['anchor'] ?? 'target', ['caster', 'target'], true)
@@ -204,7 +214,7 @@ final class EffectTimelineValidator
         continue;
       }
       if (!is_array($track) || array_diff(array_keys($track), ['id', 'type', 'asset', 'sheet', 'cells', 'fit', 'depth', 'keyframes',
-        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'attachmentPoint', 'detachFrame', 'flight', 'span', 'anchorLifetime', 'contactRail'] : []),
+        'presentation', 'pivot', ...($forBattle ? ['anchor', 'facing', 'toward', 'attachment', 'attachmentPoint', 'detachFrame', 'flight', 'span', 'anchorLifetime', 'contactRail', EffectGroundSpan::FIELD] : []),
         ...($acceptsStage ? ['placement', 'zIndex'] : []), ...($forStage ? ['anchor'] : [])]) !== []
         || ($track['type'] ?? null) !== 'image' || !is_string($track['id'] ?? null)) {
         throw new InvalidArgumentException("Effect {$id} currently accepts image tracks with id, asset, sheet, cells, depth and keyframes.");
@@ -223,6 +233,8 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException("Effect {$id} subject-front depth requires an attached caster or target battle image.");
       }
       $trackPath = 'tracks[' . $track['id'] . ']';
+      $groundSpan = array_key_exists(EffectGroundSpan::FIELD, $track)
+        ? EffectGroundSpan::fromTrack($track, $forBattle, $playback, $data, $trackPath)->toArray() : null;
       $zIndex = array_key_exists('zIndex', $track) ? $track['zIndex'] : 0;
       if ($onStage && ($stage === null || array_intersect(array_keys($track), ['cells', 'facing', 'attachment']) !== [])) {
         throw new InvalidArgumentException('Stage images need a graphical stage, placement and bounded zIndex, not battler geometry.');
@@ -335,6 +347,9 @@ final class EffectTimelineValidator
           && (!is_int($data['targetCaptureFrame'] ?? null) || $at < $data['targetCaptureFrame'])) {
           throw new InvalidArgumentException("Effect {$id} snapshot-bound images must start at or after targetCaptureFrame.");
         }
+        if ($groundSpan !== null && ($position['x'] !== 0 || $position['y'] !== 0)) {
+          throw new InvalidArgumentException("Effect {$id} groundSpan endpoints cannot be shifted by keyframe offsets.");
+        }
         $asset = array_key_exists('asset', $frame) ? $frame['asset'] : $defaultAsset;
         $size = array_key_exists('asset', $frame) || $defaultSize === null
           ? $this->inspectImageSource($id, $asset, $sheet) : $defaultSize;
@@ -350,6 +365,7 @@ final class EffectTimelineValidator
             ...(!array_key_exists('span', $track) ? [] : ['span' => $track['span']]),
             ...($anchorLifetime === null ? [] : ['anchorLifetime' => $anchorLifetime]),
             ...($contactRail === null ? [] : ['contactRail' => $contactRail]),
+            ...($groundSpan === null ? [] : ['groundSpan' => $groundSpan]),
             ...(!isset($track['pivot']) ? [] : ['pivot' => $track['pivot']]),
             ...(!isset($track['facing']) ? [] : ['facing' => $track['facing']]),
             ...(!isset($track['toward']) ? [] : ['toward' => $track['toward']]),
@@ -494,6 +510,8 @@ final class EffectTimelineValidator
       if ($motion !== EffectMotionScope::ALL) { $track['motion'] = $motion->value; }
     }
     unset($track);
+    BattleFieldColorTrack::assertOwnership($normalized);
+    BattleBattlerTintTrack::assertOwnership($normalized);
     return new CompiledEffectTimeline($id, sha1(json_encode($data, JSON_THROW_ON_ERROR)), fps: $fps,
       playbackSegments: (new EffectTimelineCompiler())->compileTracks($normalized),
       cueSchedule: $cues,

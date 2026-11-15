@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
-use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasComposite, CanvasCompositeOperation, CanvasRectangle};
+use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasComposite, CanvasCompositeOperation, CanvasRectangle, CanvasTextureStrip};
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 
 final class GraphicalBattleStrip
@@ -18,6 +18,15 @@ final class GraphicalBattleStrip
     if ($flipX) { [$source['left'], $source['right']] = [1 - $source['right'], 1 - $source['left']]; }
     if ($flipY) { $source['ridgeY'] = 1 - $source['ridgeY']; }
     $strip = $rail->createStrip($source);
+    return self::composeStrip($id, $asset, $crop, $strip, $arena, $track, $offsetX, $offsetY);
+  }
+
+  /** Shared source/clip ownership for straight and contact-rail texture geometry. */
+  public static function composeStrip(string $id, string $asset, SpriteSourceRect $crop,
+    CanvasTextureStrip $strip,
+    BattleCanvasLayout $arena, array $track, float $offsetX = 0, float $offsetY = 0): ?CanvasComposite
+  {
+    $flipX = $track['flipX'] ?? false; $flipY = $track['flipY'] ?? false;
     [$left, $top, $right, $bottom] = $strip->getBounds();
     $left = max(0, (int)floor($left + $offsetX));
     $top = max(0, (int)floor($top + $offsetY));

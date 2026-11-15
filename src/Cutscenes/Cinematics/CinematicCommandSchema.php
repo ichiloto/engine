@@ -26,7 +26,7 @@ final class CinematicCommandSchema
   ];
 
   public const array CINEMATIC_COMMAND_TYPES = [
-    'sequence', 'parallel', 'common_event', 'checkpoint',
+    'sequence', 'parallel', 'framing', 'common_event', 'checkpoint',
     'camera', 'stage_actor', 'show_actor', 'hide_actor', 'remove_actor',
     'field_animation', 'title_card', 'narration', 'transition',
     'clear_presentation', 'cinematic_music',
@@ -45,10 +45,12 @@ final class CinematicCommandSchema
   public const array EXISTING_STAGED_ACTOR_COMMANDS = ['show_actor', 'hide_actor'];
 
   public const string STORYBOOK_FINISH_FIELD = 'onFinish';
+  public const string FRAMING_BODY_LANE = 'framing';
 
-  public const array BLOCK_TYPES = ['sequence', 'parallel'];
+  public const array BLOCK_TYPES = ['sequence', 'parallel', 'framing'];
   public const array NESTED_BLOCK_SHAPES = [
     'sequence' => ['commands'],
+    'framing' => ['commands'],
     'parallel' => ['lanes', 'lane' => ['id', 'commands']],
     'branch' => ['then', 'else'],
     'choice' => ['options', 'option' => ['text', 'then'], 'cancel'],
@@ -132,11 +134,53 @@ final class CinematicCommandSchema
     'isPaused', 'isCompleted', 'isLooping', 'traversal',
   ];
 
+  /** Nested command lists with the interpreter's stable lane suffixes. Malformed shapes stay with the structural validator.
+   * @return array<string, array>
+   */
+  public static function getCommandBlocks(array $command): array
+  {
+    $blocks = [];
+    $add = static function (string $path, mixed $body) use (&$blocks): void {
+      if (is_array($body)) { $blocks[$path] = $body; }
+    };
+    $type = $command['type'] ?? null;
+    switch ($type) {
+      case 'framing': case 'sequence':
+        $add($type === 'framing' ? self::FRAMING_BODY_LANE : 'sequence', $command['commands'] ?? null);
+        break;
+      case 'branch':
+        foreach (['then', 'else'] as $arm) { $add('branch:' . $arm, $command[$arm] ?? null); }
+        break;
+      case 'choice':
+        foreach (is_array($command['options'] ?? null) ? $command['options'] : [] as $index => $option) {
+          if (is_array($option)) { $add(sprintf('choice[%s]', is_int($index) ? $index + 1 : $index), $option['then'] ?? null); }
+        }
+        $add('choice:cancel', $command['cancel'] ?? null);
+        break;
+      case 'parallel':
+        foreach (is_array($command['lanes'] ?? null) ? $command['lanes'] : [] as $index => $lane) {
+          if (!is_array($lane)) { continue; }
+          $id = array_is_list($lane) ? strval($index + 1) : strval($lane['id'] ?? $index);
+          $add('parallel[' . $id . ']', array_is_list($lane) ? $lane : ($lane['commands'] ?? null));
+        }
+        break;
+      case 'play_storybook':
+        $add(self::STORYBOOK_FINISH_FIELD, $command[self::STORYBOOK_FINISH_FIELD] ?? null);
+        break;
+    }
+    return $blocks;
+  }
+
   /** @return array<string, mixed> */
   public static function export(): array
   {
     return [
       'commandTypes' => self::COMMAND_TYPES,
+      'executionContexts' => array_column(\Ichiloto\Engine\Events\Interpreter\EventScriptContext::cases(), 'value'),
+      'commandRequirements' => [
+        'cinematic' => \Ichiloto\Engine\Events\Interpreter\EventCommandRequirements::CINEMATIC_COMMAND_TYPES,
+        'reusable' => 'caller context; validate reachable common events with EventCommandRequirements::validate and a reader',
+      ],
       'blockTypes' => self::BLOCK_TYPES,
       'nestedBlockShapes' => self::NESTED_BLOCK_SHAPES,
       'subjectKinds' => self::SUBJECT_KINDS,
@@ -155,6 +199,27 @@ final class CinematicCommandSchema
         'persistence' => 'world-state variable npc-bed:<encoded map id>:<encoded NPC id>; posture values only',
         'validation' => 'MapBedRule::inspect consumes resolved physical occupancy; MapCompletenessValidator accepts that same occupancy snapshot',
         'composition' => 'bed base, real occupant and foreground covers form one world canvas; terminal uses an occupied-bed cell',
+      ],
+      'framingRequirements' => [
+        'definitionField' => 'presentation.framing',
+        'fields' => CinematicFramingDefinition::FIELDS,
+        'bindingField' => 'subjects',
+        'subjectKinds' => CinematicFramingDefinition::SUBJECT_KINDS,
+        'referenceFields' => CinematicFramingDefinition::REFERENCE_FIELDS,
+        'command' => 'framing',
+        'commandFields' => ['subjects', 'commands'],
+        'selection' => 'non-empty list of stable bound keys or direct kind/id references; direct references work in reusable common events',
+        'referenceSources' => [
+          'player' => ['identity' => 'current field player', 'idField' => null],
+          'npc' => ['identity' => 'current map NPC', 'idField' => 'id'],
+          'staged_actor' => ['identity' => 'cinematic cast or staged actor', 'idField' => 'id'],
+        ],
+        'executionContext' => \Ichiloto\Engine\Events\Interpreter\EventScriptContext::CINEMATIC->value,
+        'reusableReferences' => 'direct references; caller supplies an active field cinematic',
+        'bodyLane' => ['pathSuffix' => self::FRAMING_BODY_LANE, 'rootFrame' => self::FRAMING_BODY_LANE],
+        'ownership' => 'required subjects replace automatic whole-cast requirements within this command body; no speaker or facing changes',
+        'lifecycle' => 'resolve all subjects before acquisition; nested phases restore their parent; sibling-lane conflicts fail; completion/failure/skip/map change releases the scope',
+        'geometry' => 'current renderer-owned subject and protected UI geometry; no authored graphical sizes or Terminal dependencies',
       ],
       'conversationFacing' => [
         'definitionField' => 'presentation.conversation',
