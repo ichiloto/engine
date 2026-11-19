@@ -429,7 +429,7 @@ it('loads an automatic or quick Title selection through the existing saved-game 
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
   $loader = createTestGameLoader($this->game);
   $this->game->bindGameLoader($loader);
-  new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
+  $this->game->bindSaveManager($this->manager);
   $title->openContinueMenu();
   $index = array_find_key($title->getSlots(), fn($slot) => $slot->path === $saved->path);
   expect($title->getSlots()[$index]->path)->toBe($saved->path)->and($title->getLoadCount())->toBe(0);
@@ -646,7 +646,7 @@ it('navigates through thirty Save slots wraps both ends and confirms the actual 
     ->and($alerts->messages)->toBe(['Saved to File 30.']);
   $loader = createTestGameLoader($this->game);
   $this->game->bindGameLoader($loader);
-  new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
+  $this->game->bindSaveManager($this->manager);
   $title->openContinueMenu();
   expect($title->getSelectedIndex())->toBe(29)->and($title->getSlots()[29]->slot)->toBe(30);
   $title->loadSelectedSlot();
@@ -809,7 +809,7 @@ it('keeps enabled corrupt records discoverable at Title but prevents direct Game
   Console::setTerminalOutputEnabled(false);
   Console::syncDimensions(80, 24);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 24]));
-  new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
+  $this->game->bindSaveManager($this->manager);
   $loader = createTestGameLoader($this->game);
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
   $titleMenu = new TitleMenu($title, 'Synthetic Title');
@@ -868,7 +868,7 @@ it('reports a save changed after listing without exposing read failure details',
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
   $loader = createTestGameLoader($this->game);
   $this->game->bindGameLoader($loader);
-  new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
+  $this->game->bindSaveManager($this->manager);
   $title->openContinueMenu();
   $title->selectSlot(0);
   file_put_contents($quick->path, 'bad-header');

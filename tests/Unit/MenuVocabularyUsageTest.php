@@ -141,9 +141,12 @@ beforeEach(function () {
   $this->menu->method('getScene')->willReturn($this->scene);
   $this->alerts = new MenuVocabularyAlerts($this->game);
   $this->game->bindModalManager($this->alerts);
-  $saves = $this->createStub(SaveManager::class);
-  $saves->method('hasSaveFiles')->willReturn(true);
-  new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $saves);
+  $saves = new class($this->game) extends SaveManager {
+    public function __construct(Game $game) { $this->game = $game; }
+    public function hasSaveFiles(bool $includeQuickSaves = false): bool { return true; }
+    public function getLatestLoadableSaveFile(bool $includeQuickSaves = false): ?string { return null; }
+  };
+  $this->game->bindSaveManager($saves);
 });
 
 afterEach(function () {

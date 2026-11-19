@@ -108,13 +108,13 @@ beforeEach(function () {
   new ReflectionProperty($this->game, 'audioManager')->setValue($this->game, $this->audio);
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, $this->audio);
   new ReflectionProperty(Console::class, 'game')->setValue(null, $this->game);
-  $this->saves = new class extends SaveManager {
+  $this->saves = new class($this->game) extends SaveManager {
     public bool $available = false;
-    public function __construct() {}
+    public function __construct(Game $game) { $this->game = $game; }
     public function hasSaveFiles(bool $includeQuickSaves = false): bool { return $this->available; }
     public function getLatestLoadableSaveFile(bool $includeQuickSaves = false): ?string { return $this->available ? '/synthetic/loadable.iedata' : null; }
   };
-  new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->saves);
+  $this->game->bindSaveManager($this->saves);
   $this->game->bindGameLoader(createTestGameLoader($this->game));
   $this->manager = new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor();
   new ReflectionProperty($this->manager, 'game')->setValue($this->manager, $this->game);

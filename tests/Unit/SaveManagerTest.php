@@ -280,3 +280,49 @@ it('returns the latest loadable save file when newer incompatible saves exist', 
 
   cleanupSaveManagerTestFiles($olderPath);
 });
+
+it('keeps save slots and scene services with the Game that owns their storage', function () {
+  $roots = [createTestDirectory('save-owner-one-'), createTestDirectory('save-owner-two-')];
+  $createGame = static fn(string $root): Game => new class($root) extends Game {
+    public function __construct(private readonly string $root) {}
+    public function __destruct() {}
+    public function getDataRoot(): string { return $this->root; }
+    public function hasIsolatedDataRoot(): bool { return true; }
+  };
+  [$first, $second] = array_map($createGame, $roots);
+  $manifest = makeSaveManagerTestManifest();
+  $firstSaves = new SaveManager($first, compatibilityManifest: $manifest);
+  $secondSaves = new SaveManager($second, compatibilityManifest: $manifest);
+  expect(fn() => $second->bindSaveManager($firstSaves))->toThrow(LogicException::class);
+  $first->bindSaveManager($firstSaves);
+  $second->bindSaveManager($secondSaves);
+  $firstScenes = \Ichiloto\Engine\Scenes\SceneManager::getInstance($first);
+  $secondScenes = \Ichiloto\Engine\Scenes\SceneManager::getInstance($second);
+  expect($firstScenes)->not->toBe($secondScenes)
+    ->and($firstScenes->game)->toBe($first)
+    ->and($secondScenes->game)->toBe($second)
+    ->and($firstScenes->saveManager)->toBe($firstSaves)
+    ->and($secondScenes->saveManager)->toBe($secondSaves)
+    ->and(SaveManager::getInstance($first))->toBe($firstSaves)
+    ->and(SaveManager::getInstance($second))->toBe($secondSaves);
+  expect(fn() => $first->bindSaveManager(new SaveManager($first, compatibilityManifest: $manifest)))
+    ->toThrow(LogicException::class);
+
+  $slotPaths = [];
+  try {
+    foreach ([$firstSaves, $secondSaves] as $index => $manager) {
+      $path = $manager->getSlotPath(1);
+      $slotPaths[] = $path;
+      $slot = new SaveSlot(1, $path, false, 'Isolated slot ' . $index, 'Test', 1, 0, 1);
+      $envelope = ['slot' => $slot, 'config' => makeSaveManagerTestConfig()];
+      writeSaveManagerTestPayload($path, 'IED1' . gzencode(serialize($envelope)));
+      expect($path)->toStartWith(realpath($roots[$index]) . '/')
+        ->and($manager->loadSlot(1)->slot->locationName)->toBe('Isolated slot ' . $index);
+    }
+    expect($firstSaves->getSaveFiles())->toBe([$slotPaths[0]])
+      ->and($secondSaves->getSaveFiles())->toBe([$slotPaths[1]]);
+    expect(fn() => $secondSaves->loadSaveFile($slotPaths[0]))->toThrow(InvalidArgumentException::class, 'escapes');
+  } finally {
+    foreach ($slotPaths as $path) { cleanupSaveManagerTestFiles($path); }
+  }
+});

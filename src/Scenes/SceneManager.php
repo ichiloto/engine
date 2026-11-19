@@ -62,11 +62,6 @@ use Throwable;
 class SceneManager implements CanStart, CanRender, CanUpdate
 {
   /**
-   * The instance of this singleton.
-   * @var SceneManager|null
-   */
-  protected static ?SceneManager $instance = null;
-  /**
    * @var EventManager The event manager.
    */
   protected EventManager $eventManager;
@@ -112,7 +107,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   /**
    * SceneManager constructor.
    */
-  private function __construct(public Game $game {
+  public function __construct(public Game $game {
     get {
       return $this->game;
     }
@@ -120,23 +115,19 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   {
     $this->scenes = new ItemList(SceneInterface::class);
     $this->eventManager = EventManager::getInstance($this->game);
-    $this->saveManager = SaveManager::getInstance($this->game);
+    $this->saveManager = $this->game->getSaveManager();
     $this->battleLoader = BattleLoader::getInstance($this->game);
   }
 
   /**
-   * Return the instance of the scene manager.
+   * Return the scene manager owned by this Game.
    *
    * @param Game $game The game.
    * @return SceneManager
    */
   public static function getInstance(Game $game): SceneManager
   {
-    if (self::$instance === null) {
-      self::$instance = new SceneManager($game);
-    }
-
-    return self::$instance;
+    return $game->getSceneManager();
   }
 
   /**

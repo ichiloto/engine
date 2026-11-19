@@ -68,7 +68,8 @@ final class SavedResumeGame extends Game
                 $this->eventManager = EventManager::getInstance($game);
                 $manifest = SaveCompatibilityManifest::fromArray('synthetic/project',
                     ['contentVersion' => 0, 'migrations' => [], 'aliases' => [], 'tombstones' => []], 'resume fixture');
-                $this->saveManager = new SaveManager($game, 'saves', 'saves/quick', $manifest);
+                $game->bindSaveManager(new SaveManager($game, 'saves', 'saves/quick', $manifest));
+                $this->saveManager = $game->getSaveManager();
             }
             public function findScene(string $className): ?SceneInterface
             {
@@ -177,9 +178,7 @@ beforeEach(function () {
     }
     $this->root = createTestDirectory('saved-game-resume-');
     $this->managers = [];
-    foreach ([EventManager::class, SaveManager::class] as $class) {
-        new ReflectionProperty($class, 'instance')->setValue(null, null);
-    }
+    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
     Debug::configure(['log_directory' => $this->root . '/logs']);
     ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['audio' => ['music' => false, 'sfx' => false]]));
     ConfigStore::put(PlaySettings::class, new PlaySettings(['screenDimensions' => ['width' => 40, 'height' => 12]]));
@@ -270,7 +269,6 @@ it('leaves save decoding, slot inspection, GameLoader and ordinary/new-game conf
     $game->sceneManager->saveManager->canLoadSaveFile($slot->path);
     $game->sceneManager->saveManager->getSaveSlots();
     $game->sceneManager->saveManager->loadSaveFile($slot->path);
-    new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $game->sceneManager->saveManager);
     $reader = createTestGameLoader($game);
     $reader->loadSavedGame($slot->path);
     expect(SavedResumeHandler::$contexts)->toBe([])->and(file_get_contents($slot->path))->toBe($bytes)

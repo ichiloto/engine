@@ -6,7 +6,6 @@ use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Exceptions\NotFoundException;
-use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
@@ -35,7 +34,7 @@ class ContinueGameCommand extends MenuItem
     parent::__construct($menu, $label, 'Continue from a save file.', '');
 
     $scene = $menu->getScene();
-    $saves = SaveManager::getInstance($scene->getGame());
+    $saves = $scene->getGame()->getSaveManager();
     $available = $scene instanceof TitleScene ? $saves->hasEnabledSaveFiles(true)
       : $saves->getLatestLoadableSaveFile(true) !== null;
     if (!$available) {

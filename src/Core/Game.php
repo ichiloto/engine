@@ -99,6 +99,26 @@ class Game implements CanRun, SubjectInterface
 
     private ?ProjectStateRegistry $projectStateRegistry = null;
     private ?GameLoader $gameLoader = null;
+    private ?SaveManager $saveManager = null;
+
+    public function getSaveManager(): SaveManager
+    {
+        return $this->saveManager ??= new SaveManager($this);
+    }
+
+    /** Bind storage supplied by a host before the first save or scene request. */
+    public function bindSaveManager(SaveManager $manager): void
+    {
+        if ($this->saveManager !== null || !$manager->isOwnedBy($this)) {
+            throw new \LogicException('Bind one save manager owned by this Game before its first use.');
+        }
+        $this->saveManager = $manager;
+    }
+
+    public function getSceneManager(): SceneManager
+    {
+        return $this->sceneManager ??= new SceneManager($this);
+    }
 
     /** Bind content once, including for hosts that deliberately skip native Game bootstrap. */
     public function bindGameLoader(GameLoader $loader): void
@@ -800,7 +820,7 @@ class Game implements CanRun, SubjectInterface
     private function initializeManagers(): void
     {
         $this->audioManager = AudioManager::getInstance($this);
-        $this->sceneManager = SceneManager::getInstance($this);
+        $this->getSceneManager();
         $this->eventManager = EventManager::getInstance($this);
         $this->modalManager = ModalManager::getInstance($this);
         $this->notificationManager = NotificationManager::getInstance($this);

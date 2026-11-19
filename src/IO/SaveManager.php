@@ -52,13 +52,6 @@ class SaveManager
    */
   public const string DATA_DIRECTORY = '.data';
 
-  /**
-   * The instance of the SaveManager class.
-   *
-   * @var SaveManager|null $instance The instance of the SaveManager class.
-   */
-  protected static ?SaveManager $instance = null;
-
   /** The single compatibility pipeline shared by every save surface. */
   protected SaveCompatibilityPipeline $compatibilityPipeline;
   private ?string $isolatedDataRoot = null;
@@ -75,25 +68,21 @@ class SaveManager
     $this->quickSaveDirectory = Path::normalize(Path::join($game->getDataRoot(), $this->quickSaveDirectory));
     $this->validateStoragePath($this->saveDirectory);
     $this->validateStoragePath($this->quickSaveDirectory);
-    $compatibilityManifest ??= SaveCompatibilityManifest::fromProjectRoot(Path::getCurrentWorkingDirectory());
+    $compatibilityManifest ??= SaveCompatibilityManifest::fromProjectRoot(dirname($game->getProjectAssetRoot()));
     $this->compatibilityPipeline = new SaveCompatibilityPipeline($compatibilityManifest,
       projectStateRegistry: $game->getProjectStateRegistry());
     $this->diagnoseStorageAvailability();
   }
 
-  /**
-   * Returns the instance of the SaveManager class.
-   *
-   * @param Game $game The game instance.
-   * @return SaveManager The instance of the SaveManager class.
-   */
+  /** Existing callers resolve the save manager owned by their Game. */
   public static function getInstance(Game $game): self
   {
-    if (!self::$instance) {
-      self::$instance = new self($game);
-    }
+    return $game->getSaveManager();
+  }
 
-    return self::$instance;
+  public function isOwnedBy(Game $game): bool
+  {
+    return isset($this->game) && $this->game === $game;
   }
 
   /**
