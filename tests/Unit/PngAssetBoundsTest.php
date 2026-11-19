@@ -12,7 +12,11 @@ beforeEach(function () {
   $this->root = \getTestTemporaryDirectory() . '/ichiloto-visible-' . bin2hex(random_bytes(6));
   mkdir($this->root);
   $this->readInChild = function (bool $withoutDecoder = false): array {
-    $code = 'require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . '; '
+    $autoload = dirname((new ReflectionClass(Composer\Autoload\ClassLoader::class))->getFileName(), 2) . '/autoload.php';
+    $cache = createTestDirectory('visible-child-facts');
+    $code = '$loader = require ' . var_export($autoload, true) . '; '
+      . '$loader->setPsr4("Ichiloto\\\\Engine\\\\", ' . var_export(dirname(__DIR__, 2) . '/src', true) . ');'
+      . '\\Ichiloto\\Engine\\Rendering\\Sprites\\PngAssetBounds::setFactsCache(new \\Ichiloto\\Engine\\Rendering\\Sprites\\PngAssetFactsCache(' . var_export($cache, true) . ')); '
       . '$image = new \\Ichiloto\\Engine\\Rendering\\Presentation\\Canvas\\CanvasImage("image", "pixels.png", '
       . 'new \\Ichiloto\\Engine\\Rendering\\Presentation\\Canvas\\CanvasRectangle(0, 0, 100, 100)); '
       . 'echo json_encode(\\Ichiloto\\Engine\\Rendering\\Sprites\\PngAssetBounds::getVisibleBounds('

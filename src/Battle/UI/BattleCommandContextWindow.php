@@ -74,6 +74,7 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
    * @var int|null The acting character's current MP; null disables affordability styling.
    */
   protected ?int $mpBudget = null;
+  protected ?int $apBudget = null;
 
   /**
    * Sets the acting character's current MP so unaffordable options render dimmed.
@@ -83,7 +84,13 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
    */
   public function setMpBudget(?int $mpBudget): void
   {
-    $this->mpBudget = $mpBudget;
+    $this->setResourceBudget($mpBudget, null);
+  }
+
+  public function setResourceBudget(?int $mp, ?int $ap): void
+  {
+    $this->mpBudget = $mp;
+    $this->apBudget = $ap;
   }
 
   /**
@@ -94,7 +101,7 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
    */
   public function isAffordable(BattleCommandOption $option): bool
   {
-    return $this->mpBudget === null || $option->mpCost <= $this->mpBudget;
+    return $option->isAffordable($this->mpBudget, $this->apBudget);
   }
 
   public function setItems(array $items, string $title = '', string $emptyMessage = 'Nothing available.'): void

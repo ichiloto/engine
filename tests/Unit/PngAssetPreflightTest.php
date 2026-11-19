@@ -132,7 +132,7 @@ it('keeps cached header facts and entries bounded independently of encoded image
   file_put_contents($path, $bytes);
   PngAssetPreflight::inspect($this->root, 'asset.png');
   $cache = $this->cache->getValue();
-  expect($cache[$path]['version'][7])->toBe(substr($bytes, 0, 24));
+  expect($cache[$path]['version']['header'])->toBe(substr($bytes, 0, 24));
   for ($probe = 0; $probe < 20; $probe++) { PngAssetPreflight::inspect($this->root, 'asset.png'); }
   expect($this->cache->getValue())->toBe($cache);
   $limit = new ReflectionClass(PngAssetPreflight::class)->getConstant('MAX_CACHE_ENTRIES');

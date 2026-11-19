@@ -187,9 +187,6 @@ final readonly class BattlerPose
     $main = $sequence === BattlePoseSequence::MAIN;
     $size = PngAssetPreflight::getAvailableSize($assetRoot, $this->asset);
     if ($size === null) { return null; }
-    if ($size['width'] % $this->columns !== 0 || $size['height'] % $this->rows !== 0) {
-      throw new InvalidArgumentException('The current battler pose PNG does not divide into its authored sheet grid.');
-    }
     $index = EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, 1 / $this->fps);
     if ($main && !$this->loop && $this->impactFrame === null && $durationSeconds !== null) {
       $index = min(count($frames) - 1, EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, $durationSeconds / count($frames)));
@@ -210,11 +207,39 @@ final readonly class BattlerPose
     }
     $source = $reducedMotion ? $this->restFrame : $frames[
       $main && $this->loop ? $index % count($frames) : min($index, count($frames) - 1)];
+    $pivot = $main && !$reducedMotion ? ($arrivalPose?->pivot ?? ($useFarPose ? $this->farPose?->pivot : null)) : null;
+    return $this->createArtworkForCell($source, $size, $pivot);
+  }
+
+  /** @return list<int> All authored cells, including holds, transit, guard, range and arrival variants. */
+  public function getDeclaredSourceCells(): array
+  {
+    $cells = [$this->restFrame, ...$this->frames, ...$this->entryFrames, ...$this->exitFrames,
+      ...($this->guardFrame === null ? [] : [$this->guardFrame]), ...($this->farPose?->frames ?? [])];
+    foreach ($this->arrivalPoses as $arrival) { $cells = [...$cells, ...$arrival->frames]; }
+    return array_values(array_unique($cells, SORT_NUMERIC));
+  }
+
+  /** Resource planning and time sampling use the same current-file cell geometry. */
+  public function getArtworkForCell(string $assetRoot, int $source): ?BattlerArtwork
+  {
+    if ($source < 0 || $source >= $this->columns * $this->rows) {
+      throw new InvalidArgumentException('A pose source cell must be within its authored grid.');
+    }
+    $size = PngAssetPreflight::getAvailableSize($assetRoot, $this->asset);
+    return $size === null ? null : $this->createArtworkForCell($source, $size);
+  }
+
+  /** @param array{width: int, height: int} $size */
+  private function createArtworkForCell(int $source, array $size, ?PresentationSpritePivot $pivot = null): BattlerArtwork
+  {
+    if ($size['width'] % $this->columns !== 0 || $size['height'] % $this->rows !== 0) {
+      throw new InvalidArgumentException('The current battler pose PNG does not divide into its authored sheet grid.');
+    }
     $width = intdiv($size['width'], $this->columns);
     $height = intdiv($size['height'], $this->rows);
     $crop = $this->columns * $this->rows === 1 ? null : new SpriteSourceRect(
       ($source % $this->columns) * $width, intdiv($source, $this->columns) * $height, $width, $height);
-    $pivot = $main && !$reducedMotion ? ($arrivalPose?->pivot ?? ($useFarPose ? $this->farPose?->pivot : null)) : null;
     return new BattlerArtwork($this->asset, $width, $height,
       ($pivot?->x ?? $this->pivotX) * $width, ($pivot?->y ?? $this->pivotY) * $height, $crop);
   }

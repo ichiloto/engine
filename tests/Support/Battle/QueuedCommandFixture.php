@@ -28,6 +28,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use ReflectionClass;
 use ReflectionProperty;
 use function Tests\Support\Rendering\writeTestPng;
@@ -61,6 +62,10 @@ final class TargetExecutionField extends BattleFieldWindow
 
 final class TargetExecutionScreen extends BattleScreen
 {
+  /** Synthetic presentation host; these fixtures construct no scene or native session. */
+  public ?\Closure $prepareResources = null;
+  public ?\Closure $createResources = null;
+  public ?\Closure $refreshResources = null;
   public array $observed = [];
   public int $controlsHidden = 0;
   public int $controlsRestored = 0;
@@ -87,6 +92,21 @@ final class TargetExecutionScreen extends BattleScreen
   }
   public function getPacing(): BattlePacing { return new BattlePacing(); }
   public function usesGraphicalField(): bool { return $this->graphical; }
+  public function createCommandResourceStream(\Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback $playback,
+    float $startedAt): ?\Ichiloto\Engine\Battle\Presentation\BattleCommandResourceStream
+  {
+    return ($this->createResources)?->__invoke($playback, $startedAt);
+  }
+  public function prepareCommandResources(\Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback $playback,
+    float $startedAt, float $timeoutSeconds): ?\Ichiloto\Engine\Rendering\Assets\AssetHoldPreparation
+  {
+    return ($this->prepareResources)?->__invoke($playback, $startedAt, $timeoutSeconds);
+  }
+  public function refreshCommandResources(\Ichiloto\Engine\Rendering\Assets\AssetHoldScope $scope,
+    \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback $playback): void
+  {
+    ($this->refreshResources)?->__invoke($scope, $playback);
+  }
   public function refresh(): void {}
   public function renderField(): void {}
   public function refreshField(): void
@@ -104,8 +124,22 @@ final class TargetExecutionScreen extends BattleScreen
   public function alert(string $text): void { $this->announcement = $text; }
 }
 
+/** Owns a fixture screen through the same game as its turn, without starting a scene. */
+function createCommandFixtureScene(Game $game): BattleScene
+{
+  return new class($game) extends BattleScene {
+    public function __construct(private readonly Game $game) {}
+
+    #[\Override]
+    public function getGame(): Game
+    {
+      return $this->game;
+    }
+  };
+}
+
 function createTargetExecutionFixture(bool $activeTime, bool $graphical, AudioManager $audio, array $formation = [],
-  ?Stats $actorStats = null): array
+  ?Stats $actorStats = null, array $settings = []): array
 {
   $party = new Party();
   $actor = new Character('Caster', 1, $actorStats ?? new Stats(currentHp: 80, totalHp: 100, currentMp: 50, totalMp: 50));
@@ -123,18 +157,19 @@ function createTargetExecutionFixture(bool $activeTime, bool $graphical, AudioMa
     $enemies[] = $enemy;
   }
   $troop = new Troop('Synthetic', $enemies, graphicalFormation: $formation);
-  return [...createQueuedBattleFixture($activeTime, $graphical, $audio, $party, $troop), $actor, $ally, $enemies];
+  return [...createQueuedBattleFixture($activeTime, $graphical, $audio, $party, $troop, $settings), $actor, $ally, $enemies];
 }
 
 /** Supply current project battlers without copying combat setup or changing their identities. */
-function createQueuedBattleFixture(bool $activeTime, bool $graphical, AudioManager $audio, Party $party, Troop $troop): array
+function createQueuedBattleFixture(bool $activeTime, bool $graphical, AudioManager $audio, Party $party, Troop $troop,
+  array $settings = []): array
 {
   $game = new class extends Game { public function __construct() {} public function __destruct() {} };
   new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audio);
   $screen = new TargetExecutionScreen($graphical);
   $engine = $activeTime ? new ActiveTimeBattleEngine($game) : new TraditionalTurnBasedBattleEngine($game);
-  $engine->configure($activeTime ? new ActiveTimeBattleConfig($party, $troop, $screen)
-    : new TurnBasedBattleConfig($party, $troop, $screen));
+  $engine->configure($activeTime ? new ActiveTimeBattleConfig($party, $troop, $screen, settings: $settings)
+    : new TurnBasedBattleConfig($party, $troop, $screen, settings: $settings));
   $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
   new ReflectionProperty($engine, 'turnStateExecutionContext')->setValue($engine, $context);
   return [$engine, $context, $screen];

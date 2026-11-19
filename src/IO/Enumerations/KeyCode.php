@@ -13,6 +13,8 @@ enum KeyCode: string
   case SPACE      = 'space';
   case TAB        = 'tab';
   case SHIFT_TAB  = 'shift_tab';
+  /** Canonical keyboard chord, normalized by input sources; tool bindings own its action. */
+  case CTRL_Q     = 'ctrl_q';
   /** Shift alone, as a held control. Only a renderer subscribed to `modifier_controls` reports it; the Terminal cannot. */
   case SHIFT      = 'shift';
   case BACKSPACE  = 'backspace';

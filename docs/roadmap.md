@@ -33,9 +33,14 @@ Battle Test accepts eight configured members and a separate active frontline
 limit from 1–8. A preset's explicit `battleSize`, including three, survives
 serialization. An omitted limit inherits the project's current size through
 `ProjectBattleTest::createSetup()`; editor callers can supply an unsaved System
-size. The Party pane adjusts the limit. Next/previous pane actions retain each
-pane's selection and scroll position. Cancel closes an opened choice before it
-leaves Battle Test. Editor preview, GUI controls and Console roster overrides
+size. Manage party owns members, the frontline limit, opening advantage and
+items. Tab and Shift+Tab cycle only the visible list and party panels, keeping
+the selected field, choice, quantity and scroll position. Escape cancels or
+returns one editing level and never quits. Ctrl+Q is the dedicated Quit control.
+The Engine's shared tool-navigation bindings and focus graph also drive the
+Editor. Native Ctrl+Q requires the paired `keyboard_chords` renderer extension;
+the PHP candidate is not graphical qualification. Editor preview, GUI controls
+and Console roster overrides
 must use the same resolution contract; their remaining work is tracked in the
 [rendering integration roadmap](rendering/integration-roadmap.md).
 See [Party capacity and temporary groups](story-events.md#party-capacity-and-temporary-groups).

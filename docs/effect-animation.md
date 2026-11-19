@@ -1497,11 +1497,40 @@ field/side containment, pairwise overlap and cursor clearance, and never moves,
 clamps or resizes artwork. Runtime preparation logs the same diagnostics once
 when regions are authored; authoring/validation can expose them before play.
 `PngAssetBounds` uses optional GD PNG inspection with a bounded cache invalidated
-by current content, not an import-integrity identity gate. Missing/corrupt art
+by current content, not an import-integrity identity gate. Multi-crop consumers use
+`getVisibleBoundsForImages()` to group drawings by source asset under one content
+snapshot. Uncached cells share one decoded PNG for that asset; it is released
+before the next asset, and only compact crop facts remain cached. Travel-envelope
+inspection uses this batch path, so a new sheet is decoded once for its cells.
+Visible bounds, solid lower-edge facts and replacement checks retain their exact
+pixel rules. Missing/corrupt art
 and unavailable inspection support are explicit diagnostics, not a falsely
 successful pixel check. GD is not a new required runtime dependency; native
 decoding remains rendering authority. Regions and warnings are graphical only
 and never change terminal geometry, collision, gameplay or saves.
+
+Ordinary target travel uses the standing body and its existing ground footing
+for the continuous ground route. Movement-art validation replaces the former
+flat union of every Move and Return drawing: `BattleTravelPoseBounds` checks
+only the playback entry selected at each displayed 120 Hz route position.
+Move uses its authored cadence; a non-looping Return without an impact entry
+uses the command's rounded return duration. Repeated holds remain distinct
+playback entries, and short fitted trips check the entries actually displayed.
+Move entry and Return exit stand at home; Move exit and Return entry stand at
+contact. Each transition retains its own visible pixel extent. A later hop
+peak therefore does not become the actor's height before take-off.
+
+The adapter reads the current pose's crops, placement, facing and existing
+surface/elevation treatment. No artwork size, authored ground coordinate,
+strike point, arena, speed or combat outcome changes to make a route pass.
+The pure bounds check finds unsafe tick intervals along each straight route
+segment and matches them to the pose clock; its work does not grow once per
+elapsed command tick on a long trip. A real visibility failure keeps the
+structured `outside-arena` result. The current planner chooses its ground
+route before this visual guard; it does not search alternative time-dependent
+routes after a guard failure. Flash-step's bound-action entry/exit transit
+contract remains separate from the ordinary Move/Return roles. Runtime and
+Editor inspection share `GraphicalBattlePresentation::planActionTravel`.
 
 `GraphicalBattleEffects` presents current image/glyph/text segments through
 retained canvas layers, follows combatant-instance bounds and draws a screen
@@ -1549,6 +1578,17 @@ does not expose a blank battlefield or resend unchanged frames. Sparse graphical
 text composition keeps the same partial-update ownership. Action cleanup owns
 feedback, message, focus, flash, shake and temporarily hidden graphical controls,
 not combat state.
+
+Graphical battle entry's initial resource barrier waits without a deadline behind
+the covered outgoing transition. The arena, participant/reserve/action bindings,
+contact-effect layers and skin/control owners declare their resources before first
+battle composition. Slow preparation does not start combat or consume any command
+frames. An explicit resource refusal uses the existing renderer-session error path;
+there is no foreground-on-failure entry path or added retry/cancel UI. The shared
+command readiness timeout remains a separate policy. Exact master-pixel bounds and
+lower-edge facts persist in a disposable user cache; native display-size copies and
+device scaling belong to the renderer. The isolated candidate's native integration
+and timing qualification remain open.
 
 Terminal battle entry also imports the existing frame-file art into the shared
 `EffectPlaybackSession`, retaining its normal 0.2-second duration. The blocking
@@ -3122,3 +3162,18 @@ BattleCommandPreview::getGroundSpanDiagnostics inspects the selected actor/troop
 A `flash` keyframe accepts `payload.strength`, a finite number in 0..1. Omission retains the existing graphical 0.22 strength. Zero draws no flash. Graphical caster/target flashes retain image-alpha masks; screen flashes remain deliberate washes. Terminal zero suppresses the pulse, while positive strengths retain its foreground-colour pulse. Reduced motion suppresses flashes.
 
 For a held, selected-body treatment, use a graphical `battler-tint` track in a fixed once battle timeline. Its required `anchor` is `caster` or `target`. Each strict held keyframe requires `payload.color` as a shared typed PresentationColor descriptor and `payload.strength` in 0..1. For example, white is `['kind' => 'rgb', 'r' => 255, 'g' => 255, 'b' => 255]`. The track owns only those combatant identities for that visible interval. It replaces their automatic DAMAGE/HEAL colour contribution, including an explicit zero-strength hold. It preserves reaction poses, HP, numbers, outcomes, other battlers and separately authored flash pulses. Outside the interval, automatic reaction colour resumes. Hidden keys, cancellation and completion release the owner; rendering and reverse preview do not mutate it. Overlapping owners are refused. Reduced motion omits this treatment and retains ordinary colour. This track removes automatic reaction tint only during its authored ownership interval; legacy flashes continue to add to ordinary feedback.
+
+
+### Owned effect image preparation
+
+`EffectImageSource` owns an image track's asset path, sheet grid and cell. Both battle and cinematic drawing resolve its rectangle from current PNG dimensions; compiled `frameWidth` and `frameHeight` never become replacement-art requirements. `CompiledEffectTimeline::getImageSources()` enumerates all visible selected graphical keyframes without seeking playback or firing cues. Identical descriptors share a preparation.
+
+`BattleEffectResources` uses `ActionAnimationResolver` and the linked summon library for one concrete action. Scene entry retains inherent attacks/hits and configured condition/stat/interception bindings. This removes eager scene preparation of every learned spell, item, dormant crisis variant and enemy pattern. Battler pose cells and UI remain independently declared by their existing owners. Future action effects enter the working set through current semantic focus or required command preparation.
+
+`PlayerActionState` drives focus preparation for both traditional and active-time battles. It selects the actual Attack or held crisis alternative, or the highlighted submenu/target action. A category does not load its whole book. Unaffordable, blocked, targetless and waiting selections release optional intent. No rendering path discovers future actions. `AssetHoldPrefetch` collects once per semantic choice and shares exact live scene requests. Refused or unsupported speculation releases its slots and is not automatically retried until selection changes or is explicitly cleared. On confirmation, command preparation drops competing speculation before admission and promotes matching requests without duplicate IDs or a second wait. Selection changes, cancellation, pause, events, roster changes, reconfiguration and stop retire optional ownership; scene and command scopes remain independent.
+
+Variable target and cinematic placements retain their selected source cells at original resolution. Battler and arena return preparation uses the same display-size/canvas descriptors as drawing, including future cells of the selected pose. It reuses scene residency rather than requesting a second full-size master. Native budget and atlas qualification for complete action working sets remains required.
+
+Battle entry holds its scene-owned declarations before combat starts. Each selected command also declares its actual compiled image cells, covering a newly granted action or a summon whose own cutscene route supplied the timeline. Required image preparation waits for readiness without a deadline and fails explicitly before entry cues or combat if refused, cancelled or unsupported. This removes foreground-decoding fallback after failed required-image preparation. The existing finite policy remains for optional return-only retention with no image effect. Command resources release on disposal; the scene keeps its independent entry leases until battle end. A wait update contributes no elapsed time to the command's first frame.
+
+This candidate is uninstalled. Complete native resource and budget qualification still includes these additional effect cells and command lifetimes; earlier cohort sizes and recordings cover the earlier source checkpoint.

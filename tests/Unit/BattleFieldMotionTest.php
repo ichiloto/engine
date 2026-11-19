@@ -160,6 +160,14 @@ it('combines simultaneous scale contributions without changing their source or c
     static function () use (&$hits): void { ++$hits; }, static fn() => null);
   $playback->begin(); $playback->update($plan->phases['target']['start'] / 120);
   $sample = BattleFieldMotion::getTransform($playback, false);
+  $scaled = BattleFieldMotion::getScaledFrames($playback, false);
+  expect($scaled[$playback->session->currentFrame])->toBe(1.5)
+    ->and(max($scaled))->toBe(1.5)
+    ->and(BattleFieldMotion::getScaledFrames($playback, true))->toBe([])
+    ->and($playback->session->currentFrame)->toBe($plan->phases['target']['start']);
+  foreach ($scaled as $index => $scale) {
+    expect(BattleFieldMotion::getTransform($playback->createPresentationSample($index), false)->scale)->toBe($scale);
+  }
   expect([$sample->x, $sample->y, $sample->scale])->toBe([-8.25, 3.0, 1.5])
     ->and($hits)->toBe(0)->and($actor->stats->currentHp)->toBe(100);
   $playback->update(10); expect(BattleFieldMotion::getTransform($playback, false))->toBeNull()->and($hits)->toBe(1);

@@ -108,5 +108,7 @@ it('negotiates stationary camera motion independently and preserves it through r
     ->and($wire['worldOrigin'])->toBe(['column' => -2, 'row' => 4]);
   [, $unsupported] = fieldMotionPresentation(['frame_viewport', 'field_motion']);
   expect(fn() => $unsupported->present($snapshot, viewport: $view))->toThrow(RendererProtocolException::class, 'camera_motion')
-    ->and(fn() => $unsupported->presentFrame($prepared))->toThrow(RendererProtocolException::class, 'camera_motion');
+    ->and(fn() => $unsupported->prepareFrame($snapshot, viewport: $view))
+      ->toThrow(RendererProtocolException::class, 'camera_motion')
+    ->and(fn() => $unsupported->presentFrame($prepared))->toThrow(LogicException::class, 'belongs to its renderer session');
 });

@@ -69,6 +69,7 @@ final class BattlerConditions
         'label' => $ability->label, 'badge' => $ability->label, 'polarity' => 'positive', 'magnitude' => null];
     }
     foreach ($battler->states ?? [] as $instance) {
+      if ($instance->isElapsedExpired) { continue; }
       $state = $instance->state;
       if ($instance->isPending) {
         $label = $state->badgeLabel . '?';

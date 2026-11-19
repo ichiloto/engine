@@ -10,7 +10,7 @@ use Closure;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSession;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
-/** Per-snapshot source/guarded-region limits, not a total-live CPU/GPU memory ceiling. */
+/** Source validity and structural bounds; subscribed renderers own aggregate live image admission. */
 final class CanvasImagePreflight
 {
   public const MAX_BYTES = 67108864;
@@ -111,6 +111,12 @@ final class CanvasImagePreflight
           ($composite->width + 4) * ($composite->height + 4) * 4;
       }
       foreach ($composite->operations as $operation) {
+        foreach ($operation->getImageSources() as $source) {
+          if (isset($source['sourcePixels'])) {
+            $rect = $source['sourcePixels'];
+            PngAssetPreflight::inspectRegion($root, $source['asset'], $rect['x'], $rect['y'], $rect['width'], $rect['height']);
+          }
+        }
         foreach ($operation->worldSubjects as $subject) {
           foreach ($subject->images as $image) { PngAssetPreflight::inspect($root, $image->asset, $image->sourceRect); }
         }
@@ -136,9 +142,11 @@ final class CanvasImagePreflight
     }
     $regionBudget = PresentationSession::supportsCapability(RendererSessionConfig::CANVAS_REGION_BUDGET);
     $chargedSources = $regionBudget ? $wholeSources : $sources;
-    if (count($sources) > 1024 || array_sum($chargedSources) > self::MAX_BYTES
-      || count($regions) > 4096 || array_sum($regions) > self::MAX_BYTES) {
-      throw new CanvasImageBudgetExceeded($sources, $chargedSources, $regions, $regionBudget);
+    $rendererOwnsImageBytes = PresentationSession::supportsCapability(RendererSessionConfig::ASSET_HOLDS);
+    if (count($sources) > 1024 || count($regions) > 4096
+      || (!$rendererOwnsImageBytes && (array_sum($chargedSources) > self::MAX_BYTES
+        || array_sum($regions) > self::MAX_BYTES))) {
+      throw new CanvasImageBudgetExceeded($sources, $chargedSources, $regions, $regionBudget, $rendererOwnsImageBytes);
     }
     return ['sources' => $sources, 'regions' => $regions];
   }

@@ -48,7 +48,7 @@ final readonly class BattlerSlot
     }
     $scale *= $this->displayScale;
     return new CanvasRectangle($this->x - $art->pivotX * $scale, $this->y - $art->pivotY * $scale,
-      $art->width * $scale, $art->height * $scale);
+      $art->width * $scale, $art->height * $scale, allowOutsideCanvas: true);
   }
 
   public static function fromArray(mixed $data, string $source = 'graphical placement'): self

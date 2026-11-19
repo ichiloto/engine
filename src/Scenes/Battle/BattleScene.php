@@ -61,10 +61,15 @@ use Ichiloto\Engine\Scenes\Battle\States\BattleStartState;
 use Ichiloto\Engine\Scenes\Battle\States\BattleVictoryState;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Closure;
 use Override;
 use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
 use Throwable;
+use Ichiloto\Engine\Rendering\Assets\{AssetHoldPreparation, AssetHoldPreparationState};
+use Ichiloto\Engine\Rendering\Assets\AssetHoldReadiness;
+use Ichiloto\Engine\Rendering\Presentation\SceneFrameReadinessInterface;
+use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 
@@ -74,7 +79,7 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
  * @package Ichiloto\Engine\Scenes\Battle
  */
 class BattleScene extends AbstractScene implements CanvasProviderInterface, PlayActivitySourceInterface, EventPresentationHostInterface,
-  StorybookReadingCapacityProviderInterface
+  StorybookReadingCapacityProviderInterface, SceneFrameReadinessInterface
 {
   /** Runs the troop's event pages; null when the troop has none. */
   public private(set) ?BattleEventRunner $battleEvents = null;
@@ -92,6 +97,13 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
   public private(set) ?BattlePauseSkin $pauseSkin = null;
   private ?PresentationCanvas $resultsBattlefield = null;
   private ?PresentationFallbackReport $fallbackReport = null;
+  /** The battle owns these leases through pause, commands and results, until stop or reconfiguration. */
+  private ?AssetHoldPreparation $battleAssetPreparation = null;
+  private bool $battleResourceDeclarationQueued = false;
+  private ?\Ichiloto\Engine\Battle\Presentation\BattleEffectResources $battleEffectResources = null;
+  /** @var list<string> Actual skin/control bindings declared before optional render preparation. */
+  private array $battleUiAssetPaths = [];
+
   /** Where this battle logs any part of its graphical presentation that falls back; one per configured battle. */
   public PresentationFallbackReport $presentationFallbacks {
     get => $this->graphicalPresentation?->fallbacks ?? ($this->fallbackReport ??= new PresentationFallbackReport());
@@ -173,6 +185,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
       if ($this->pauseState?->hasOwnedResources()) { $this->pauseState->exit(); }
       $this->endResults();
     } finally {
+      $this->releaseBattleResources();
       BattleCommandCatalog::endBattle();
       parent::stop();
     }
@@ -236,10 +249,98 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
     return $root === null ? null : $this->controlsTheme;
   }
 
+  /** Called when the incoming scene gains ownership. Renderer admission begins on its next update. */
+  public function queueBattleResourcePreparation(): void
+  {
+    $this->battleResourceDeclarationQueued = $this->getGame()->getRendererRuntime()
+      ?->supports(RendererSessionConfig::ASSET_HOLDS) ?? false;
+  }
+
+  /** Transition and direct-entry updates share this one scene-owned preparation path. */
+  public function advanceBattleResourcePreparation(): void
+  {
+    if ($this->battleResourceDeclarationQueued) { $this->prepareBattleResources(); }
+  }
+
+  /** Declare the scene-owned artwork before the first command; unsubscribed renderers retain their existing path. */
+  public function prepareBattleResources(): void
+  {
+    $this->releaseBattleResources();
+    $runtime = $this->getGame()->getRendererRuntime();
+    if (!($runtime?->supports(RendererSessionConfig::ASSET_HOLDS) ?? false)) { return; }
+    try {
+      $additional = [];
+      foreach ($this->battleUiAssetPaths as $asset) {
+        $resource = new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource($asset);
+        $additional[$resource->getKey()] = $resource;
+      }
+      $effects = $this->getBattleEffectResources();
+      $resources = $this->graphicalPresentation?->collectBattleResources($additional, $effects) ?? $additional;
+      if ($resources === []) { return; }
+      $this->battleAssetPreparation = new AssetHoldPreparation($runtime->assetHolds,
+        $resources, RuntimeClock::getSeconds(), null);
+    } catch (\InvalidArgumentException|RuntimeException $failure) {
+      throw new RendererTransportException('Battle resource preparation failed: ' . $failure->getMessage(), previous: $failure);
+    }
+  }
+
+  /** @return list<\Ichiloto\Engine\Rendering\Assets\AssetHoldRequest> */
+  public function getBattleResourceRequests(): array
+  {
+    return $this->battleAssetPreparation?->scope->getRequests() ?? [];
+  }
+
+  /** Battle-owned authored binding resolver shared by entry and semantic command focus. */
+  public function getBattleEffectResources(): ?\Ichiloto\Engine\Battle\Presentation\BattleEffectResources
+  {
+    $runtime = $this->getGame()->getRendererRuntime();
+    if ($runtime === null) { return null; }
+    return $this->battleEffectResources ??= new \Ichiloto\Engine\Battle\Presentation\BattleEffectResources(
+      BattleCommandCatalog::getBattleAnimationLibrary() ?? new \Ichiloto\Engine\Animations\AnimationLibrary(cacheForBattle: true),
+      new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($runtime->getAssetRoot()));
+  }
+
+  /** Readiness has no deadline: slow preparation never starts foreground decoding or advances combat. */
+  public function pollBattleResourcePreparation(): bool
+  {
+    if ($this->battleResourceDeclarationQueued) { return false; }
+    $preparation = $this->battleAssetPreparation;
+    if ($preparation === null) { return true; }
+    $state = $preparation->pollAt(RuntimeClock::getSeconds());
+    $readiness = $preparation->scope->getReadiness();
+    if ($state === AssetHoldPreparationState::WAITING || $readiness === AssetHoldReadiness::WAITING) { return false; }
+    if ($state !== AssetHoldPreparationState::READY || $readiness === AssetHoldReadiness::REFUSED
+      || $readiness === AssetHoldReadiness::UNSUPPORTED) {
+      $failureState = $readiness === AssetHoldReadiness::REFUSED ? AssetHoldPreparationState::REFUSED : $state;
+      $detail = $preparation->describeFailure($failureState);
+      // Retain the failed/cancelled barrier; a caller catching the session error cannot turn it into success.
+      $preparation->release();
+      throw new RendererTransportException('Battle resource preparation failed: ' . $detail);
+    }
+    return true;
+  }
+
+  /** The shared runtime retains the covered frame instead of submitting any unready battle art. */
+  public function canPresentSceneFrame(): bool
+  {
+    return $this->pollBattleResourcePreparation()
+      && ($this->state instanceof BattlePauseState || !isset($this->ui) || $this->ui->canPresentCommandFrame());
+  }
+
+  private function releaseBattleResources(): void
+  {
+    $this->battleResourceDeclarationQueued = false;
+    $this->battleAssetPreparation?->release();
+    $this->battleAssetPreparation = null;
+    $this->battleEffectResources = null;
+    if (isset($this->ui)) { $this->ui->releaseActionPrefetch(); }
+  }
+
   /** Combat starts only after the scene owner's reveal, or immediately for Off/reduced motion. */
   public function completeGraphicalEntry(): void
   {
-    if ($this->state instanceof BattleStartState && $this->getGame()->getRendererRuntime() !== null) {
+    if ($this->state instanceof BattleStartState && $this->getGame()->getRendererRuntime() !== null
+      && $this->pollBattleResourcePreparation()) {
       $this->setState($this->runState);
     }
   }
@@ -378,6 +479,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
   public function setState(BattleSceneState $state): void
   {
     $this->sceneStateContext = new SceneStateContext($this, $this->sceneStateContext);
+    if (isset($this->ui)) { $this->ui->releaseActionPrefetch(); }
     $this->state?->exit();
     $this->state = $state;
     $this->state->enter();
@@ -388,12 +490,22 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
   {
     if (!$this->state instanceof BattleRunState || $this->pauseState === null
       || $this->getGame()->hasStopped() || $this->getGame()->sceneManager->currentScene !== $this) { return; }
-    $frame = $this->getPresentationCanvas();
+    $this->ui->releaseActionPrefetch();
     $runtime = $this->getGame()->getRendererRuntime();
-    if ($frame !== null && $this->pauseSkin !== null && $runtime !== null) {
-      GraphicalBattlePause::preflight($this->pauseSkin, $runtime->getAssetRoot(), $frame->images);
+    $liveFrameReady = $runtime === null || $this->canPresentSceneFrame();
+    $frame = $liveFrameReady ? $this->getPresentationCanvas() : null;
+    $retained = !$liveFrameReady || $frame !== null
+      ? $runtime?->retainSceneFrame($this, $this->pauseState, $frame) : null;
+    $frame = $retained?->canvas ?? $frame;
+    $this->pauseState->retainFrame($frame, $retained);
+    try {
+      if ($frame !== null && $this->pauseSkin !== null && $runtime !== null) {
+        GraphicalBattlePause::preflight($this->pauseSkin, $runtime->getAssetRoot(), $frame->images);
+      }
+    } catch (\Throwable $failure) {
+      $this->pauseState->exit();
+      throw $failure;
     }
-    $this->pauseState->retainFrame($frame);
     $this->state->suspend();
     $this->state = $this->pauseState;
     $this->state->enter();
@@ -413,6 +525,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
     if (!$this->state instanceof BattleRunState || $this->eventState === null
       || !($this->battleEvents?->queueDuePages($turn, $check) ?? false)) { return false; }
     // Like pause, event pages retain the running state and its engine context.
+    $this->ui->releaseActionPrefetch();
     $this->state->suspend();
     $this->state = $this->eventState;
     $this->state->enter();
@@ -454,7 +567,11 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
     if (!$this->state instanceof BattlePauseState || $this->runState === null
       || $this->state->menu === null
       || $this->getGame()->hasStopped() || $this->getGame()->sceneManager->currentScene !== $this) { return; }
-    $this->state->exit();
+    try {
+      $this->state->restoreRetainedFrame();
+    } finally {
+      $this->state->exit();
+    }
     InputManager::resetState(true);
     $this->state = $this->runState;
     $this->state->resume();
@@ -477,13 +594,35 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
       fn() => $this->configureBattle($config));
   }
 
-  private function configureBattle(BattleConfig $config): void
+  private ?BattleEntryPresentation $preparedEntryPresentation = null;
+
+  public function prepareEntryPresentation(BattleConfig $config): BattleEntryPresentation
+  {
+    $runtime = $this->getGame()->getRendererRuntime();
+    return PresentationSession::runForSession(
+      fn(string $capability): bool => $runtime?->supports($capability) ?? false,
+      fn(): BattleEntryPresentation => $this->buildEntryPresentation($config));
+  }
+
+  /** The scene configure entry point consumes its validated presentation during the swap. */
+  public function runWithEntryPresentation(BattleEntryPresentation $presentation, Closure $swap): void
+  {
+    if ($this->preparedEntryPresentation !== null) {
+      throw new \LogicException('This battle already owns a prepared presentation.');
+    }
+    $this->preparedEntryPresentation = $presentation;
+    try { $swap(); }
+    finally { $this->preparedEntryPresentation = null; }
+  }
+
+  private function buildEntryPresentation(BattleConfig $config): BattleEntryPresentation
   {
     $presentation = null;
     $layout = null;
     $resultsSkin = null;
     $pauseSkin = null;
     $runtime = $this->getGame()->getRendererRuntime();
+    $uiAssetPaths = [];
     // Terminal play never loads the optional catalog or inspects any PNG.
     // Graphical presentation is optional by contract: any failure while
     // assembling it - a stale crop, a missing texture, an undersized skin,
@@ -497,17 +636,25 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
         throw new RuntimeException('An explicit battleArena requires a battle presentation catalog.');
       }
       if ($catalog !== null) {
+        $actorIds = array_map(static fn($member): string => $member instanceof \Ichiloto\Engine\Entities\Character
+          ? $member->actorId : $member->name, $config->party->participants->toArray());
+        $uiAssetPaths = [...($catalog->ui?->skin?->getAssetPaths() ?? []),
+          ...($catalog->pause?->getAssetPaths() ?? []), ...($catalog->results?->getAssetPaths($actorIds) ?? []),
+          ...($this->findControlsTheme($runtime->getAssetRoot())?->getControlAssetPaths() ?? [])];
         $presentation = GraphicalBattlePresentation::prepare($config, $catalog, $runtime->getAssetRoot());
         $layout = $presentation?->layout ?? $catalog->ui;
         $resultsSkin = $catalog->results;
         $pauseSkin = $catalog->pause;
+        $entryImages = null;
         if ($pauseSkin !== null) {
           try {
             if ($layout === null || $layout->width < 520 || $layout->height < 320) {
               throw new RuntimeException('The Pause skin requires a battle canvas of at least 520 by 320.');
             }
-            GraphicalBattlePause::preflight($pauseSkin, $runtime->getAssetRoot(), $presentation?->frame()->images ?? []);
+            GraphicalBattlePause::preflight($pauseSkin, $runtime->getAssetRoot(),
+              $entryImages ??= $presentation?->frame()->images ?? []);
           } catch (Throwable $failure) {
+            if ($runtime->supports(RendererSessionConfig::ASSET_HOLDS)) { throw $failure; }
             (new PresentationFallbackReport())->report(
               'Pause artwork unavailable; retaining the default pause menu: ' . $failure->getMessage(), $failure);
             $pauseSkin = null;
@@ -523,9 +670,10 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
               if (!$runtime->supports($capability)) { throw new RuntimeException('Results require negotiated ' . $capability); }
             }
             $resultsSkin = GraphicalBattleResults::prepareCatalog($resultsSkin, $runtime->getAssetRoot(),
-              $presentation?->frame()->images ?? []);
+              $entryImages ??= $presentation?->frame()->images ?? []);
           }
         } catch (Throwable $failure) {
+          if ($runtime->supports(RendererSessionConfig::ASSET_HOLDS)) { throw $failure; }
           $message = 'Results artwork unavailable; retaining terminal results: ' . $failure->getMessage();
           (new PresentationFallbackReport())->report($message, $failure);
           $resultsSkin = null;
@@ -545,6 +693,10 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
         }
       }
       } catch (Throwable $presentationFailure) {
+        if ($runtime->supports(RendererSessionConfig::ASSET_HOLDS)) {
+          throw new RendererTransportException('Battle presentation preparation failed: '
+            . $presentationFailure->getMessage(), previous: $presentationFailure);
+        }
         Debug::error(sprintf(
           'Graphical battle presentation degraded to the terminal presentation: %s',
           $presentationFailure->getMessage(),
@@ -555,11 +707,25 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
         $pauseSkin = null;
       }
     }
+    return new BattleEntryPresentation($config, $runtime, $presentation, $layout, $resultsSkin, $pauseSkin,
+      array_values(array_unique($uiAssetPaths)));
+  }
+
+  private function configureBattle(BattleConfig $config): void
+  {
+    $presentation = $this->preparedEntryPresentation;
+    $this->preparedEntryPresentation = null;
+    if ($presentation === null || $presentation->config !== $config
+      || $presentation->runtime !== $this->getGame()->getRendererRuntime()) {
+      $presentation = $this->buildEntryPresentation($config);
+    }
     $this->fallbackReport = null;
-    $this->graphicalPresentation = $presentation;
-    $this->battleUiLayout = $layout;
-    $this->resultsSkin = $resultsSkin;
-    $this->pauseSkin = $pauseSkin;
+    $this->releaseBattleResources();
+    $this->graphicalPresentation = $presentation->battlefield;
+    $this->battleUiAssetPaths = $presentation->assetPaths;
+    $this->battleUiLayout = $presentation->layout;
+    $this->resultsSkin = $presentation->results;
+    $this->pauseSkin = $presentation->pause;
     if ($this->pauseState?->hasOwnedResources()) { $this->pauseState->exit(); }
     $this->endResults();
 
@@ -597,6 +763,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
   public function update(): void
   {
     if ($this->getGame()->hasStopped() || $this->getGame()->sceneManager->currentScene !== $this) { return; }
+    $this->advanceBattleResourcePreparation();
     if ($this->state instanceof BattlePauseState) {
       $this->state->execute($this->sceneStateContext);
       return;

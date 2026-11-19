@@ -10,6 +10,7 @@ use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use InvalidArgumentException;
 use JsonException;
 use stdClass;
+use Ichiloto\Engine\Rendering\Assets\AssetHoldFeedback;
 
 final readonly class RendererEvent
 {
@@ -44,6 +45,9 @@ final readonly class RendererEvent
     public ?string $layoutId = null,
     public ?TextMetrics $textMetrics = null,
     public array $layoutIds = [],
+    public ?AssetHoldFeedback $assetFeedback = null,
+    /** Whole wire line charged to the bounded reply batch; processed results are not retained in ACK slots. */
+    public int $assetFeedbackBytes = 0,
   )
   {
   }
@@ -83,6 +87,7 @@ final readonly class RendererEvent
     }
     [$requestId, $layoutId, $textMetrics, $layoutIds] = self::requireTextReply($object, $type, $protocol);
     [$control, $repeat] = self::requireKeyTransition($object, $type, $protocol);
+    $assetFeedback = self::requireAssetFeedback($object, $type, $protocol, strlen($line));
     $active = $object->active ?? null;
     if ($type === RendererEventType::WINDOW_ACTIVATION
       && ($protocol !== RendererProtocolVersion::V2 || !is_bool($active))) {
@@ -136,7 +141,39 @@ final readonly class RendererEvent
     return new self($type, $type === RendererEventType::KEY ? $key : null,
       in_array($type, [RendererEventType::ERROR, RendererEventType::FRAME_REJECTED, RendererEventType::TEXT_PREPARE_FAILED], true) ? $message : null,
       $protocol, $capabilities, $active, $generation, $frame, $presented, $expectedGeneration, $resyncRequired,
-      $control, $repeat, $requestId, $layoutId, $textMetrics, $layoutIds);
+      $control, $repeat, $requestId, $layoutId, $textMetrics, $layoutIds,
+      $assetFeedback, $assetFeedback === null ? 0 : strlen($line));
+  }
+
+  /** Resource results have already been consumed by the shared client when ACK progress is coalesced. */
+  public function createProgressAcknowledgement(): self
+  {
+    if ($this->type !== RendererEventType::FRAME_ACK || $this->assetFeedback === null) { return $this; }
+    return new self($this->type, protocol: $this->protocol, generation: $this->generation,
+      frame: $this->frame, presented: $this->presented);
+  }
+
+  private static function requireAssetFeedback(stdClass $object, RendererEventType $type,
+    RendererProtocolVersion $protocol, int $bytes): ?AssetHoldFeedback
+  {
+    $hasFields = property_exists($object, 'holds') || property_exists($object, 'holdCapacity');
+    if (!$hasFields && $type !== RendererEventType::ASSET_HOLDS) { return null; }
+    if (!in_array($type, [RendererEventType::FRAME_ACK, RendererEventType::ASSET_HOLDS], true)
+      || $protocol !== RendererProtocolVersion::V2 || $bytes > self::MAX_TEXT_REPLY_BYTES) {
+      throw new RendererProtocolException('Asset hold feedback requires protocol 2 ACK/event and the 4 MiB line limit.');
+    }
+    $allowed = $type === RendererEventType::FRAME_ACK
+      ? ['protocol', 'type', 'generation', 'frame', 'presented', 'holds', 'holdCapacity']
+      : ['protocol', 'type', 'holds', 'holdCapacity'];
+    if (!property_exists($object, 'holds') || !property_exists($object, 'holdCapacity')
+      || array_diff(array_keys(get_object_vars($object)), $allowed) !== []) {
+      throw new RendererProtocolException('Asset hold replies require holds and holdCapacity with only defined fields.');
+    }
+    try {
+      return AssetHoldFeedback::fromArray(['holds' => $object->holds, 'holdCapacity' => $object->holdCapacity]);
+    } catch (InvalidArgumentException $error) {
+      throw new RendererProtocolException('Invalid asset hold feedback: ' . $error->getMessage(), previous: $error);
+    }
   }
 
   /** @return array{?string, ?string, ?TextMetrics, list<string>} */

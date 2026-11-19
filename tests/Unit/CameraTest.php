@@ -101,6 +101,25 @@ it('fits a small map into dialogue space without enlarging its physical source o
 });
 
 
+it('rejects a visual projection with changed dimensions without modifying the installed camera', function () {
+  $rows = ['abcd', 'efgh', 'ijkl'];
+  $camera = new Camera(makeCameraTestScene(), 4, 3, worldSpace: $rows);
+  $owner = new stdClass();
+  expect($camera->frameBounds($owner,
+    new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(0, 1, 1, 2),
+    new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(0, 0, 4, 1), .2))->toBeTrue();
+  $before = $camera->getWorldOrigin();
+  $motion = $camera->presentationMotion;
+
+  expect(fn() => $camera->updateWorldPresentation(['abcde', 'fghij', 'klmno']))
+    ->toThrow(InvalidArgumentException::class, 'keep the installed map dimensions');
+  expect(fn() => $camera->updateWorldPresentation(['abcd', 'efgh']))
+    ->toThrow(InvalidArgumentException::class, 'keep the installed map dimensions');
+  expect($camera->worldSpace)->toBe($rows)
+    ->and($camera->getWorldOrigin())->toBe($before)
+    ->and($camera->presentationMotion)->toBe($motion);
+});
+
 it('keeps authored camera movement live within the cast-safe range and refuses invalid signed origins', function () {
   $camera = new Camera(makeCameraTestScene(), 10, 8, worldSpace: array_fill(0, 60, str_repeat('.', 80)));
   $owner = new stdClass(); $subjects = new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(20, 20, 24, 24);

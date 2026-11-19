@@ -47,6 +47,12 @@ final readonly class BattlePoseSet
     }
   }
 
+  /** @return list<BattlerPose> Every role and action binding, including poses not currently selected. */
+  public function getDeclaredPoses(): array
+  {
+    return [...array_values($this->roles), ...array_values($this->actionPoses)];
+  }
+
   public function getAnimationPose(?int $animationId): ?BattlerPose
   {
     return $animationId === null ? null : ($this->actionPoses[$animationId] ?? null);

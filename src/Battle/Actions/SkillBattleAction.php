@@ -9,6 +9,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Entities\Skills\SkillEffectExecutor;
+use Ichiloto\Engine\Entities\Skills\SkillTargetPolicy;
 use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
@@ -44,10 +45,14 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
     if (! $actor->isFighting) {
       return sprintf('%s cannot act while knocked out.', $actor->name);
     }
-    return $actor->stats->currentMp < $this->skill->cost
-      ? get_engine_message('battle.insufficient_resource',
-        $actor->name, $this->name, Vocabulary::getTerm('stats.mp', 'MP'))
-      : null;
+    $resource = match (true) {
+      $actor->stats->currentMp < $this->skill->cost => Vocabulary::getTerm('stats.mp', 'MP'),
+      $actor->stats->currentAp < $this->skill->apCost => Vocabulary::getTerm('stats.ap'),
+      default => null,
+    };
+
+    return $resource === null ? null : get_engine_message('battle.insufficient_resource',
+      $actor->name, $this->name, $resource);
   }
 
   /**
@@ -57,6 +62,13 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
   {
     if ($this->getExecutionRefusal($actor) !== null) {
       return;
+    }
+
+    if ($this->skill->apCost > 0) {
+      $targets = SkillTargetPolicy::filterByStatus($targets, $this->skill->scope->status);
+      if ($targets === []) {
+        return;
+      }
     }
 
     foreach ($this->skill->effects as $effect) {
@@ -71,6 +83,9 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
       }
     }
     $actor->stats->currentMp -= $this->skill->cost;
+    if ($this->skill->apCost > 0) {
+      $actor->stats->currentAp -= $this->skill->apCost;
+    }
     $executionId = $this->nextExecutionId();
     $actionId = 'skill.' . trim(strtolower(preg_replace('/[^a-z0-9]+/i', '-', $this->skill->name) ?? ''), '-');
     if ($this->allowInterception && ($miss = $this->reactions?->intercept($this, $actor, $targets, $actionId, $executionId, $this->resolver)) !== null) {

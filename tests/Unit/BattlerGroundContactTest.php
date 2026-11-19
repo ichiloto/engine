@@ -20,6 +20,8 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use function Tests\Support\Rendering\writeTestPng;
 
+require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
+
 /**
  * Where battlers meet the surface: shadows under their feet in the theme's
  * style and the arena's light, bodies rising or sinking by their elevation,
@@ -180,4 +182,19 @@ it('reads a battler\'s grounding and an arena\'s shadow light as data, refusing 
       'shadow' => ['strength' => 1.4]]]])->getDefinitions(1350, 720)['arena.mine']->shadowLight->strength)->toBe(1.4)
     ->and(fn() => BattleArenaBindings::getFromArray(['arenas' => ['a' => ['name' => 'A', 'background' => ['image' => 'a.png'],
       'shadow' => ['tint' => 1]]]]))->toThrow(InvalidArgumentException::class, 'arenas.a.shadow: expected strength and color only');
+});
+
+
+it('keeps raised body geometry and its ground registration independent of the viewport', function () {
+  $layout = contactLayout();
+  $bounds = new CanvasRectangle(20, 5, 100, 200);
+  [$raised, $clip, $visible] = BattlerGroundContact::place($bounds, 60, 205, $layout);
+  expect($raised->x)->toBe(20.0)->and($raised->y)->toBe(-55.0)
+    ->and($raised->height)->toBe(200.0)->and($clip)->toBeNull()->and($visible)->toBeTrue();
+});
+
+it('marks a wholly submerged body as hidden without inventing a one-pixel strip', function () {
+  $layout = contactLayout();
+  [$bounds, $clip, $visible] = BattlerGroundContact::place(new CanvasRectangle(20, 40, 100, 200), -300, 240, $layout);
+  expect($bounds->y)->toBe(340.0)->and($bounds->height)->toBe(200.0)->and($clip)->toBeNull()->and($visible)->toBeFalse();
 });

@@ -169,6 +169,20 @@ class BattleCharacterStatusWindow extends Window
     $row = $this->snapshotRow(0, $character, $atbPercentage);
     $hpPercentage = $row->hpRatio;
     $mpPercentage = $row->mpRatio;
+    if ($row->currentAp !== null) {
+      $layout = $this->getActionPointLayout($row->atbRatio !== null, $row->currentAp);
+      $hp = TerminalText::padLeft(strval($row->currentHp), self::HP_VALUE_WIDTH);
+      $mp = TerminalText::padLeft(strval($row->currentMp), self::MP_VALUE_WIDTH);
+      if ($layout['hpBar'] > 0) {
+        $hp .= ' ' . $this->createProgressBar($layout['hpBar'], $hpPercentage)->getRender();
+        $mp .= ' ' . $this->createProgressBar($layout['mpBar'], $mpPercentage)->getRender();
+      }
+      $line = $hp . ' ' . $mp . ' ' . TerminalText::padRight(strval($row->currentAp), $layout['apWidth']);
+      if ($layout['timeBar'] > 0) {
+        $line .= ' ' . $this->createProgressBar($layout['timeBar'], $row->atbRatio)->getRender();
+      }
+      return TerminalText::padRight($line, self::CONTENT_WIDTH);
+    }
 
     if ($atbPercentage !== null) {
       return TerminalText::padRight(implode('', [
@@ -204,6 +218,7 @@ class BattleCharacterStatusWindow extends Window
       : $stats->currentHp;
     return new BattleHudStatusRow(
       $index, $hp, $stats->totalHp, $stats->currentMp, $stats->totalMp, $atbPercentage,
+      $this->usesActionPoints() ? $stats->currentAp : null,
     );
   }
 
@@ -217,6 +232,17 @@ class BattleCharacterStatusWindow extends Window
   {
     $horizontal = $this->borderPack::getHorizontalBorder();
     $cells = array_fill(0, self::CONTENT_WIDTH, $horizontal);
+
+    if ($this->usesActionPoints()) {
+      $layout = $this->getActionPointLayout($showAtb);
+      $this->writeHeaderLabel($cells, Vocabulary::getTerm('stats.hp'), 0);
+      $this->writeHeaderLabel($cells, Vocabulary::getTerm('stats.mp'), $layout['mpStart']);
+      $this->writeHeaderLabel($cells, Vocabulary::getTerm('stats.ap'), $layout['apStart']);
+      if ($layout['timeBar'] > 0) {
+        $this->writeHeaderLabel($cells, Vocabulary::getTerm('battle.atb', 'Time'), $layout['timeStart']);
+      }
+      return implode('', $cells);
+    }
 
     if ($showAtb) {
       $this->writeHeaderLabel($cells, Vocabulary::getTerm('stats.hp', 'HP'), $this->getCompactHpBarStart());
@@ -332,6 +358,36 @@ class BattleCharacterStatusWindow extends Window
   protected function usesAtbLayout(): bool
   {
     return $this->atbPercentages !== [];
+  }
+
+  private function usesActionPoints(): bool
+  {
+    return isset($this->battleScreen) && $this->battleScreen->getBattleConfig()?->actionPointPolicy !== null;
+  }
+
+  /**
+   * Share column geometry between the Terminal header and values. Reserve the
+   * full AP balance width before assigning any space to secondary bars.
+   *
+   * @return array{apWidth: int, hpBar: int, mpBar: int, timeBar: int, mpStart: int, apStart: int, timeStart: int}
+   */
+  private function getActionPointLayout(bool $showAtb, int $currentAp = 0): array
+  {
+    $apWidth = max(2, strlen(strval($currentAp)));
+    foreach ($this->characters as $character) {
+      $apWidth = max($apWidth, strlen(strval($character->stats->totalAp)));
+    }
+    $baseWidth = self::HP_VALUE_WIDTH + self::MP_VALUE_WIDTH + $apWidth + 2;
+    $room = self::CONTENT_WIDTH - $baseWidth;
+    $timeBar = $showAtb && $room >= 5 ? 2 : 0;
+    $timeWidth = $timeBar > 0 ? 1 + $this->getProgressBarWidth($timeBar) : 0;
+    $room -= $timeWidth;
+    $hpBar = $room >= 12 ? 4 : ($room >= 8 ? 1 : 0);
+    $mpBar = $room >= 12 ? 2 : $hpBar;
+    $mpStart = self::HP_VALUE_WIDTH + 1 + ($hpBar > 0 ? 1 + $this->getProgressBarWidth($hpBar) : 0);
+    $apStart = $mpStart + self::MP_VALUE_WIDTH + 1 + ($mpBar > 0 ? 1 + $this->getProgressBarWidth($mpBar) : 0);
+    return ['apWidth' => $apWidth, 'hpBar' => $hpBar, 'mpBar' => $mpBar, 'timeBar' => $timeBar,
+      'mpStart' => $mpStart, 'apStart' => $apStart, 'timeStart' => $apStart + $apWidth + 1];
   }
 
   /**

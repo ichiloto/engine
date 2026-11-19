@@ -49,12 +49,14 @@ use Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Progression\{TutorialCatalog, TutorialDirector, TutorialPhase, TutorialStartContext};
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\UI\Accessibility;
+use function Tests\Support\Battle\createCommandFixtureScene;
 use function Tests\Support\Battle\createTargetExecutionFixture;
 use function Tests\Support\Battle\queueTargetExecution;
 
@@ -95,9 +97,10 @@ final class ActionEffectField extends BattleFieldWindow
 
 final class ActionEffectScreen extends BattleScreen
 {
-  public function __construct(private ActionEffectTrace $trace, BattleScreen $prototype,
+  public function __construct(BattleScene $scene, private ActionEffectTrace $trace, BattleScreen $prototype,
     private bool $graphical, private BattleTurnTimings $timings)
   {
+    $this->battleScene = $scene;
     $this->fieldWindow = new ActionEffectField($this, $trace);
     $this->commandWindow = $prototype->commandWindow;
     $this->characterNameWindow = $prototype->characterNameWindow;
@@ -178,7 +181,7 @@ function runActionEffectPlayback(
     [$engine, $context, $prototype, $actor, , $enemies] = createTargetExecutionFixture(false, $graphical, $audio);
     $target = $enemies[0];
     $targets = array_slice([...$enemies, $actor], 0, count($damage));
-    $screen = new ActionEffectScreen($trace, $prototype, $graphical,
+    $screen = new ActionEffectScreen(createCommandFixtureScene($context->game), $trace, $prototype, $graphical,
       new BattleTurnTimings(0, 0, 0, $effectDisplaySeconds, 0, 0, 0));
     new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, $screen);
     $cutscene = $animation !== null ? null : new SummonCompiledCutscene('', 'fixture', fps: 16,
@@ -779,3 +782,32 @@ it('announces only an authored summon move name in both presentations', function
   expect($result['events'])->toContain('Skyfall')->not->toContain('Fixture', 'Caster uses Skyfall!')
     ->and($result['resolutions'])->toBe(1)->and($result['hp'])->toBe(93);
 })->with([false, true]);
+
+
+it('rejects an unavailable selected effect before command or combat starts for an asset-hold renderer', function () {
+  require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+  $root = createTestDirectory('selected-effect-required');
+  $transport = new \Tests\Support\Input\FakeRendererTransport();
+  $transport->batches[] = [\Ichiloto\Engine\Rendering\Transport\RendererEvent::fromJson(
+    '{"protocol":2,"type":"ready","capabilities":["asset_holds"]}')];
+  $runtime = new \Ichiloto\Engine\Rendering\Runtime\RendererRuntime(
+    new \Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig(
+      new \Ichiloto\Engine\Rendering\Transport\RendererProcessConfig(['never-launched']), $root,
+      requiredCapabilities: [\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS]), $transport);
+  try {
+    $runtime->start('Required selected effect', 135, 36);
+    [$engine, $context, $prototype, $actor, , $enemies] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
+    new ReflectionProperty(\Ichiloto\Engine\Core\Game::class, 'rendererRuntime')->setValue($context->game, $runtime);
+    $trace = new ActionEffectTrace('none');
+    $screen = new ActionEffectScreen(createCommandFixtureScene($context->game), $trace, $prototype, true, new BattleTurnTimings(0, 0, 0, .1, 0, 0, 0));
+    new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, $screen);
+    $state = new ActionEffectState($engine, null, new Animation(42, 'Selected', targetEffect: 'unavailable'));
+    $resolved = 0;
+    expect(fn() => new ReflectionMethod(ActionExecutionState::class, 'performTurnSequence')->invoke(
+      $state, $context, $actor, [$enemies[0]], new AttackAction('Selected'), 'Selected',
+      static function () use (&$resolved): void { $resolved++; }))
+      ->toThrow(\Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException::class, 'Selected battle effect');
+    expect($resolved)->toBe(0)->and($actor->stats->currentMp)->toBe(50)
+      ->and($enemies[0]->stats->currentHp)->toBe(100)->and($runtime->assetHolds->getDesiredRequests())->toBe([]);
+  } finally { $runtime->shutdown(); }
+});

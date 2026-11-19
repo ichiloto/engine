@@ -151,6 +151,179 @@ consumer. `present()` rejects dimensions differing from the fixed hello grid.
 Standalone callers must likewise dispatch ACKs to `acknowledge()`, handle
 rejection/resize and preserve gameplay keys; merely pumping bytes is not enough.
 
+### Owner-scoped asset preparation
+
+The `asset_holds` candidate separates resource intent from visible drawings.
+`AssetHoldResource` describes a current asset-relative path, optional pixel crop
+and exact base preparation (brightness, flips, rotation and bottom fade).
+Placement, opacity and colour treatment remain drawing state. No authored hash
+or duplicated image size is introduced.
+
+The shared client's `assetHolds` registry combines weak owner scopes. Replacing
+one scope cannot release another scope. Each changed preparation has a fresh
+runtime lease id and monotonically increasing revision. A frozen frame borrows
+the same immutable requests before its producer releases them; it does not
+allocate duplicate wire leases. A retired request cannot be revived by replaying
+an obsolete frame. The desired session set is limited to 1024 unique leases.
+
+The retained sender diffs `asset_hold` values alongside other entities. Their
+wire values contain neither a drawable id nor draw order. Resource-only traffic
+keeps the last scene intact and proceeds even when scene drawing readiness is
+held. Captured frames preserve resource intent; presentation and screen-handoff
+owners retain old references through covered replacement and release them on
+completion or shutdown. A new renderer session replays desired requests but
+requires fresh residency feedback.
+
+`AssetHoldScope` owns one presentation’s ongoing resource intent. It can replace
+or atomically merge newly known resources, keeps existing role requests stable,
+and releases them idempotently. A released scope refuses acquisition.
+`AssetHoldPreparation` captures an immutable initial readiness snapshot inside
+that scope. Its host supplies a
+monotonic start and timeout. Polling performs no I/O, sleep or clock advancement.
+It distinguishes waiting, ready, refused, unsupported, timed out, superseded and
+cancelled. A completed readiness decision retains its resources until explicit
+release; abandoning the preparation drops weak ownership.
+
+Semantic action focus owns an `AssetHoldPrefetch`, driven by selection state rather than composition. It shares actual live scene requests and promotes matching IDs into required command scope. Competitors release before required admission. Refused speculation releases immediately and is retried only after a semantic change or explicit clear. Scene requests remain independent through cancellation, pause and command disposal. Cinematic return descriptors retain drawing size and canvas, so unchanged battlers reuse scene preparations.
+
+A display-size resource adds paired typed `drawSize` and `canvas` values.
+`drawSize` has finite positive width/height in logical units up to16384;
+`canvas` declares incoming logical width/height integers1..16384 and `native` or
+`contain` viewport fitting. It is independent of the retained outgoing canvas.
+The Engine declares each authored cell using the same calibration as drawing,
+without placing future travel poses at a resting anchor. Party/reserve resources
+include each initial frontline place. Variable-width contact cells and nine-slice
+UI retain their full-size crop meaning.
+
+Native owns viewport/backing scale. It prepares ceil(drawSize * deviceScale)
+per axis; if either reaches the master crop extent, it retains the original crop
+and the GPU scales that image at the declared logical extent. No enlarged bitmap
+is allocated. `held` means the current-scale image is resident; resize can prepare
+a new copy. Masters are temporary worker staging under the same shared budget.
+
+The battle command consumer prepares its first actually sampled image cohort and
+known return battler resources before entry cues. Semantic focus prepares the
+first normal or reduced-motion cohort of the selected action. Scene-hot basic
+attacks retain their first normal and reduced-motion cohorts. This removes full
+future effect timelines from scene, focus and required command residency.
+
+`BattleCommandResourceStream` follows the production playback sampler, including
+composed stages, reduced-motion holds, flight timing and actual result effects.
+`AssetHoldWindow` retains the current cohort and one incoming cohort. A ready
+lookahead remains speculative until its command boundary is entered. Outgoing
+resources release only after the incoming cohort is ready; exact requests shared
+with the scene, paused frame or other owners remain live under those owners.
+
+Image commands use feedback-only readiness with no deadline. While an incoming
+cohort waits, the existing scene readiness gate keeps the last resident picture
+and sends resource-only updates. The command clock and cues stop at the safe
+boundary. Time spent waiting never becomes catch-up time. Explicit refusal,
+unsupported feedback, supersession and cancellation use the renderer error path;
+the image command cannot continue through a timeout or foreground fallback.
+Current readiness is re-read after a changed-file attempt. Playback's entered
+frame aligns elapsed time before dispatching its cues, so the first result
+picture and its resource decision share one boundary.
+
+Actual impact/result paths commit outcomes before collecting newly known return
+roles and result effects. Inspection samples neither dispatch cues nor resolve
+combat. Warm large updates keep their existing elapsed-time behavior. Pause uses
+its owned frozen frame; cancellation, completion and disposal release the
+command window. Terminal and unsubscribed hosts retain their existing paths;
+return-only preparation keeps its finite legacy deadline.
+
+Battle entry has a separate readiness policy. Before the scene becomes drawable,
+`BattleScene` declares the arena, all participant and reserve role resources,
+first basic-attack cohorts, the theme's contact-effect layers, HUD, pause, results
+portraits for the current party, and registered control artwork. The owning
+skin/catalogue APIs supply paths before optional presentation preparation can
+discard unavailable bindings. The scene's initial `AssetHoldPreparation` has a
+null deadline. Slow preparation retains the covered outgoing frame; it neither
+composes an incoming battle canvas nor starts combat. This removes the earlier
+entry deadline and foreground-on-failure path. An explicit missing, corrupt or
+refused resource or renderer failure uses the renderer-session error route and
+releases only that battle's scope. Readiness is re-read after initial entry,
+including a changed-file attempt. Terminal and unsubscribed renderers keep their
+established path.
+
+Exact master-pixel bounds and lower-edge facts use `PngAssetFactsCache`. A host may
+inject a dedicated absolute storage directory through `PngAssetBounds::setFactsCache`;
+the default is the platform user-cache directory under Ichiloto/asset-facts/v1.
+Bounded non-executable JSON records key the canonical source path, crop, schema and
+current content revision. They store generated facts rather than authored identity,
+physical occupancy or pivots. Fresh processes reuse them without decoding PNGs;
+missing/stale/corrupt/unwritable records regenerate the same exact facts with a
+diagnostic when storage fails. Atomic writes, symlink refusal, a128KiB record bound,
+2048records and64MiB total bound keep this disposable store separate from project
+assets, settings and saves. Source files remain read-only. The native renderer
+owns display-size copies, device scale, decoded/GPU lifetime and memory admission.
+
+After combat and the current tick’s reaction feedback commit, the command merges
+actual outcome resources into that same live scope. Deferred reaction beats also
+trigger a merge at their real presentation boundary. This samples current and
+first-return poses through the existing projector, retaining initial resources
+and once-only combat/cue timing. Resource refusal is diagnosed after gameplay
+resolution. No second readiness wait changes authored timing.
+
+Base transforms absent from the declared set still use foreground preparation.
+A declared hold guarantees its requested guarded crop/base or current-scale
+copy before readiness. It does not promise a decoded master or total GPU
+residency. Native owns decoded staging, display copies, foreground preparation,
+conversion buffers and evictable cache through one complete image ledger.
+`AssetHoldCapacity` reads aggregate bytes/count and four disjoint owners: held,
+foreground, staging and cache. Only staging reports an additional byte sublimit;
+that limit is never added to current usage. Totals must equal checked owner sums.
+Truthful usage above a newly lowered limit is valid observation; new admission
+still has to fit. The separate-store `AssetHoldStoreCapacity` model is removed.
+The candidate fixture is version5; its32MiB example is synthetic. A production
+numeric ceiling and paired native working-set qualification remain open; the
+shared-channel fixture/proposal await the reconciled revision7 seal.
+
+PHP validates paths, current headers/crops, per-image generic limits and aggregate
+source/region counts for every session. For negotiated `asset_holds`, aggregate
+live image bytes belong to the native allocator; this removes the duplicate
+PHP64MiB aggregate check for that capability. Unsubscribed sessions retain the
+legacy source/region byte limits and measured diagnostics. Formation clearance
+and action travel planning use the shared battler projector's current body
+geometry without composing a full frame, effects or HUD. Route planning batches
+current visible-body PNG facts for the active frontline and troop. It preserves
+logical ground anchors, target-facing travel checks and phase-aware pose
+clearance. This removes full-frame allocation admission from route planning;
+canvas drawing retains its negotiated or legacy allocation policy.
+
+Battler pose calibration, source rectangles, pivots and logical ground geometry
+are independent of the viewport. The shared projector retains the whole pose
+for travel, captures and named attachment points, then clips its painted view
+through the existing full-source image/rotation-zero/parent-clip contract.
+Formation previews carry that same clip and pivot through uniform menu scaling.
+This removes viewport rejection and resting-art fallback for otherwise valid
+poses that overhang, and removes viewport clamping that moved their authored
+anchors. Unsupported, missing and corrupt artwork retains its diagnostics.
+Ground elevation also preserves the logical body position; a wholly submerged
+body is hidden, removing the artificial one-pixel strip. Ground contact has its
+own painting visibility: runtime and previews retain an on-screen ground shadow
+or surface ripple when the body lies entirely outside the viewport. This removes
+body-visibility gating of ground-contact artwork and composites. Contact geometry
+uses the same whole logical artwork and moving ground anchor; defeat opacity and
+travel's resting contact shape remain shared. Base formation validation and
+renderer resource/admission rules remain in force.
+
+Feedback remains bounded to1024 status entries and each refusal message to1024 UTF-8 bytes. Coalesced source attempts may
+skip un-emitted ended/pending history; a newer attempt is accepted directly and
+late older results remain ignored. Legacy ordered transitions within the same
+bounds remain readable.
+
+Every desired resource set must fit a complete reset:4096 operations and4 MiB of
+canonical typed-operation JSON. Admission counts the aggregate across owners and
+frozen-frame borrowers before changing ownership or consuming revisions. The
+low-level retained sender enforces the same boundary before changing desired
+state or queuing bytes. A metadata-heavy set that exceeds it is refused with
+`asset_hold transaction_limit`, preserving earlier resources. Existing individual
+path rules stay unchanged. Canonical byte counts follow the shared wire schema,
+including binary64 fraction lengths; they do not change locale or PHP settings.
+
+Native pairing, readiness before first use of newly resolved resources and player verification
+remain open in the [integration roadmap](integration-roadmap.md#asset-lifetimes-and-command-readiness).
+
 ### Nonblocking upload and coalescing
 
 `present()` and `presentCanvas()` return true only when new retained-update bytes
@@ -334,3 +507,12 @@ exists under assetRoot. It displays at (8,4), size 32x48, bottom_center; FRAME 2
 removes it. The required text-only proof does not depend on any game artwork.
 
 The smoke tool is a manual diagnostic, not a statement of platform validation.
+
+
+### Pixel-valued composite source views
+
+Composite image operations and image-alpha masks may select `sourcePixels: {x, y, width, height}`. These finite pixel-valued rectangles preserve integer atlas-cell boundaries and allow fractional destination clipping. Origins are nonnegative, extents are positive, and admission checks the rectangle against the current PNG dimensions. `source` and `sourcePixels` are mutually exclusive. Legacy normalized `source` retains its existing meaning.
+
+`canvas_source_pixels` is an optional protocol2 drawing capability requiring `graphical_canvas` and `canvas_compositing`. The Engine emits pixel-valued tint masks inside a supporting host’s existing `PresentationSession` scope. Older hosts retain normalized tint emission; the presenter records one precision diagnostic per live session when normalized crops are used. They retain their existing crop precision, which cannot guarantee atlas-cell isolation. An explicitly pixel-valued descriptor is rejected before sending to an unsupported renderer, including masks nested inside displacement grids.
+
+Sampling clamps bilinear taps to `[floor(x), ceil(x + width) - 1]` and the corresponding vertical interval in pixel space; flips mirror within the selected interval. Native and Editor samplers own this operation. A prepared source view may use the current whole decoded image or an already-held guarded region with an explicit logical origin and stride. Whole-source and cold-work admission bounds remain independently enforced. The shared synthetic fixture is `tests/Fixtures/Renderer/pixel-sources-wire-fixture.json`; paired native/Editor backing-equivalence qualification remains required before normal integration.

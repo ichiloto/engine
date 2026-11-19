@@ -11,6 +11,10 @@ use Exception;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
+use Ichiloto\Engine\Battle\Presentation\BattleArtworkFacts;
+use Ichiloto\Engine\Battle\Presentation\BattleArtworkPreparation;
+use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
+use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePresentation;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameStartLocation;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
@@ -27,10 +31,12 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\ScreenTransition;
 use Ichiloto\Engine\Rendering\ScreenTransitionCatalog;
 use Ichiloto\Engine\Rendering\ScreenTransitionPhase;
 use Ichiloto\Engine\Rendering\ScreenTransitionSession;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
@@ -98,7 +104,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   private bool $stopping = false;
   private ?ScreenTransitionSession $sceneTransition = null;
   private float $transitionTime = 0;
-  private bool $changingCoveredScene = false;
+  private bool $changingTransitionScene = false;
   private bool $transitionFocusPaused = false;
 
   public function hasSceneTransition(): bool { return $this->sceneTransition !== null; }
@@ -257,7 +263,16 @@ class SceneManager implements CanStart, CanRender, CanUpdate
         $this->transitionFocusPaused = false;
         $delta = 0;
       }
-      $this->sceneTransition->update($delta);
+      $transition = $this->sceneTransition;
+      try {
+        if ($this->currentScene instanceof BattleScene) {
+          $this->currentScene->advanceBattleResourcePreparation();
+        }
+        $transition->update($delta);
+      } catch (Throwable $error) {
+        try { $transition->cancel(); } catch (Throwable) { /* Preserve the original failure. */ }
+        throw $error;
+      }
       return;
     }
     $this->currentScene?->update();
@@ -349,7 +364,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   private function loadRegisteredScene(SceneInterface $sceneToLoad, bool $suspendCurrent = false): self
   {
 
-    if ($this->sceneTransition !== null && !$this->changingCoveredScene) {
+    if ($this->sceneTransition !== null && !$this->changingTransitionScene) {
       $this->sceneTransition->cancel();
     }
 
@@ -735,29 +750,70 @@ class SceneManager implements CanStart, CanRender, CanUpdate
         $treatment = null;
       }
     }
-    if ($treatment === null) {
+    if ($runtime === null) {
       $this->enterBattleScene($config);
-      if ($runtime !== null && $this->currentScene instanceof BattleScene) { $this->currentScene->completeGraphicalEntry(); }
       return;
     }
+    $assetRoot = $runtime->getAssetRoot();
+    $canPreparePresentation = $runtime->supports(RendererSessionConfig::GRAPHICAL_CANVAS)
+      && BattlePresentationCatalog::exists($assetRoot);
+    $artwork = new BattleArtworkPreparation(fn(): ?BattleArtworkFacts => $runtime->supports(RendererSessionConfig::GRAPHICAL_CANVAS)
+      ? $this->collectBattleEntryFacts($config, $assetRoot) : null);
+    $prepared = null;
+    // Begin early enough for preparation to overlap the optional cover.
+    if ($treatment !== null) { $artwork->poll(); }
     $this->transitionTime = $this->getTransitionTime();
     $this->transitionFocusPaused = false;
     $this->sceneTransition = ScreenTransition::startHandoff($treatment,
       $runtime->setScreenHandoffPhase(...),
-      function () use ($config, $runtime): void {
-        $this->changingCoveredScene = true;
-        try {
-          $this->enterBattleScene($config);
-          $runtime->replaceScreenHandoff();
-          // Prepare and queue the incoming composition while the engine-owned cover is still active.
-          $runtime->present($this->currentScene);
-        } finally { $this->changingCoveredScene = false; }
+      function () use ($config, $runtime, $assetRoot, $treatment, $artwork, $canPreparePresentation, &$prepared): bool {
+        return PngAssetPreflight::runWithSnapshot(function () use (
+          $config, $runtime, $assetRoot, $treatment, $artwork, $canPreparePresentation, &$prepared
+        ): bool {
+          if ($prepared !== null) {
+            [$battleScene, $presentation, $versions] = $prepared;
+            if ($this->findScene(BattleScene::class) !== $battleScene
+              || !PngAssetPreflight::hasReadVersions($assetRoot, $versions)) {
+              $prepared = null;
+              return false;
+            }
+          } else {
+            if (!$artwork->poll()) { return false; }
+            $battleScene = $canPreparePresentation ? $this->findScene(BattleScene::class) : null;
+            if ($battleScene instanceof BattleScene) {
+              [$presentation, $versions] = PngAssetPreflight::captureReadVersions($assetRoot,
+                fn() => $battleScene->prepareEntryPresentation($config));
+              if ($versions !== null) {
+                $prepared = [$battleScene, $presentation, $versions];
+                return false;
+              }
+            }
+          }
+          $this->changingTransitionScene = true;
+          try {
+            if ($prepared === null) {
+              $this->enterBattleScene($config);
+            } else {
+              $battleScene->runWithEntryPresentation($presentation, fn() => $this->enterBattleScene($config));
+              $prepared = null;
+            }
+            if ($treatment !== null) {
+              $runtime->replaceScreenHandoff();
+              // Queue the incoming composition while the Engine still owns a full cover.
+              $runtime->present($this->currentScene);
+            }
+            return true;
+          } finally { $this->changingTransitionScene = false; }
+        });
       },
-      fn(): bool => $this->currentScene instanceof BattleScene && $this->currentScene->isStarted(),
-      function () use ($runtime): void {
+      fn(): bool => $treatment === null || ($this->currentScene instanceof BattleScene
+        && $this->currentScene->isStarted() && $this->currentScene->canPresentSceneFrame()),
+      function () use ($runtime, $treatment, $artwork, &$prepared): void {
+        $prepared = null;
         $complete = $this->sceneTransition?->phase === ScreenTransitionPhase::COMPLETE;
         $this->sceneTransition = null;
-        $runtime->endScreenHandoff();
+        $artwork->cancel();
+        if ($treatment !== null) { $runtime->endScreenHandoff(); }
         InputManager::resetState(true);
         if ($complete && $this->currentScene instanceof BattleScene) { $this->currentScene->completeGraphicalEntry(); }
         if (!$complete && !$this->currentScene instanceof BattleScene) {
@@ -765,6 +821,19 @@ class SceneManager implements CanStart, CanRender, CanUpdate
           $this->suspendedCaller = null;
         }
       });
+    if ($treatment === null) { $this->sceneTransition->update(0); }
+  }
+
+  protected function collectBattleEntryFacts(BattleConfig $config, string $assetRoot): ?BattleArtworkFacts
+  {
+    try {
+      $catalog = BattlePresentationCatalog::load($assetRoot);
+      return $catalog === null ? null : GraphicalBattlePresentation::collectEntryArtworkFacts($config, $catalog, $assetRoot);
+    } catch (Throwable $error) {
+      // BattleScene owns diagnostics and recovery for a failed graphical presentation plan.
+      Debug::warn('Battle artwork could not be planned in advance: ' . $error->getMessage());
+      return null;
+    }
   }
 
   /** The scene swap is owned here, never by native animation completion or a battle state. */

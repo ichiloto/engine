@@ -124,7 +124,8 @@ final class ActorDefinition
    *
    * @param array<string, mixed> $savedState
    */
-  public function createCharacter(array $savedState = [], ?string $savePath = null, ?int $startingLevel = null): Character
+  public function createCharacter(array $savedState = [], ?string $savePath = null, ?int $startingLevel = null,
+    bool $preserveAuthoredAp = false): Character
   {
     if ($startingLevel !== null && ($startingLevel < 1 || $savedState !== [])) {
       throw new \InvalidArgumentException('A starting level must be positive and applies only to a new actor.');
@@ -144,7 +145,7 @@ final class ActorDefinition
     }
 
     if ($savedState !== []) {
-      $character->restoreMutableState($savedState);
+      $character->restoreMutableState($savedState, $preserveAuthoredAp);
     } else {
       InitialEquipment::fromArray($data['initialEquipment'] ?? [], $this->source)->equipCharacter($character);
     }

@@ -4,6 +4,9 @@ use Ichiloto\Engine\Scenes\Arena\ArenaSetupEditor;
 use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
 use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
 use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Scenes\Arena\BattleTestPartySetting;
+use Ichiloto\Engine\UI\Navigation\ToolNavigationAction;
+require_once __DIR__ . "/../Support/BattleTestPartyFixtures.php";
 
 function arenaSetupEditor(array $members = [['hero', 5]], int $troops = 3): ArenaSetupEditor
 {
@@ -34,10 +37,11 @@ it('keeps the troops and the party as separate panes that only Tab and Shift+Tab
   expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)->and($editor->memberIndex)->toBe(0);
   $editor->moveVertical(-1);
   expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)->and($editor->memberIndex)->toBe(0);
-  expect($editor->cancel())->toBe(ArenaSetupEditor::QUIT)->and($editor->focus)->toBe(ArenaSetupEditor::PARTY);
+  expect($editor->cancel())->toBeNull()->and($editor->focus)->toBe(ArenaSetupEditor::TROOPS);
+  $editor->movePane(1);
   $editor->movePane(-1);
   expect($editor->focus)->toBe(ArenaSetupEditor::TROOPS)->and($editor->troopIndex)->toBe(2)
-    ->and($editor->cancel())->toBe(ArenaSetupEditor::QUIT);
+    ->and($editor->cancel())->toBeNull();
 });
 
 it('turns the troop list a page at a time without leaving it', function () {
@@ -90,7 +94,7 @@ it('chooses equipment from what the slot can hold, starting on what is worn', fu
   expect($editor->choiceIndex)->toBe(2);
   $editor->cancel();
   $editor->cancel();
-  expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)->and($editor->member->equipment['Weapon'])->toBe('equipment.axe');
+  expect($editor->focus)->toBe(ArenaSetupEditor::MANAGEMENT)->and($editor->member->equipment['Weapon'])->toBe('equipment.axe');
 });
 
 it('adds a member in an empty place and removes one, keeping the last', function () {
@@ -199,7 +203,7 @@ it('switches to Party from a scrolled troop row with Tab and back with Shift+Tab
     $priorKey->setValue(null, null);
     $list = $scene->describeList();
     expect($list->selected)->toBe(17)
-      ->and($list->hints)->toContain(['character_next', 'Party']);
+      ->and($list->hints)->toContain([ToolNavigationAction::PREVIOUS_PANE->value, 'Cycle panels', ToolNavigationAction::NEXT_PANE->value]);
 
     $key->setValue(null, \Ichiloto\Engine\IO\Enumerations\KeyCode::TAB);
     $scene->update();
@@ -208,7 +212,7 @@ it('switches to Party from a scrolled troop row with Tab and back with Shift+Tab
       ->and($editor->memberIndex)->toBe(0)
       ->and($list->selected)->toBeNull()
       ->and($list->anchor)->toBe(17)
-      ->and($list->hints)->toContain(['character_previous', 'Troops']);
+      ->and($list->hints)->toContain([ToolNavigationAction::PREVIOUS_PANE->value, 'Cycle panels', ToolNavigationAction::NEXT_PANE->value]);
 
     $key->setValue(null, \Ichiloto\Engine\IO\Enumerations\KeyCode::SHIFT_TAB);
     $scene->update();
@@ -221,42 +225,35 @@ it('switches to Party from a scrolled troop row with Tab and back with Shift+Tab
   }
 });
 
-it('keeps the composed troop and its row when switching to Party and back', function () {
+it('cycles visible panels during nested composition and member editing without changing the left editing context', function () {
   $composer = new \Ichiloto\Engine\Scenes\Arena\TestTroopComposer(['Rat'], static fn() => [3, 4]);
   $editor = new ArenaSetupEditor(new BattleTestSetup([new BattleTestMember('hero', 5)]), 26, ['hero'],
     static fn() => [], static fn() => [], static fn() => 99, composer: $composer);
-  $editor->selectTroop(26);
-  $editor->confirm();
-  $editor->confirm();
+  $editor->selectTroop(26); $editor->confirm(); $editor->confirm();
+  expect($composer->focus)->toBe($composer::ENEMIES);
   $editor->movePane(1);
-  expect($editor->focus)->toBe(ArenaSetupEditor::COMPOSER)
-    ->and($composer->focus)->toBe($composer::ENEMIES);
-  $editor->confirm();
-  $editor->moveVertical(1);
-  $row = $composer->rowIndex;
-  $troop = $composer->troop;
+  expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)->and($editor->listFocus)->toBe(ArenaSetupEditor::COMPOSER);
   $editor->movePane(1);
-  expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)
-    ->and($editor->listFocus)->toBe(ArenaSetupEditor::COMPOSER);
-  $editor->confirm();
-  $editor->movePage(1, 16);
-  expect($editor->member->level)->toBe(15)
-    ->and($editor->focus)->toBe(ArenaSetupEditor::MEMBER);
+  expect($editor->focus)->toBe(ArenaSetupEditor::COMPOSER)->and($composer->focus)->toBe($composer::ENEMIES);
+  $editor->confirm(); $editor->moveVertical(1);
+  $row = $composer->rowIndex; $troop = $composer->troop;
+  $editor->movePane(-1); $editor->confirm(); $editor->movePage(1, 16);
+  expect($editor->member->level)->toBe(15)->and($editor->focus)->toBe(ArenaSetupEditor::MEMBER);
+  $field = $editor->fieldIndex;
+  $editor->movePane(1); $editor->movePane(-1);
+  expect($editor->focus)->toBe(ArenaSetupEditor::MEMBER)->and($editor->fieldIndex)->toBe($field);
+  $editor->cancel(); expect($editor->focus)->toBe(ArenaSetupEditor::MANAGEMENT);
   $editor->cancel();
-  $editor->movePane(-1);
-  expect($editor->focus)->toBe(ArenaSetupEditor::COMPOSER)
-    ->and($composer->rowIndex)->toBe($row)
+  expect($editor->focus)->toBe(ArenaSetupEditor::COMPOSER)->and($composer->rowIndex)->toBe($row)
     ->and($composer->troop)->toBe($troop);
-  $editor->movePane(1);
-  expect($editor->cancel())->toBeNull()->and($editor->focus)->toBe(ArenaSetupEditor::TROOPS)
-    ->and($composer->troop)->toBe($troop);
+  $editor->cancel(); expect($editor->focus)->toBe(ArenaSetupEditor::TROOPS)->and($editor->cancel())->toBeNull();
 });
 
 it('offers starting conditions and the party\'s items only where they can be set, through the same small key set', function () {
   $plain = arenaSetupEditor();
   $plain->movePane(1);
   $plain->movePane(1);
-  expect($plain->focus)->toBe(ArenaSetupEditor::PARTY)->and($plain->offersCondition)->toBeFalse();
+  expect($plain->focus)->toBe(ArenaSetupEditor::TROOPS)->and($plain->offersCondition)->toBeFalse();
 
   $stock = [new \Ichiloto\Engine\Scenes\Arena\BattleTestItem('item.potion', 99)];
   $editor = new ArenaSetupEditor(new BattleTestSetup([new BattleTestMember('hero', 5)], inventory: []), 1, ['hero'],
@@ -286,17 +283,53 @@ it('offers starting conditions and the party\'s items only where they can be set
   $editor->moveHorizontal(-1);
   expect($editor->member->mp?->amount)->toBe(29);
   $editor->cancel();
-  $editor->movePane(1);
+  selectBattleTestPartySetting($editor, BattleTestPartySetting::ITEMS);
+  $editor->confirm();
   expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS);
   $editor->confirm();
   $editor->confirm();
   $editor->moveVertical(-1);
   $editor->confirm();
   expect($editor->setup->inventory)->toEqual([new \Ichiloto\Engine\Scenes\Arena\BattleTestItem('item.potion', 2)])
-    ->and($editor->cancel())->toBe(ArenaSetupEditor::QUIT)->and($editor->focus)->toBe(ArenaSetupEditor::ITEMS);
+    ->and($editor->cancel())->toBeNull()->and($editor->focus)->toBe(ArenaSetupEditor::MANAGEMENT);
 });
 
 it('plays no music on the setup menu, leaving the battle theme to the battle it opens', function () {
   $scene = new ReflectionClass(\Ichiloto\Engine\Scenes\Arena\ArenaScene::class)->newInstanceWithoutConstructor();
   expect($scene->getBackgroundMusic())->toBeNull();
+});
+
+
+it('removes Escape and bare Q quitting and reserves exit for the shared Ctrl+Q action in the real scene input route', function () {
+  $game = new class extends \Ichiloto\Engine\Core\Game {
+    public int $quitRequests = 0;
+    public function __construct() {}
+    public function __destruct() {}
+    public function quit(): void { $this->quitRequests++; }
+  };
+  $scene = new class($game) extends \Ichiloto\Engine\Scenes\Arena\ArenaScene {
+    public function __construct(private \Ichiloto\Engine\Core\Game $owner) {}
+    public function getGame(): \Ichiloto\Engine\Core\Game { return $this->owner; }
+    public function render(): void {}
+  };
+  new ReflectionProperty($scene, 'camera')->setValue($scene, $this->createStub(\Ichiloto\Engine\Rendering\Camera::class));
+  $editor = arenaSetupEditor();
+  new ReflectionProperty($scene, 'editor')->setValue($scene, $editor);
+  $previous = new ReflectionClass(\Ichiloto\Engine\IO\InputManager::class)->getStaticProperties();
+  try {
+    \Ichiloto\Engine\IO\InputManager::setBindings(['quit' => ['keys' => [\Ichiloto\Engine\IO\Enumerations\KeyCode::q]],
+      'cancel' => ['keys' => [\Ichiloto\Engine\IO\Enumerations\KeyCode::ESCAPE]]]);
+    foreach ([\Ichiloto\Engine\IO\Enumerations\KeyCode::ESCAPE, \Ichiloto\Engine\IO\Enumerations\KeyCode::q,
+      \Ichiloto\Engine\IO\Enumerations\KeyCode::TAB, \Ichiloto\Engine\IO\Enumerations\KeyCode::ESCAPE] as $key) {
+      new ReflectionProperty(\Ichiloto\Engine\IO\InputManager::class, 'previousKeyPress')->setValue(null, null);
+      new ReflectionProperty(\Ichiloto\Engine\IO\InputManager::class, 'keyPress')->setValue(null, $key);
+      $scene->update();
+      expect($game->quitRequests)->toBe(0);
+    }
+    new ReflectionProperty(\Ichiloto\Engine\IO\InputManager::class, 'keyPress')->setValue(null, \Ichiloto\Engine\IO\Enumerations\KeyCode::CTRL_Q);
+    $scene->update();
+    expect($game->quitRequests)->toBe(1);
+  } finally {
+    foreach ($previous as $name => $value) { new ReflectionProperty(\Ichiloto\Engine\IO\InputManager::class, $name)->setValue(null, $value); }
+  }
 });

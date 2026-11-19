@@ -17,8 +17,6 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
-use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
-use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Core\Vector2;
 use InvalidArgumentException;
@@ -236,21 +234,9 @@ final class GraphicalBattleEffects
                   throw new InvalidArgumentException('Renderer cannot mirror this battle effect image.');
                 }
                 $asset = $oriented['assetId'] ?? '';
-                $size = PngAssetPreflight::getAvailableSize($assetRoot, $asset);
-                if ($size === null) { throw new InvalidArgumentException('Battle effect PNG is unavailable: ' . $asset); }
-                $columns = max(1, (int)($data['columns'] ?? 1));
-                $rows = max(1, (int)($data['rows'] ?? 1));
-                if ($size['width'] % $columns !== 0 || $size['height'] % $rows !== 0) {
-                  throw new InvalidArgumentException('Battle effect PNG does not divide into its sheet grid.');
-                }
-                $source = (int)($data['sourceFrame'] ?? 0);
-                if ($source < 0 || $source >= $columns * $rows) {
-                  throw new InvalidArgumentException('Battle effect source frame is outside the current sheet.');
-                }
-                $frameWidth = intdiv($size['width'], $columns);
-                $frameHeight = intdiv($size['height'], $rows);
-                $crop = new SpriteSourceRect(($source % $columns) * $frameWidth,
-                  intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight);
+                $crop = \Ichiloto\Engine\Animations\Timelines\EffectImageSource::fromCommand($oriented)->getSourceRect($assetRoot);
+                $frameWidth = $crop->width;
+                $frameHeight = $crop->height;
                 if (isset($data['groundSpan'])) {
                   if (!EffectScale::playsAuthoredSize($scale)) {
                     throw new InvalidArgumentException('Captured ground-span geometry requires binding scale 1.');

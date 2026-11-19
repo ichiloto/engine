@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Animations\Field\FieldPoseAnimation;
+use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\Enumerations\DoorwayEntrance;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
@@ -30,6 +31,7 @@ use InvalidArgumentException;
 final readonly class WorldObjectResource
 {
     public const int MAX_DOORWAY_CELLS = Doorway::MAX_CELLS;
+    private const int MAX_APPEARANCE_REGIONS = 32;
 
     private function __construct(
         public string $id,
@@ -47,6 +49,8 @@ final readonly class WorldObjectResource
         public ?TileAppearance $appearance = null,
         /** Foreground blanket artwork shares this resource's pivot; an occupant draws between its base and covers. */
         public GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation|null $bedCover = null,
+        /** @var list<array{x: int, y: int, width: int, height: int, appearance: TileAppearance}> Anchor-relative visual roles. */
+        private array $appearanceRegions = [],
     ) {}
 
     public static function assertId(mixed $id): void
@@ -59,7 +63,7 @@ final readonly class WorldObjectResource
     public static function fromArray(string $id, mixed $data): self
     {
         self::assertId($id);
-        if (!is_array($data) || array_diff(array_keys($data), ['name', 'pivot', 'sprites2d', 'occupancyStamp', 'sign', 'doorway', 'attachments', 'appearance', 'bedCover2d']) !== []
+        if (!is_array($data) || array_diff(array_keys($data), ['name', 'pivot', 'sprites2d', 'occupancyStamp', 'sign', 'doorway', 'attachments', 'appearance', 'bedCover2d', 'appearanceRegions']) !== []
             || !is_string($data['name'] ?? null) || trim($data['name']) === ''
             || str_contains($data['name'], "\0") || preg_match('//u', $data['name']) !== 1
             || !is_array($data['pivot'] ?? null)
@@ -105,7 +109,53 @@ final readonly class WorldObjectResource
             array_key_exists('attachments', $data) ? WorldObjectAttachment::readList($id, $data['attachments']) : [],
             array_key_exists('appearance', $data) ? TileAppearance::parse($data['appearance']) : null,
             array_key_exists('bedCover2d', $data) ? (is_array($data['bedCover2d']) ? FieldSpriteRole::readDefinition($data['bedCover2d'])
-                : throw new InvalidArgumentException('bedCover2d must be a field sprite role.')) : null);
+                : throw new InvalidArgumentException('bedCover2d must be a field sprite role.')) : null,
+            array_key_exists('appearanceRegions', $data) ? self::readAppearanceRegions($data['appearanceRegions']) : []);
+    }
+
+    /** A region describes the visible surface at this offset from the placement anchor. */
+    public function getAppearanceInRegion(int $x, int $y): ?TileAppearance
+    {
+        foreach ($this->appearanceRegions as $region) {
+            if ($x >= $region['x'] && $x < $region['x'] + $region['width']
+                && $y >= $region['y'] && $y < $region['y'] + $region['height']) {
+                return $region['appearance'];
+            }
+        }
+        return null;
+    }
+
+    /** @return list<array{x: int, y: int, width: int, height: int, appearance: TileAppearance}> */
+    private static function readAppearanceRegions(mixed $entries): array
+    {
+        if (!is_array($entries) || !array_is_list($entries) || count($entries) > self::MAX_APPEARANCE_REGIONS) {
+            throw new InvalidArgumentException('Resource appearanceRegions must be a list of at most 32 rectangles.');
+        }
+
+        $regions = $bounds = [];
+        foreach ($entries as $entry) {
+            if (!is_array($entry) || array_diff(array_keys($entry), ['x', 'y', 'width', 'height', 'appearance']) !== []
+                || !is_int($entry['x'] ?? null) || !is_int($entry['y'] ?? null)
+                || !is_int($entry['width'] ?? null) || $entry['width'] < 1
+                || !is_int($entry['height'] ?? null) || $entry['height'] < 1) {
+                throw new InvalidArgumentException('Resource appearanceRegions require integer x/y offsets and positive width and height.');
+            }
+
+            ['x' => $x, 'y' => $y, 'width' => $width, 'height' => $height] = $entry;
+            foreach ([$x, $y, $width, $height] as $coordinate) {
+                SpriteValidation::validateSigned32BitRange($coordinate);
+            }
+            SpriteValidation::validateSigned32BitRange($x + $width - 1);
+            SpriteValidation::validateSigned32BitRange($y + $height - 1);
+            $rectangle = new Rect($x, $y, $width, $height);
+            if (array_any($bounds, $rectangle->intersects(...))) {
+                throw new InvalidArgumentException('Resource appearanceRegions cannot overlap.');
+            }
+            $bounds[] = $rectangle;
+            $regions[] = ['x' => $x, 'y' => $y, 'width' => $width, 'height' => $height,
+                'appearance' => TileAppearance::parse($entry['appearance'] ?? null)];
+        }
+        return $regions;
     }
 
     public function findAttachment(string $id): ?WorldObjectAttachment

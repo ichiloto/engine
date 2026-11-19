@@ -132,7 +132,7 @@ final readonly class BattleFormationLayout
     return [
       'images' => array_map(static fn(CanvasImage $image): CanvasImage => new CanvasImage('stage-' . $image->id, $image->asset,
         $into($image->destination), $layer + $rank[$image->layer], $image->sourceRect, $image->opacity, $into($image->clipRect),
-        $image->brightness, $image->flipX, $image->flipY), $images),
+        $image->brightness, $image->flipX, $image->flipY, $image->rotation, $image->pivot, $image->bottomFade), $images),
       'composites' => array_map(static fn(CanvasComposite $composite): CanvasComposite => new CanvasComposite('stage-' . $composite->id,
         $composite->width, $composite->height, $into($composite->destination), $composite->operations, $layer + $rank[$composite->layer],
         $composite->opacity, $into($composite->clipRect)), $composites),
@@ -143,7 +143,7 @@ final readonly class BattleFormationLayout
   public static function getRectangleInto(CanvasRectangle $rectangle, CanvasRectangle $frame, float $scale): CanvasRectangle
   {
     return new CanvasRectangle($frame->x + $rectangle->x * $scale, $frame->y + $rectangle->y * $scale,
-      max(1, $rectangle->width * $scale), max(1, $rectangle->height * $scale));
+      max(1, $rectangle->width * $scale), max(1, $rectangle->height * $scale), allowOutsideCanvas: true);
   }
 
   /** @return list<CanvasImage> The background, then every battler with art and its contact art, from back to front. */
@@ -154,8 +154,9 @@ final readonly class BattleFormationLayout
       if ($battler->image !== null) {
         $image = $bottomFade
           ? BattlerGroundContact::getAquaticBody($battler->image, $battler->contact, $battler->ground->y) : $battler->image;
-        array_push($images, $image, ...$battler->contactImages);
+        $images[] = $image;
       }
+      array_push($images, ...$battler->contactImages);
     }
     return $images;
   }
@@ -165,7 +166,7 @@ final readonly class BattleFormationLayout
   {
     $composites = [];
     foreach ($this->getStanding() as $battler) {
-      if ($battler->image !== null) { array_push($composites, ...$battler->contactComposites); }
+      array_push($composites, ...$battler->contactComposites);
     }
     return $composites;
   }
@@ -313,19 +314,40 @@ final readonly class BattleFormationLayout
     return ['bounds' => $bounds, 'diagnostic' => $diagnostic];
   }
 
+  /** The source-to-logical size is independent of where a future pose will stand.
+   * @return array{width: float, height: float}
+   */
+  public static function getPoseDrawSize(BattlerSlot $slot, BattlerArtwork $art, ?float $basePixelScale,
+    BattleCanvasLayout $layout, ?BattlerScale $profile, ?BattleScale $scale, ?float $scaleSpan = null,
+    ?BattlePoseSet $poses = null): array
+  {
+    if (($profile === null || $scale === null) && $basePixelScale === null) {
+      $bounds = $slot->place($art, $poses?->displayWidth);
+      return ['width' => $bounds->width, 'height' => $bounds->height];
+    }
+    $pixelScale = self::getPosePixelScale($art, $basePixelScale, $profile, $scale, $scaleSpan) * $slot->displayScale;
+    return ['width' => $art->width * $pixelScale, 'height' => $art->height * $pixelScale];
+  }
+
   /** $basePixelScale excludes slot depth, which placement applies exactly once. */
   public static function getPosePlacement(BattlerSlot $slot, BattlerArtwork $art, ?float $basePixelScale,
     BattleCanvasLayout $layout, ?BattlerScale $profile, ?BattleScale $scale, ?float $scaleSpan = null,
     ?BattlePoseSet $poses = null): CanvasRectangle
   {
     if (($profile === null || $scale === null) && $basePixelScale === null) {
-      return self::getBasePlacement($slot, $art, $layout, $poses, null, null)['bounds'];
+      return $slot->place($art, $poses?->displayWidth);
     }
-    $pixelScale = $profile !== null && $scale !== null
-      ? $profile->getPixelScale($scale->referenceHeight, $art, $scaleSpan) : $basePixelScale;
-    $bounds = $slot->placeAtScale($art, $pixelScale);
-    $bounds->assertWithin($layout->width, $layout->height);
-    return $bounds;
+    // Pose placement owns calibration and pivot. The parent viewport owns painting bounds.
+    return $slot->placeAtScale($art, self::getPosePixelScale($art, $basePixelScale, $profile, $scale, $scaleSpan));
+  }
+
+  /** Calibration shared by future-resource measurement and actual frame placement. */
+  private static function getPosePixelScale(BattlerArtwork $art, ?float $basePixelScale,
+    ?BattlerScale $profile, ?BattleScale $scale, ?float $scaleSpan): float
+  {
+    return $profile !== null && $scale !== null
+      ? $profile->getPixelScale($scale->referenceHeight, $art, $scaleSpan)
+      : ($basePixelScale ?? throw new RuntimeException('A calibrated pose requires its base pixel scale.'));
   }
 
   private static function resolveBattler(BattlePresentationCatalog $catalog, BattleCanvasLayout $layout,
@@ -366,15 +388,16 @@ final readonly class BattleFormationLayout
     $elevation = BattlerGroundContact::getElevation($grounding, $habitat, $layout, pose: $shownPose);
     $contact = BattlerGroundContact::getContact($grounding, $habitat, $elevation, $shownPose);
     $offset = BattlerGroundContact::getOffset($elevation, $slot, $catalog->scale);
-    [$bounds, $clip] = BattlerGroundContact::place($bounds, $offset, $slot->y, $layout);
+    [$bounds, $clip, $surfaceVisible] = BattlerGroundContact::place($bounds, $offset, $slot->y, $layout);
     $bodySpan = $profile === null ? null : $catalog->scale->referenceHeight * $profile->relativeSize * $slot->displayScale;
     $horizontal = $profile?->horizontal ?? false;
     $image = $available ? new CanvasImage(($party ? 'party-' : 'enemy-') . $index, $art->asset,
       $bounds, 100, $art->sourceRect, clipRect: $clip) : null;
+    $paint = $surfaceVisible ? $image?->clipToViewport($layout->width, $layout->height) : null;
     $surface = $available ? BattlerGroundContact::compose(($party ? 'party-contact-' : 'enemy-contact-') . $index, $slot->x, $slot->y,
       $bodySpan ?? $bounds->height, $horizontal, $bounds->width, $elevation, $contact, $layout, $arena, $grounding, $assetRoot,
       $elapsedSeconds, $reducedMotion, drawn: $image) : ['images' => [], 'composites' => []];
     return new BattleFormationBattler($id, $party, $slot, $registered === null && !$available ? null : $art,
-      $bounds, $image, $bodySpan, $horizontal, $diagnostics, $contact, $surface['images'], $surface['composites'], $offset);
+      $bounds, $paint, $bodySpan, $horizontal, $diagnostics, $contact, $surface['images'], $surface['composites'], $offset);
   }
 }

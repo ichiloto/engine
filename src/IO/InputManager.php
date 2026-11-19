@@ -16,6 +16,7 @@ use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputSources\HeldInputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\PressAwareInputSourceInterface;
+use Ichiloto\Engine\IO\InputSources\PressContextInputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\TerminalInputSource;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
@@ -455,7 +456,12 @@ class InputManager
    */
   public static function isKeyDown(KeyCode $keyCode): bool
   {
-    return self::$keyPress === $keyCode && self::$previousKeyPress !== self::$keyPress;
+    if (self::$keyPress !== $keyCode) { return false; }
+    if (self::$previousKeyPress !== self::$keyPress) { return true; }
+
+    // A queued native press can follow the same key without an intervening empty poll.
+    $source = self::getInputSource();
+    return $source instanceof PressAwareInputSourceInterface && $source->wasLastPollPress() === true;
   }
 
   /**
@@ -482,14 +488,19 @@ class InputManager
     return self::isAnyKeyPressed($button['keys'] ?? []);
   }
 
-  /** A discrete action from this sample: native presses exclude OS repeats; event-only sources retain every sample. */
+  /** One discrete key sample: native repeats are excluded; terminal/event-only samples remain actionable. */
+  public static function isDiscreteKeyPressed(KeyCode $keyCode): bool
+  {
+    if (!self::isKeyPressed($keyCode)) { return false; }
+    $source = self::getInputSource();
+    return !($source instanceof PressAwareInputSourceInterface && $source->wasLastPollPress() === false);
+  }
+
+  /** A discrete action from this sample; event-only sources retain every sample. */
   public static function isButtonPressed(string $name): bool
   {
     if ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return false; }
-    $source = self::getInputSource();
-    $fresh = $source instanceof PressAwareInputSourceInterface ? $source->wasLastPollPress() : null;
-    if ($fresh === false) { return false; }
-    return array_any(self::$config[$name]['keys'] ?? [], self::isKeyPressed(...));
+    return array_any(self::$config[$name]['keys'] ?? [], self::isDiscreteKeyPressed(...));
   }
 
   /**
@@ -526,6 +537,18 @@ class InputManager
   {
     if ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return false; }
     return array_any(self::$config[$name]['keys'] ?? [], static fn(KeyCode $key): bool => self::getHolds()->isKeyHeld($key));
+  }
+
+  /** Whether the action was held when the dequeued command key arrived. */
+  public static function wasButtonHeldAtPress(string $name): bool
+  {
+    if ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return false; }
+    $source = self::getInputSource();
+    if (self::$keyPress === null || !$source instanceof PressContextInputSourceInterface) {
+      return self::isButtonHeld($name);
+    }
+    return array_any(self::$config[$name]['keys'] ?? [],
+      static fn(KeyCode $key): bool => $source->wasKeyHeldAtLastPress($key) ?? self::getHolds()->isKeyHeld($key));
   }
 
   /** Whether a key bound to the action was pressed during this input update, even if already released. */
@@ -579,7 +602,8 @@ class InputManager
 
   public static function disableEcho(): void
   {
-    system('stty cbreak -echo');
+    // The owning Game snapshots/restores the full session. Ctrl+Q must reach the input source, not XON.
+    system('stty cbreak -echo -ixon -ixoff');
   }
 
   public static function enableEcho(): void

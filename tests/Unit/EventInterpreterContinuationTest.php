@@ -679,6 +679,21 @@ it('recovers every travelling member without changing roster order', function ()
     ->toBe(['First', 'Reserve']);
 });
 
+it('keeps earned battle AP through the shared party recovery command', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $game = $scene->getGame();
+  $actors = new \Ichiloto\Engine\Util\Stores\ActorStore(definitions: [],
+    actionPointPolicy: new \Ichiloto\Engine\Battle\ActionPointPolicy(10));
+  $game->bindGameLoader(createTestGameLoader($game, $actors));
+  $member = new Character('Bearer', 0, new Stats(currentHp: 5, currentMp: 1, currentAp: 17,
+    totalHp: 100, totalMp: 20, totalAp: 60));
+  $scene->party->addMember($member);
+
+  $session = $interpreter->run([['type' => 'recover_party']], 'earned-ap-recovery');
+  expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and([$member->stats->currentHp, $member->stats->currentMp, $member->stats->currentAp])->toBe([100, 20, 17]);
+});
+
 it('cures only rest-curable and battle-only states when recovering the party', function () {
   [$scene, $interpreter] = makeEventRuntime();
   $member = new Character('Bearer', 0, new Stats(currentHp: 5, totalHp: 100));

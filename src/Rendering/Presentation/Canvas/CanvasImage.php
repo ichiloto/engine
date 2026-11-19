@@ -89,6 +89,22 @@ final readonly class CanvasImage
       $fade === null ? null : CanvasImageBottomFade::fromArray($fade));
   }
 
+  /** Keep logical placement/source intact and bound only the painted view to its parent. */
+  public function clipToViewport(int $canvasWidth, int $canvasHeight): ?self
+  {
+    $paint = $this->translateClipped(0, 0, $canvasWidth, $canvasHeight);
+    if ($paint === null) { return null; }
+    $bounds = $this->destination;
+    $clip = $this->clipRect;
+    if ($this->rotation === null && $bounds->x >= 0 && $bounds->y >= 0
+      && $bounds->x + $bounds->width <= $canvasWidth && $bounds->y + $bounds->height <= $canvasHeight
+      && ($clip === null || ($clip->x >= 0 && $clip->y >= 0
+        && $clip->x + $clip->width <= $canvasWidth && $clip->y + $clip->height <= $canvasHeight))) {
+      return $this;
+    }
+    return $paint;
+  }
+
   /** Rigid parent-space translation with the full source and pivot retained behind the viewport clip. */
   public function translateClipped(float $offsetX, float $offsetY, int $canvasWidth, int $canvasHeight): ?self
   {

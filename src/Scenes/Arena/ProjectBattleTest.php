@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Scenes\Arena;
 use Ichiloto\Engine\Core\SystemData;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use InvalidArgumentException;
+use Ichiloto\Engine\Battle\EncounterAdvantage;
 
 /**
  * The battle test a project keeps in its system data, as RPG Maker keeps its
@@ -14,9 +15,8 @@ use InvalidArgumentException;
  * Data/system.php naming the troop to preselect, the party
  * ({@see BattleTestSetup}), its arena and its items. These are test
  * settings: normal play never reads them and saves never hold them. With no
- * party the test uses the starting party, with the arena and items kept
- * here; a party that is present but malformed is refused, never replaced by
- * another.
+ * party the test uses the starting party with this preset's arena, items,
+ * opening and frontline limit. A malformed member list is refused.
  */
 final readonly class ProjectBattleTest
 {
@@ -34,13 +34,16 @@ final readonly class ProjectBattleTest
     public ?BattleTestSetup $setup = null,
     public ?string $arena = null,
     public ?array $inventory = null,
+    public ?EncounterAdvantage $firstStrike = null,
+    public ?int $configuredBattleSize = null,
   ) {
     if ($troop !== null && trim($troop) === '') {
       throw new InvalidArgumentException('A battle test troop is named, or left out.');
     }
-    if ($setup !== null && ($arena !== null || $inventory !== null)) {
-      throw new InvalidArgumentException('A battle test party carries its own arena and items.');
+    if ($setup !== null && ($arena !== null || $inventory !== null || $firstStrike !== null || $configuredBattleSize !== null)) {
+      throw new InvalidArgumentException('A battle test party carries its own arena, items, opening and frontline limit.');
     }
+    BattleTestSetup::validateConfiguredBattleSize($configuredBattleSize);
     if ($inventory !== null) {
       BattleTestItem::requireUnique($inventory);
     }
@@ -48,7 +51,8 @@ final readonly class ProjectBattleTest
 
   /**
    * The entry as Data/system.php writes it: optional `troop`, `members` (as
-   * {@see BattleTestSetup::fromArray()}), `arena`, `battleSize` and `inventory`. Anything
+   * {@see BattleTestSetup::fromArray()}), `arena`, `battleSize`, `inventory` and
+   * `firstStrike`. Anything
    * else is refused, never ignored.
    *
    * @param array<string, mixed> $data
@@ -68,14 +72,15 @@ final readonly class ProjectBattleTest
       // Every key a setup writes is the setup's, validated and forwarded together.
       return new self($troop, BattleTestSetup::fromArray(array_intersect_key($data, array_flip(BattleTestSetup::KEYS))));
     }
-    if (array_key_exists('battleSize', $data)) { throw new InvalidArgumentException('A battle test capacity requires an explicit member list.'); }
     $arena = $data['arena'] ?? null;
     if ($arena !== null && (!is_string($arena) || trim($arena) === '')) {
       throw new InvalidArgumentException('A project battle test\'s arena is an arena key.');
     }
 
     return new self($troop, null, $arena,
-      array_key_exists('inventory', $data) ? BattleTestItem::listFromArray($data['inventory']) : null);
+      array_key_exists('inventory', $data) ? BattleTestItem::listFromArray($data['inventory']) : null,
+      array_key_exists('firstStrike', $data) ? EncounterAdvantage::fromSetting($data['firstStrike']) : null,
+      BattleTestSetup::validateConfiguredBattleSize($data['battleSize'] ?? null));
   }
 
   /**
@@ -105,6 +110,8 @@ final readonly class ProjectBattleTest
     return [
       ...($this->troop === null ? [] : ['troop' => $this->troop]),
       ...($this->setup?->toArray() ?? []),
+      ...($this->configuredBattleSize === null ? [] : ['battleSize' => $this->configuredBattleSize]),
+      ...($this->firstStrike === null ? [] : ['firstStrike' => $this->firstStrike->value]),
       ...($this->arena === null ? [] : ['arena' => $this->arena]),
       ...($this->inventory === null ? [] : ['inventory' => array_map(static fn(BattleTestItem $item): array => $item->toArray(), $this->inventory)]),
     ];
@@ -113,7 +120,7 @@ final readonly class ProjectBattleTest
   /** Resolve the preset's frontline against the supplied draft or saved project settings. */
   public function getBattleSize(?int $projectBattleSize = null): int
   {
-    return $this->setup?->configuredBattleSize ?? $projectBattleSize ?? self::readProjectBattleSize();
+    return $this->setup?->configuredBattleSize ?? $this->configuredBattleSize ?? $projectBattleSize ?? self::readProjectBattleSize();
   }
 
   private static function readProjectBattleSize(): int
@@ -124,8 +131,7 @@ final readonly class ProjectBattleTest
 
   /**
    * The setup a battle test starts from: the project's party when it keeps
-   * one, else the starting party with the project's arena and items. An
-   * editor passes the starting party as it stands, unsaved edits included;
+   * one, else the starting party with the preset's options. An editor passes the starting party as it stands, unsaved edits included;
    * otherwise it is read from Data/system.php.
    *
    * @param list<mixed>|null $startingParty The starting party's actor references, or null to read them.
@@ -138,8 +144,8 @@ final readonly class ProjectBattleTest
       return $this->setup->withBattleSize($this->getBattleSize($battleSize));
     }
     return ($startingParty === null
-      ? BattleTestSetup::getFromStartingParty($actors, $battleSize)
+      ? BattleTestSetup::getFromStartingParty($actors, $this->configuredBattleSize ?? $battleSize)
       : BattleTestSetup::getFromPartyReferences($actors, $startingParty, $this->getBattleSize($battleSize)))
-      ->withArena($this->arena)->withInventory($this->inventory);
+      ->withArena($this->arena)->withInventory($this->inventory)->withFirstStrike($this->firstStrike);
   }
 }

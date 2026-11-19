@@ -53,6 +53,15 @@ See [the retained world contract](tile-batches.md).
 Retained operations and camera transforms are core V2 behavior, not a new
 capability flag. Historical capability names do not enable stateless frames.
 
+The asset-preparation candidate also makes `asset_holds` mandatory for the shared
+GPUI registration. It is an event subscription, so advertising it without the
+hello requirement cannot enable resource readiness. This removes GPUI startup
+without an eligible hold worker: the existing capability handshake refuses that
+peer before scene resources or combat begin. Terminal and explicitly constructed
+runtime configurations retain their existing startup contracts. There is no
+project-specific opt-in. The isolated Engine candidate needs its paired eligible
+renderer before normal installation; normal develop remains unchanged.
+
 ## Field zoom
 
 The graphical field keeps the terminal's grid: each terminal cell is drawn as

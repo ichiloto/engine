@@ -95,4 +95,20 @@ final readonly class BattleResultsSkin
     }
     return $entries;
   }
+  /** @param list<string>|null $actorIds The complete party cohort, including reserves; null admits the whole catalog.
+   * @return list<string> Results resources without evaluating future rewards or their outcome.
+   */
+  public function getAssetPaths(?array $actorIds = null): array
+  {
+    // The legacy button slot is not consumed by Results; Pause declares its own actual textures.
+    $assets = array_map(static fn(CanvasNineSlice $art): string => $art->asset,
+      array_diff_key($this->textures, ['button' => true]));
+    foreach ($this->icons as $art) { $assets[] = $art->asset; }
+    $portraits = $actorIds === null ? $this->portraits : array_intersect_key($this->portraits, array_fill_keys($actorIds, true));
+    foreach ($portraits as $families) {
+      foreach ($families as $art) { if ($art !== null) { $assets[] = $art->asset; } }
+    }
+    return array_values(array_unique($assets));
+  }
+
 }

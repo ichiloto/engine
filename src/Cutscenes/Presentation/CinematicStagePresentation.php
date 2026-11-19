@@ -10,8 +10,6 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
-use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
-use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use InvalidArgumentException;
 
@@ -43,16 +41,9 @@ final class CinematicStagePresentation
           $flipY = $data['flipY'] ?? false;
           if (!$imageFlips && ($flipX || $flipY)) { throw new InvalidArgumentException('Renderer cannot mirror a cinematic stage image.'); }
           $asset = $command['assetId'];
-          $size = PngAssetPreflight::getAvailableSize($assetRoot, $asset);
-          $columns = $data['columns'];
-          $rows = $data['rows'];
-          $source = $data['sourceFrame'];
-          if ($size === null || $size['width'] % $columns !== 0 || $size['height'] % $rows !== 0
-            || $source < 0 || $source >= $columns * $rows) {
-            throw new InvalidArgumentException('Cinematic image is unavailable or no longer matches its authored sheet.');
-          }
-          $frameWidth = intdiv($size['width'], $columns);
-          $frameHeight = intdiv($size['height'], $rows);
+          $crop = \Ichiloto\Engine\Animations\Timelines\EffectImageSource::fromCommand($command)->getSourceRect($assetRoot);
+          $frameWidth = $crop->width;
+          $frameHeight = $crop->height;
           $placement = $data['placement'];
           $placement['size'] = CanvasImageFit::parse($data['fit'] ?? 'stretch')->getSize($frameWidth, $frameHeight,
             $placement['size']['width'], $placement['size']['height']);
@@ -63,7 +54,7 @@ final class CinematicStagePresentation
           $image = CanvasImage::createClipped('cinematic-stage-' . $command['trackId'], $asset,
             $rectangle['x'], $rectangle['y'], $rectangle['width'], $rectangle['height'], $width, $height,
             PresentationLayerPolicy::CINEMATIC + $data['zIndex'],
-            new SpriteSourceRect(($source % $columns) * $frameWidth, intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight),
+            $crop,
             $flipX, $flipY);
           if ($image !== null) {
             $images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer, $image->sourceRect,

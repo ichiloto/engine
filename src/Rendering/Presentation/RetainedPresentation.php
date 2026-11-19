@@ -17,6 +17,7 @@ use OverflowException;
 use Closure;
 use Throwable;
 use LogicException;
+use Ichiloto\Engine\Rendering\Assets\{AssetHoldRequest, AssetHoldValidation};
 
 /**
  * Sender-owned desired state; delivery generations never depend on frame cadence.
@@ -51,6 +52,8 @@ final class RetainedPresentation
     private bool $canvasIsOverlay = true;
     /** @var list<PresentationWorldCanvas> */
     private array $worldCanvases = [];
+    /** @var list<AssetHoldRequest> */
+    private array $assetHolds = [];
     private readonly object $frameOwner;
     /** @var list<array<string, mixed>|RetainedWorldUpload> A queued world is built as it is sent. */
     private array $operations = [];
@@ -84,20 +87,20 @@ final class RetainedPresentation
     public function captureFrame(): RetainedFrame
     {
         return new RetainedFrame($this->frameOwner, $this->values, $this->textRows, $this->world,
-            $this->viewport, $this->canvas, $this->canvasIsOverlay, $this->worldCanvases);
+            $this->viewport, $this->canvas, $this->canvasIsOverlay, $this->worldCanvases, $this->assetHolds);
     }
 
     /** Prepare the incoming composition without sending an uncovered frame. */
     public function prepareFrame(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
         ?PresentationViewport $viewport, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null,
-        array $worldCanvases = []): RetainedFrame
+        array $worldCanvases = [], array $assetHolds = []): RetainedFrame
     {
-        return $this->prepareRetainedFrame(fn() => $this->updateFrame($text, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases));
+        return $this->prepareRetainedFrame(fn() => $this->updateFrame($text, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases, $assetHolds));
     }
 
-    public function prepareCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): RetainedFrame
+    public function prepareCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null, array $assetHolds = []): RetainedFrame
     {
-        return $this->prepareRetainedFrame(fn() => $this->updateFullCanvas($canvas, $world));
+        return $this->prepareRetainedFrame(fn() => $this->updateFullCanvas($canvas, $world, $assetHolds));
     }
 
     private function prepareRetainedFrame(Closure $prepare): RetainedFrame
@@ -116,15 +119,24 @@ final class RetainedPresentation
             $this->canvas = $previous->canvas;
             $this->canvasIsOverlay = $previous->canvasIsOverlay;
             $this->worldCanvases = $previous->worldCanvases;
+            $this->assetHolds = $previous->assetHolds;
             $this->operations = $operations;
             $this->viewportChanged = $viewportChanged;
         }
     }
 
     /** Reuses the retained world, viewport, text and sprites under one temporary screen overlay. */
-    public function presentFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay = null): bool
+    public function assertOwnsFrame(RetainedFrame $frame): void
     {
         if ($frame->owner !== $this->frameOwner) { throw new LogicException('A retained frame belongs to its renderer session.'); }
+    }
+
+    /** @param list<AssetHoldRequest>|null $assetHolds Null replays the captured low-level resource set. */
+    public function presentFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay = null, ?array $assetHolds = null): bool
+    {
+        $this->assertOwnsFrame($frame);
+        $assetHolds ??= $frame->assetHolds;
+        $assetValues = $this->getAssetHoldValues($assetHolds);
         $canvas = $frame->canvas;
         if ($screenOverlay !== null) {
             if ($canvas !== null && ($canvas->width !== $screenOverlay->width || $canvas->height !== $screenOverlay->height)) {
@@ -137,6 +149,7 @@ final class RetainedPresentation
         $canvas?->assertWorldReferences($frame->world);
         foreach ($frame->worldCanvases as $group) { $group->canvas->assertWorldReferences($frame->world); }
         $this->operations = [];
+        $this->setAssetHolds($assetHolds, $assetValues);
         if ($this->world !== $frame->world) {
             $this->queueWorldChange($this->world, $frame->world);
             $this->world = $frame->world;
@@ -242,15 +255,17 @@ final class RetainedPresentation
     /** @param list<PresentationSprite> $sprites */
     public function present(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
         ?PresentationViewport $viewport, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null,
-        array $worldCanvases = []): bool
+        array $worldCanvases = [], array $assetHolds = []): bool
     {
-        $this->updateFrame($text, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases);
+        $this->updateFrame($text, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases, $assetHolds);
         return $this->flush();
     }
 
     private function updateFrame(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
-        ?PresentationViewport $viewport, ?PresentationWorld $world, ?PresentationCanvas $canvasOverlay, array $worldCanvases): void
+        ?PresentationViewport $viewport, ?PresentationWorld $world, ?PresentationCanvas $canvasOverlay, array $worldCanvases,
+        array $assetHolds): void
     {
+        $assetValues = $this->getAssetHoldValues($assetHolds);
         $canvasOverlay?->assertWorldReferences($world);
         foreach ($worldCanvases as $group) { $group->canvas->assertWorldReferences($world); }
         $subjects = PresentationSubjectOrder::getOrderedSubjects($sprites, $worldCanvases);
@@ -262,6 +277,7 @@ final class RetainedPresentation
         CanvasFrameBudget::assertCanvases([...($canvasOverlay === null ? [] : [$canvasOverlay]),
             ...array_map(static fn($group) => $group->canvas, $worldCanvases)]);
         $this->operations = [];
+        $this->setAssetHolds($assetHolds, $assetValues);
         $this->updateCanvas($canvasOverlay, true);
         if ($world !== $this->world) {
             $this->queueWorldChange($this->world, $world);
@@ -300,17 +316,19 @@ final class RetainedPresentation
         $this->setViewport($viewport?->toArray());
     }
 
-    public function presentCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): bool
+    public function presentCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null, array $assetHolds = []): bool
     {
-        $this->updateFullCanvas($canvas, $world);
+        $this->updateFullCanvas($canvas, $world, $assetHolds);
         return $this->flush();
     }
 
-    private function updateFullCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): void
+    private function updateFullCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null, array $assetHolds = []): void
     {
+        $assetValues = $this->getAssetHoldValues($assetHolds);
         $canvas->assertWorldReferences($world);
         CanvasFrameBudget::assertCanvases([$canvas]);
         $this->operations = [];
+        $this->setAssetHolds($assetHolds, $assetValues);
         if ($this->world !== $world) {
             $this->queueWorldChange($this->world, $world);
             $this->world = $world;
@@ -358,12 +376,61 @@ final class RetainedPresentation
             $id = $value['id'];
             $value['order'] = $preserveOrder ? $value['order'] : $orders[$id];
             $next[$id] = $value;
-            if (($this->values[$kind][$id] ?? null) !== $value) { $this->put($kind, $id, $value); }
+        }
+        $this->replaceEntityValues($kind, $next);
+    }
+
+    /** Identity and value stay separate: resource declarations have no drawable id/order fields.
+     * @param array<string|int, array<string, mixed>> $next
+     */
+    private function replaceEntityValues(string $kind, array $next): void
+    {
+        foreach ($next as $id => $value) {
+            if (($this->values[$kind][$id] ?? null) !== $value) { $this->put($kind, (string)$id, $value); }
         }
         foreach ($this->values[$kind] ?? [] as $id => $_) {
             if (!isset($next[$id])) { $this->operations[] = ['op' => 'remove', 'kind' => $kind, 'id' => (string)$id]; }
         }
         $this->values[$kind] = $next;
+    }
+
+    /** @param list<AssetHoldRequest> $requests @return array<string, array<string, mixed>> */
+    private function getAssetHoldValues(array $requests): array
+    {
+        if (!array_is_list($requests) || count($requests) > AssetHoldValidation::MAX_LEASES) {
+            throw new \InvalidArgumentException('Asset holds require a list of at most 1024 typed leases.');
+        }
+        if ($requests !== [] && !$this->client->supports(RendererSessionConfig::ASSET_HOLDS)) {
+            throw new LogicException('Asset holds require negotiated asset_holds support.');
+        }
+        $values = [];
+        foreach ($requests as $request) {
+            if (!$request instanceof AssetHoldRequest || isset($values[$request->id])) {
+                throw new \InvalidArgumentException('Asset hold requests must be typed with unique lease IDs.');
+            }
+            $values[$request->id] = $request->toArray();
+        }
+        \Ichiloto\Engine\Rendering\Assets\AssetHoldWireSize::assertRequestsFitReset($requests);
+        return $values;
+    }
+
+    /** @param list<AssetHoldRequest> $requests @param array<string, array<string, mixed>> $values */
+    private function setAssetHolds(array $requests, array $values): void
+    {
+        $this->assetHolds = $requests;
+        $this->replaceEntityValues('asset_hold', $values);
+    }
+
+    /** Service a nonblocking preload while the last complete scene remains desired and visible.
+     * @param list<AssetHoldRequest> $requests
+     */
+    public function presentAssetHolds(array $requests): bool
+    {
+        $values = $this->getAssetHoldValues($requests);
+        if ($requests === [] && $this->assetHolds === [] && $this->generation === 0) { return false; }
+        $this->operations = [];
+        $this->setAssetHolds($requests, $values);
+        return $this->flush();
     }
 
     private function put(string $kind, string $id, array $value): void

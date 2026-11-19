@@ -33,6 +33,7 @@ final readonly class ControlHint
   {
     $label = match ($key) {
       KeyCode::SHIFT_TAB => 'Shift+Tab',
+      KeyCode::CTRL_Q => 'Ctrl+Q',
       KeyCode::ESCAPE => 'Esc',
       KeyCode::PAGE_UP => 'PgUp',
       KeyCode::PAGE_DOWN => 'PgDn',

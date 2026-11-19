@@ -177,4 +177,12 @@ final readonly class MenuPresentationCatalog
     }
     return $result;
   }
+  /** @return list<string> Battle hints can switch active control family without first-use asset loading. */
+  public function getControlAssetPaths(): array
+  {
+    $assets = [];
+    foreach ($this->controls as $set) { array_push($assets, ...$set->getAssetPaths()); }
+    return array_values(array_unique($assets));
+  }
+
 }

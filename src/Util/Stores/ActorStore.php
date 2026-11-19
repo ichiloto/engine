@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Util\Stores;
 
 use Assegai\Util\Path;
+use Ichiloto\Engine\Battle\ActionPointPolicy;
 use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
 use Ichiloto\Engine\Util\Debug;
@@ -19,7 +20,8 @@ final class ActorStore implements ConfigInterface
   private array $legacyStartingPartyIds = [];
 
   /** @param iterable<ActorDefinition>|null $definitions In-memory authoring registry, when supplied. */
-  public function __construct(?string $directory = null, ?iterable $definitions = null)
+  public function __construct(?string $directory = null, ?iterable $definitions = null,
+    public readonly ?ActionPointPolicy $actionPointPolicy = null)
   {
     if ($definitions !== null) {
       foreach ($definitions as $definition) {

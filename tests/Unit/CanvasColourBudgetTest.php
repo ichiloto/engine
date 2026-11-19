@@ -101,7 +101,7 @@ it('charges finished guarded composite variants once by content and treatment in
 it('rejects treated crops that previously slipped through the prepared-region ceiling', function () {
   ($this->png)('sheet.png',3000,3000);
   $child=new PresentationCanvas(10,10,[new CanvasImage('image','sheet.png',new CanvasRectangle(0,0,10,10))]);
-  CanvasImagePreflight::runForSession(static fn(string $cap):bool=>true,function () use ($child):void {
+  CanvasImagePreflight::runForSession(static fn(string $cap):bool=>$cap===\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_REGION_BUDGET,function () use ($child):void {
     expect(array_sum(CanvasImagePreflight::inspectCanvases([$child],$this->root)['regions']))->toBe(3004*3004*4);
     $root=new PresentationCanvas(10,10,groups:[new CanvasGroup('treated',0,0,$child,colorTransform:$this->dim)]);
     expect(fn()=>CanvasImagePreflight::inspectCanvases([$root],$this->root))->toThrow(CanvasImageBudgetExceeded::class,'prepared regions');
@@ -124,4 +124,16 @@ it('retains hierarchy with the still renderer optional-asset filter and strict r
   $budget=CanvasImagePreflight::inspectCanvasResources([$root],$this->root,static fn($drawing):bool=>$drawing->id!=='missing');
   expect($budget['regions'])->toHaveCount(2);
   expect(fn()=>CanvasImagePreflight::inspectCanvases([$root],$this->root))->toThrow(RuntimeException::class);
+});
+
+
+it('includes treated variants in subscribed renderer observations without imposing the legacy aggregate ceiling', function () {
+  ($this->png)('sheet.png',3000,3000);
+  $child=new PresentationCanvas(10,10,[new CanvasImage('image','sheet.png',new CanvasRectangle(0,0,10,10))]);
+  $root=new PresentationCanvas(10,10,groups:[new CanvasGroup('treated',0,0,$child,colorTransform:$this->dim)]);
+  $usage=CanvasImagePreflight::runForSession(
+    static fn(string $cap):bool=>$cap===\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS,
+    fn()=>CanvasImagePreflight::inspectCanvases([$root],$this->root));
+  expect($usage['regions'])->toHaveCount(2)->and(array_sum($usage['regions']))->toBe(2*3004*3004*4)
+    ->and(array_sum($usage['regions']))->toBeGreaterThan(CanvasImagePreflight::MAX_BYTES);
 });

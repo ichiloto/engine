@@ -20,6 +20,23 @@ final class DirectionalFocusGraph
     $this->replaceNodes($nodes, $fallbackId);
   }
 
+  /** A visible pane cycle. Editing contexts and modal stacks never become extra focus nodes.
+   * @param list<string> $ids Visible, focusable pane identities in display order.
+   */
+  public function replaceCycle(array $ids, ?string $fallbackId = null): void
+  {
+    if (!array_is_list($ids) || !array_all($ids, static fn($id): bool => is_string($id) && trim($id) !== '')) {
+      throw new InvalidArgumentException('A pane cycle is a list of nonempty pane identities.');
+    }
+    $nodes = [];
+    $count = count($ids);
+    foreach ($ids as $index => $id) {
+      $nodes[] = new DirectionalFocusNode($id, right: $ids[($index + 1) % $count],
+        left: $ids[($index + $count - 1) % $count]);
+    }
+    $this->replaceNodes($nodes, $fallbackId);
+  }
+
   /** Build cardinal neighbours for spatial UI markers. This never supplies gameplay links.
    * @param array<string,array{0:int|float,1:int|float}> $positions
    */

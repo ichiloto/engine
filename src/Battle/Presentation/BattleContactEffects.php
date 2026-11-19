@@ -28,4 +28,10 @@ final readonly class BattleContactEffects
     $this->rippleColor = $rippleColor ?? PresentationColor::rgb(222, 236, 244);
     $this->burrowColor = $burrowColor ?? PresentationColor::rgb(84, 62, 42);
   }
+  /** @return list<BattlerPose> Both surfaces and depth layers are declared before a command selects one. */
+  public function getDeclaredPoses(): array
+  {
+    return array_values(array_filter([$this->ripple->back, $this->ripple->front, $this->burrow->back, $this->burrow->front]));
+  }
+
 }

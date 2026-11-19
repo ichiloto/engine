@@ -9,6 +9,23 @@ namespace Ichiloto\Engine\Animations\Timelines;
  */
 class CompiledEffectTimeline
 {
+  /** Every selected image cell, including future keyframes, without playback, geometry or cues.
+   * @return list<EffectImageSource>
+   */
+  public function getImageSources(EffectPresentation $presentation = EffectPresentation::GRAPHICAL): array
+  {
+    $sources = [];
+    foreach ($this->playbackSegments as $segment) {
+      if (($segment['layer'] ?? null) !== 'image' || !$presentation->acceptsSegment($segment)) { continue; }
+      foreach ($segment['drawCommands'] as $command) {
+        if (!($command['visible'] ?? true)) { continue; }
+        $source = EffectImageSource::fromCommand($command);
+        $sources[$source->getKey()] = $source;
+      }
+    }
+    return array_values($sources);
+  }
+
   public EffectCadence $cadence {
     get => EffectCadence::parse(array_key_exists('cadence', $this->defaults) ? $this->defaults['cadence'] : 'fixed');
   }

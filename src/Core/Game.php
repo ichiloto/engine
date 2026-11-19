@@ -72,6 +72,7 @@ use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\UI\Windows\DebugWindow;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Battle\ActionPointPolicy;
 use Ichiloto\Engine\Progression\ProgressionSettings;
 use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Field\DashSettings;
@@ -92,6 +93,10 @@ use Throwable;
  */
 class Game implements CanRun, SubjectInterface
 {
+    public ?ActionPointPolicy $actionPointPolicy {
+        get => $this->gameLoader?->actorStore->actionPointPolicy;
+    }
+
     private ?ProjectStateRegistry $projectStateRegistry = null;
     private ?GameLoader $gameLoader = null;
 
@@ -650,7 +655,7 @@ class Game implements CanRun, SubjectInterface
         ConfigStore::remove(DashSettings::class);
         ConfigStore::put(DashSettings::class, DashSettings::fromSystemData($systemPayload));
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
-        $actorStore = new ActorStore();
+        $actorStore = new ActorStore(actionPointPolicy: ActionPointPolicy::fromBattleData($systemPayload['battle'] ?? []));
         ConfigStore::put(ActorStore::class, $actorStore);
         ConfigStore::put(
             BattleEntryRuleCatalog::class,

@@ -18,19 +18,23 @@ use Ichiloto\Engine\Rendering\Text\RendererTextRequests;
 use InvalidArgumentException;
 use LogicException;
 use SplQueue;
+use Ichiloto\Engine\Rendering\Assets\AssetHoldLeases;
 
 /** The sole event consumer for a shared renderer connection. No input/action mapping. */
 final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface
 {
-  /** @var SplQueue<RendererEvent> */
+  /** @var SplQueue<array{event: RendererEvent, held: ?list<string>, reset: int, bytes: int}> */
   private SplQueue $keys;
-  /** Fresh/repeated metadata belongs to the dequeued key, including when later presses share its batch. */
+  /** Discrete eligibility belongs to the dequeued key and expires on an input reset. */
   private ?bool $lastPollPress = null;
+  /** @var ?list<string> Held keys when the last fresh press was received, or null when unavailable. */
+  private ?array $lastPressHeldKeys = null;
+  private int $inputResetGeneration = 0;
   /** @var SplQueue<RendererEvent> */
   private SplQueue $events;
   /** @var SplQueue<RendererEvent> Negotiated presses, releases and resets, in arrival order; repeats stay keys only. */
   private SplQueue $transitions;
-  /** @var array<string, true> Physical identity survives draining the gameplay queues. */
+  /** @var array<string, string> Physical identity and its press-time key survive queue drains. */
   private array $heldControls = [];
   /** @var array<string, true> Context-reset controls cannot repeat into their next owner. */
   private array $quarantinedControls = [];
@@ -47,6 +51,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
   private readonly RendererTextRequests $textRequests;
   private bool $textSessionActive = false;
   private ?object $textSession = null;
+  public readonly AssetHoldLeases $assetHolds;
 
   public function __construct(
     private readonly RendererTransportInterface $transport,
@@ -63,6 +68,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
     $this->events = new SplQueue();
     $this->transitions = new SplQueue();
     $this->textRequests = new RendererTextRequests($this->trySend(...));
+    $this->assetHolds = new AssetHoldLeases();
   }
 
   public function start(RendererSessionConfig $session): void
@@ -72,8 +78,11 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
       throw new RendererTransportException('Consume pending renderer events before starting another session.');
     }
     $this->capabilities = [];
+    $this->lastPollPress = $this->lastPressHeldKeys = null;
+    $this->inputResetGeneration = 0;
     $this->heldControls = $this->quarantinedControls = [];
     $this->textRequests->retireSession();
+    $this->assetHolds->endSession();
     $this->textSessionActive = false;
     $this->textSession = null;
     $this->requiredCapabilities = $session->requiredCapabilities;
@@ -108,17 +117,33 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
       $events = $this->events->count();
       $bytes = $this->queuedBytes;
       $textReplies = $textReplyBytes = 0;
+      $assetReplies = $assetReplyBytes = 0;
+      $assetFeedbacks = [];
+      $assetSessionSupport = null;
       $capabilities = $this->capabilities;
       $acknowledgements = $this->frameAcknowledgements;
       $heldControls = $this->heldControls;
       $quarantinedControls = $this->quarantinedControls;
       $suppressedKeys = [];
+      $admittedKeys = [];
+      $keyBytes = 0;
+      $inputResetGeneration = $this->inputResetGeneration;
       $this->textRequests->assertReplies($batch);
       foreach ($batch as $index => $event) {
         if ($event->type === RendererEventType::READY) {
           $event->requireCapabilities($this->requiredCapabilities);
           $capabilities = array_values(array_intersect($this->negotiableCapabilities, $event->capabilities));
+          $assetSessionSupport = in_array(RendererSessionConfig::ASSET_HOLDS, $capabilities, true);
         }
+        if ($event->assetFeedback !== null) {
+          if (!in_array(RendererSessionConfig::ASSET_HOLDS, $capabilities, true)) {
+            throw new RendererProtocolException('Asset hold replies require negotiated asset_holds support.');
+          }
+          $assetFeedbacks[] = $event->assetFeedback;
+          $assetReplies++;
+          $assetReplyBytes += $event->assetFeedbackBytes;
+        }
+        if ($event->type === RendererEventType::ASSET_HOLDS) { continue; }
         if ($event->type === RendererEventType::WINDOW_ACTIVATION
           && !in_array(RendererSessionConfig::WINDOW_ACTIVATION, $capabilities, true)) {
           throw new RendererProtocolException('Window activation requires negotiated window_activation support.');
@@ -126,12 +151,13 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
         self::assertKeyTransitionContract($event, in_array(RendererSessionConfig::KEY_TRANSITIONS, $capabilities, true),
           in_array(RendererSessionConfig::MODIFIER_CONTROLS, $capabilities, true));
         if ($event->type === RendererEventType::INPUT_RESET) {
+          ++$inputResetGeneration;
           $heldControls = $quarantinedControls = [];
         } elseif ($event->type === RendererEventType::KEY_RELEASE) {
           unset($heldControls[$event->control], $quarantinedControls[$event->control]);
         } elseif ($event->type === RendererEventType::KEY && $event->control !== null) {
           if ($event->repeat === false) {
-            $heldControls[$event->control] = true;
+            $heldControls[$event->control] ??= $event->key;
             if (count($heldControls) > KeyHoldState::MAX_HELD_CONTROLS) {
               throw new RendererProtocolException('Renderer input exceeds the supported held-control limit.');
             }
@@ -159,25 +185,47 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
           }
         }
         if ($event->type === RendererEventType::FRAME_ACK) {
+          $progress = $event->createProgressAcknowledgement();
           $slot = (int) $event->presented;
           $previous = $acknowledgements[$slot] ?? null;
           if ($previous === null || $event->generation >= $previous->generation) {
-            $bytes += self::eventBytes($event) - ($previous === null ? 0 : self::eventBytes($previous));
-            $acknowledgements[$slot] = $event;
+            $bytes += self::eventBytes($progress) - ($previous === null ? 0 : self::eventBytes($previous));
+            $acknowledgements[$slot] = $progress;
           }
           continue;
         }
-        $event->type === RendererEventType::KEY ? $keys++ : $events++;
-        $bytes += self::eventBytes($event);
+        $eventBytes = self::eventBytes($event);
+        if ($event->type === RendererEventType::KEY) {
+          $keys++;
+          $held = $event->repeat === false ? array_values(array_diff_key($heldControls, $quarantinedControls)) : null;
+          foreach ($held ?? [] as $key) {
+            $eventBytes += strlen($key) + 8;
+          }
+          // Reject oversized key batches before retaining any more held-key snapshots.
+          $keyBytes += $eventBytes;
+          if ($keys > $this->maxPendingKeys || $keyBytes > $this->maxQueuedBytes) {
+            throw new RendererTransportException('Renderer client queue capacity exceeded; incoming batch rejected.',
+              $this->transport->getDiagnostics(), $this->transport->getExitCode());
+          }
+          $admittedKeys[$index] = ['event' => $event, 'held' => $held, 'reset' => $inputResetGeneration, 'bytes' => $eventBytes];
+        } else {
+          $events++;
+        }
+        $bytes += $eventBytes;
       }
-      if ($keys > $this->maxPendingKeys || $transitions > $this->maxPendingKeys || $events + $textReplies > $this->maxPendingEvents
-        || $bytes + $textReplyBytes > $this->maxQueuedBytes) {
+      if ($assetFeedbacks !== []) {
+        try { $this->assetHolds->assertFeedbacks($assetFeedbacks, $assetSessionSupport); }
+        catch (LogicException $error) { throw new RendererProtocolException('Invalid asset hold transition: ' . $error->getMessage(), previous: $error); }
+      }
+      if ($keys > $this->maxPendingKeys || $transitions > $this->maxPendingKeys || $events + $textReplies + $assetReplies > $this->maxPendingEvents
+        || $bytes + $textReplyBytes + $assetReplyBytes > $this->maxQueuedBytes) {
         throw new RendererTransportException('Renderer client queue capacity exceeded; incoming batch rejected.',
           $this->transport->getDiagnostics(), $this->transport->getExitCode());
       }
       foreach ($batch as $index => $event) {
         if (isset($suppressedKeys[$index])) { continue; }
         if (RendererTextRequests::isTextReply($event)) { continue; }
+        if ($event->type === RendererEventType::ASSET_HOLDS) { continue; }
         if ($event->type === RendererEventType::FRAME_ACK) {
           continue;
         }
@@ -189,7 +237,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
         }
         if ($event->type === RendererEventType::KEY) {
           if (! $discardKeys) {
-            $this->keys->enqueue($event);
+            $this->keys->enqueue($admittedKeys[$index]);
             LatencyTrace::keyStage($event, 'client.key.queued');
           }
         } else {
@@ -200,19 +248,29 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
         }
       }
       $this->queuedBytes = $bytes;
+      if ($this->inputResetGeneration !== $inputResetGeneration && $this->lastPollPress === true) {
+        $this->lastPollPress = false;
+        $this->lastPressHeldKeys = null;
+      }
+      $this->inputResetGeneration = $inputResetGeneration;
       $this->heldControls = $heldControls;
       $this->quarantinedControls = $quarantinedControls;
       $this->frameAcknowledgements = $acknowledgements;
+      if ($assetSessionSupport !== null) { $this->assetHolds->startSession($assetSessionSupport); }
+      foreach ($assetFeedbacks as $feedback) { $this->assetHolds->applyFeedback($feedback); }
       $this->textRequests->acceptReplies($batch);
       if (!$this->isRunning() || array_any($batch, static fn(RendererEvent $event) => $event->type === RendererEventType::CLOSE_REQUESTED)) {
         $this->textSessionActive = false;
         $this->textRequests->retireSession();
+        $this->assetHolds->endSession();
       } else { $this->textRequests->flushReleases(); }
       $this->traceQueue();
     } catch (RendererTransportException $error) {
       $this->failure = $error;
+      $this->lastPressHeldKeys = null;
       $this->heldControls = $this->quarantinedControls = [];
       $this->textRequests->retireSession();
+      $this->assetHolds->endSession();
       $this->textSessionActive = false;
       throw $error;
     }
@@ -220,16 +278,22 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
 
   public function pollKey(): ?string
   {
-    $this->lastPollPress = null;
+    $this->lastPollPress = $this->lastPressHeldKeys = null;
     if ($this->keys->isEmpty()) {
       $this->pump();
     }
     if ($this->keys->isEmpty()) {
       return null;
     }
-    $event = $this->keys->dequeue();
-    $this->lastPollPress = $event->repeat === null ? null : !$event->repeat;
-    $this->queuedBytes -= self::eventBytes($event);
+    $sample = $this->keys->dequeue();
+    $event = $sample['event'];
+    $this->lastPollPress = match (true) {
+      $sample['reset'] !== $this->inputResetGeneration => false,
+      $event->repeat === null => null,
+      default => !$event->repeat,
+    };
+    $this->lastPressHeldKeys = $this->lastPollPress === true ? $sample['held'] : null;
+    $this->queuedBytes -= $sample['bytes'];
     LatencyTrace::keyStage($event, 'client.key.dequeued', activate: true);
     $this->traceQueue();
     return $event->key;
@@ -239,6 +303,13 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
   public function wasLastPollPress(): ?bool
   {
     return $this->lastPollPress;
+  }
+
+  /** True if the key was held during the last dequeued fresh press. */
+  public function wasKeyHeldAtLastPress(KeyCode $key): ?bool
+  {
+    if ($this->lastPollPress !== true) { return $this->lastPollPress; }
+    return in_array($key->value, $this->lastPressHeldKeys ?? [], true);
   }
 
   /** @return list<RendererEvent> Non-input events, including coalesced ACK progress; keys are untouched. */
@@ -307,9 +378,9 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
 
   private function clearKeys(): void
   {
-    $this->lastPollPress = null;
+    $this->lastPollPress = $this->lastPressHeldKeys = null;
     while (! $this->keys->isEmpty()) {
-      $this->queuedBytes -= self::eventBytes($this->keys->dequeue());
+      $this->queuedBytes -= $this->keys->dequeue()['bytes'];
     }
     $this->drainKeyTransitions();
     $this->traceQueue();
@@ -317,7 +388,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
 
   private function traceQueue(): void
   {
-    LatencyTrace::queue($this->keys->count(), $this->keys->isEmpty() ? null : $this->keys->bottom());
+    LatencyTrace::queue($this->keys->count(), $this->keys->isEmpty() ? null : $this->keys->bottom()['event']);
   }
 
   public function send(RendererMessage $message): void
@@ -364,6 +435,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
     catch (RendererTransportException $error) {
       $this->failure = $error;
       $this->textRequests->retireSession();
+      $this->assetHolds->endSession();
       $this->textSessionActive = false;
       throw $error;
     }
@@ -375,6 +447,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
     catch (RendererTransportException $error) {
       $this->failure = $error;
       $this->textRequests->retireSession();
+      $this->assetHolds->endSession();
       $this->textSessionActive = false;
       throw $error;
     }
@@ -388,8 +461,10 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
       if ($this->failure === null) { $this->pump(); }
       return $exitCode;
     } finally {
+      $this->lastPollPress = $this->lastPressHeldKeys = null;
       $this->heldControls = $this->quarantinedControls = [];
       $this->textRequests->retireSession();
+      $this->assetHolds->endSession();
       $this->textSessionActive = false;
     }
   }
@@ -429,6 +504,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
       + ($event->resyncRequired === null ? 0 : 1) + ($event->repeat === null ? 0 : 1)
       + strlen($event->requestId ?? '') + strlen($event->layoutId ?? '')
       + array_sum(array_map(strlen(...), $event->layoutIds))
-      + ($event->textMetrics === null ? 0 : strlen(json_encode($event->textMetrics->toArray(), JSON_THROW_ON_ERROR)));
+      + ($event->textMetrics === null ? 0 : strlen(json_encode($event->textMetrics->toArray(), JSON_THROW_ON_ERROR)))
+      + $event->assetFeedbackBytes;
   }
 }

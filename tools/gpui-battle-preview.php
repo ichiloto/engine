@@ -15,11 +15,13 @@ use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
+require __DIR__ . '/PreviewRuntimeStorage.php';
 require __DIR__ . '/BattlePreviewClock.php';
 
 // The trusted local fixture owns its isolated state, audio policy and disposal.
 $client = null;
 $fixture = null;
+$storage = null;
 $result = 0;
 $report = '';
 try {
@@ -61,6 +63,7 @@ try {
     if (!$noLaunch) {
         $renderer = realpath($renderer) ?: throw new InvalidArgumentException('Renderer path could not be resolved.');
     }
+    $storage = new PreviewRuntimeStorage();
     $factory = (static fn(string $path): mixed => require $path)($fixturePath);
     if (!is_callable($factory)) { throw new InvalidArgumentException('Battle preview fixture must return a factory.'); }
     $fixture = $factory($root, isset($options['reduced-motion']), $subjects);
@@ -169,6 +172,8 @@ try {
     catch (Throwable $error) { fwrite(STDERR, 'Cleanup: ' . $error->getMessage() . "\n"); $result = 1; }
     try { if (is_callable($fixture['dispose'] ?? null)) { $fixture['dispose'](); } }
     catch (Throwable $error) { fwrite(STDERR, 'Fixture cleanup: ' . $error->getMessage() . "\n"); $result = 1; }
+    try { $storage?->close(); }
+    catch (Throwable $error) { fwrite(STDERR, 'Preview storage cleanup: ' . $error->getMessage() . "\n"); $result = 1; }
 }
 if ($result === 0) { echo $report; }
 exit($result);

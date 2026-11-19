@@ -737,7 +737,9 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
       return get_engine_message('item.out_of_stock', $item->name);
     }
 
-    if (! in_array($item->occasion, [Occasion::ALWAYS, Occasion::MENU_SCREEN], true)) {
+    if (! in_array($item->occasion, [Occasion::ALWAYS, Occasion::MENU_SCREEN], true)
+      || array_any($item->effects, static fn($effect): bool => $effect instanceof AddStateEffect
+        && StateRegistry::get($effect->stateId)?->durationSeconds !== null)) {
       return get_engine_message('item.wrong_occasion', $item->name);
     }
 
@@ -1272,7 +1274,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
    *
    * @param array<string, mixed> $data
    */
-  public function restoreMutableState(array $data): void
+  public function restoreMutableState(array $data, bool $preserveAuthoredAp = false): void
   {
     $rawSavedStats = $data['stats'] ?? null;
     $savedStats = $rawSavedStats instanceof Stats
@@ -1332,7 +1334,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
       $slot->equipment = $savedSlot?->equipment;
     }
 
-    if (isset($savedStats['totalAp'])) {
+    if (!$preserveAuthoredAp && isset($savedStats['totalAp'])) {
       $this->stats->totalAp = max(0, intval($savedStats['totalAp']));
     }
 

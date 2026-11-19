@@ -203,3 +203,50 @@ it('keeps inspection side effect free and rejects invalid elapsed time without d
   expect($session->isComplete)->toBeFalse()->and($recorder->handoffs)->toBe(0);
   $session->cancel();
 });
+
+it('keeps the outgoing scene until preparation permits handoff and waits separately for renderer readiness', function (bool $enabled) {
+  $recorder = new TransitionHandoffRecorder(new ScreenTransitionTreatment(getScreenTransitionFixture()));
+  $recorder->ready = false;
+  $prepared = false;
+  $checks = $rendererChecks = 0;
+  $session = ScreenTransition::startHandoff($recorder->treatment, $recorder->present(...),
+    function () use ($recorder, &$prepared, &$checks): bool {
+      $checks++;
+      if (!$prepared) { return false; }
+      $recorder->handoff();
+      return true;
+    }, function () use ($recorder, &$rendererChecks): bool {
+      $rendererChecks++;
+      return $recorder->isReady();
+    }, $recorder->cleanup(...), $enabled);
+  if ($enabled) { $session->update(1); }
+  $session->update(1);
+  expect($checks)->toBe(1)->and($session->hasHandedOff)->toBeFalse()
+    ->and($recorder->handoffs)->toBe(0)->and($rendererChecks)->toBe(0);
+  expect($recorder->events)->toBe($enabled ? ['hold', 'hold'] : []);
+  $session->pause();
+  $session->update(1);
+  expect($checks)->toBe(1);
+  $session->resume();
+  $prepared = true;
+  expect($session->update(1))->toBeFalse()->and($session->hasHandedOff)->toBeTrue()
+    ->and($recorder->handoffs)->toBe(1)->and($rendererChecks)->toBe(1);
+  $recorder->ready = true;
+  $session->update(1);
+  $session->update(1);
+  expect($session->isComplete)->toBeTrue()->and($checks)->toBe(2)
+    ->and($recorder->handoffs)->toBe(1)->and($recorder->cleanups)->toBe(1);
+})->with(['covered' => true, 'direct' => false]);
+
+it('cancels a pending handoff exactly once without entering the replacement scene', function () {
+  $recorder = new TransitionHandoffRecorder(new ScreenTransitionTreatment(getScreenTransitionFixture()));
+  $session = ScreenTransition::startHandoff($recorder->treatment, $recorder->present(...),
+    static fn(): bool => false, $recorder->isReady(...), $recorder->cleanup(...));
+  $session->update(1);
+  $session->update(1);
+  $session->cancel();
+  $session->cancel();
+  $session->update(1);
+  expect($session->phase)->toBe(ScreenTransitionPhase::CANCELLED)->and($session->hasHandedOff)->toBeFalse()
+    ->and($recorder->handoffs)->toBe(0)->and($recorder->cleanups)->toBe(1);
+});

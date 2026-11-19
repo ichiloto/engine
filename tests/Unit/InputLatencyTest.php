@@ -144,3 +144,22 @@ it('does not read a diagnostic clock when disabled', function () {
   expect(LatencyTrace::getTimeNow())->toBeNull();
   LatencyTrace::endIteration();
 });
+
+it('records process CPU beside wall duration without changing the existing stage or caller data', function () {
+  $span = LatencyTrace::beginSpan();
+  $this->now += 50_000_000;
+  LatencyTrace::endSpan('presentation.compose', $span, ['asset' => 'synthetic.png']);
+  $record = end($this->records);
+  expect($record['stage'])->toBe('presentation.compose')->and($record['duration_ns'])->toBe(50_000_000)
+    ->and($record['asset'])->toBe('synthetic.png')->and($record)->toHaveKeys(['cpu_user_ns', 'cpu_system_ns']);
+  foreach (['cpu_user_ns', 'cpu_system_ns'] as $key) {
+    if ($record[$key] !== null) { expect($record[$key])->toBeInt()->toBeGreaterThanOrEqual(0); }
+  }
+});
+
+it('does not sample either diagnostic clock for a disabled measured span', function () {
+  LatencyTrace::configure(null, fn() => throw new LogicException('disabled span clock'));
+  expect(LatencyTrace::beginSpan())->toBeNull();
+  LatencyTrace::endSpan('ignored', null);
+  expect($this->records)->toBe([]);
+});

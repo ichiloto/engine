@@ -35,6 +35,7 @@ class MagicSkill extends Skill
    * @param Weapon[] $requiredWeapons The required weapons.
    * @param MagicEffectType|null $effectType The explicit magic animation type.
    * @param int|null $animationId The stable animation id, or null for legacy selection.
+   * @param int $apCost The AP consumed by a valid battle execution.
    * @param float $animationScale How large the bound animation's target effect plays.
    */
   public function __construct(
@@ -52,6 +53,7 @@ class MagicSkill extends Skill
     ?int $animationId = null,
     float $animationScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
     ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $battleTargeting = null,
+    int $apCost = 0,
   )
   {
     parent::__construct(
@@ -68,6 +70,7 @@ class MagicSkill extends Skill
       $animationId,
       animationScale: $animationScale,
       battleTargeting: $battleTargeting,
+      apCost: $apCost,
     );
 
     $this->effectType ??= $this->inferEffectType($effects);

@@ -100,6 +100,36 @@ final class PngCellCoverage
     return $rows * 4 >= $tile;
   }
 
+  /**
+   * A barrier can read as a thin upright or a broad crossbar. The latter
+   * needs a continuous face across the central three quarters of the cell
+   * for at least an eighth of its height in the grounded half.
+   */
+  public static function showsBarrier(?string $mask): bool
+  {
+    if ($mask === null) {
+      return false;
+    }
+    if (self::isCentreCovered($mask)) {
+      return true;
+    }
+
+    $tile = (int) sqrt(strlen($mask));
+    $spanWidth = intdiv($tile * 3, 4);
+    $spanStart = intdiv($tile - $spanWidth, 2);
+    $opaqueSpan = str_repeat("\1", $spanWidth);
+    $consecutiveRows = 0;
+    for ($row = intdiv($tile, 2); $row < $tile; $row++) {
+      $centre = substr($mask, $row * $tile + $spanStart, $spanWidth);
+      $consecutiveRows = $centre === $opaqueSpan ? $consecutiveRows + 1 : 0;
+      if ($consecutiveRows * 8 >= $tile) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   /** The share of a cell's pixels a mask covers, from 0 to 1. */
   public static function getShare(?string $mask): float
   {

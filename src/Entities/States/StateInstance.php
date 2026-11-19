@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Entities\States;
 
+use Ichiloto\Engine\Battle\BattleStateClock;
+
 /**
  * One battler's live affliction with a state.
  *
@@ -10,8 +12,31 @@ namespace Ichiloto\Engine\Entities\States;
 class StateInstance
 {
   public private(set) int $remainingDelayTurns = 0;
+  private ?BattleStateClock $battleClock = null;
+  private ?float $expiresAt = null;
 
   public bool $isPending { get => $this->remainingDelayTurns > 0; }
+
+  public bool $isElapsedExpired {
+    get => $this->expiresAt !== null && ($this->battleClock?->getSeconds() ?? 0.0) >= $this->expiresAt;
+  }
+
+  public bool $isActive { get => !$this->isPending && !$this->isElapsedExpired; }
+
+  public function bindBattleClock(BattleStateClock $clock): void
+  {
+    if ($this->state->durationSeconds === null || $this->battleClock === $clock) { return; }
+    $this->battleClock = $clock;
+    if (!$this->isPending) { $this->startElapsedDuration(); }
+  }
+
+  private function startElapsedDuration(): void
+  {
+    $duration = $this->state->durationSeconds;
+    if ($this->battleClock !== null && $duration !== null) {
+      $this->expiresAt = $this->battleClock->getSeconds() + $duration;
+    }
+  }
 
   /**
    * @param State $state The state definition.
@@ -38,7 +63,9 @@ class StateInstance
   {
     if (!$this->isPending) { return false; }
     $this->remainingDelayTurns--;
-    return $this->remainingDelayTurns === 0;
+    if ($this->isPending) { return false; }
+    $this->startElapsedDuration();
+    return true;
   }
 
   /**

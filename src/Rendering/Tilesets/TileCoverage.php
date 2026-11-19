@@ -25,7 +25,8 @@ final class TileCoverage
   /** @var array<int, CornerSheet>|null The usable corner sheets by flag identity, read on first use. */
   private ?array $cornerSheets = null;
 
-  public function __construct(private readonly Tileset $tileset, string $assetRoot)
+  /** @param list<string>|null $sheetNames Ordinary sheets to snapshot. Null includes all usable sheets. */
+  public function __construct(private readonly Tileset $tileset, string $assetRoot, ?array $sheetNames = null)
   {
     $this->assetRoot = $assetRoot;
     if (!function_exists('imagecreatefrompng')) {
@@ -38,7 +39,11 @@ final class TileCoverage
       return;
     }
     $this->tileSize = $usable['tileSize'];
-    foreach ($usable['sheets'] as $name => $asset) {
+    $sheets = $usable['sheets'];
+    if ($sheetNames !== null) {
+      $sheets = array_intersect_key($sheets, array_fill_keys($sheetNames, true));
+    }
+    foreach ($sheets as $name => $asset) {
       $layout = TilesetSheet::from($name);
       $this->readSheet($name, $asset, $this->tileSize * $layout->getColumns(), $this->tileSize * $layout->getRows());
     }

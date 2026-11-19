@@ -306,3 +306,22 @@ it('uses timed samples in caller-owned stage sessions with the same held geometr
     ->and($session->hasPresentationFailure)->toBeFalse();
   $session->release();expect($session->getCanvas(400,300,true))->toBeNull();
 });
+
+
+it('uses the actual stage clock for normal and reduced-motion image residency without replaying its cues', function () {
+  $compiled = $this->compiler->compile(SummonCutsceneDefinition::fromArrays($this->data, $this->source));
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $compiled);
+  $actor = new \Ichiloto\Engine\Entities\Character('Synthetic', 1, new \Ichiloto\Engine\Entities\Stats(currentHp: 100, totalHp: 100));
+  $calls = 0;
+  $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $actor, [],
+    \Ichiloto\Engine\Battle\Presentation\BattlePoseRole::ATTACK,
+    function () use (&$calls): void { $calls++; }, function () use (&$calls): void { $calls++; });
+  foreach ([false, true] as $reduced) {
+    $during = $plan->getCommandFrameForAuthoredFrame('target', 3);
+    $after = $plan->getCommandFrameForAuthoredFrame('target', 10);
+    $visible = \Ichiloto\Engine\Battle\Presentation\BattleEffectResources::collectCommandFrameResources($playback, $this->root, $during, $reduced);
+    expect(array_map(fn($r) => $r->asset, array_values($visible)))->toBe(['body.png', 'core.png'])
+      ->and(\Ichiloto\Engine\Battle\Presentation\BattleEffectResources::collectCommandFrameResources($playback, $this->root, $after, $reduced))->toBe([]);
+  }
+  expect($calls)->toBe(0)->and($playback->session->currentFrame)->toBe(0);
+});

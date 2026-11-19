@@ -249,9 +249,9 @@ function createTargetingTestEnemy(string $name): Enemy
   return $enemy;
 }
 
-function createTargetingTestScreen(): BattleScreenTargetingTestProxy
+function createTargetingTestScreen(?BattleScreenTargetingTestProxy $screen = null): BattleScreenTargetingTestProxy
 {
-  $screen = (new ReflectionClass(BattleScreenTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $screen ??= (new ReflectionClass(BattleScreenTargetingTestProxy::class))->newInstanceWithoutConstructor();
   setTestProperty($screen, 'screenDimensions', new Rect(0, 0, BattleScreen::WIDTH, BattleScreen::HEIGHT));
   setTestProperty($screen, 'borderPack', new DefaultBorderPack());
   setTestProperty($screen, 'messageWindow', new BattleMessageWindowTargetingTestProxy($screen));

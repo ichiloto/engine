@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Scenes\Arena;
 
 use Closure;
+use Ichiloto\Engine\Battle\EncounterAdvantage;
+use Ichiloto\Engine\UI\Navigation\{DirectionalFocusGraph, FocusDirection};
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Entities\Party;
 
@@ -12,8 +14,9 @@ use Ichiloto\Engine\Entities\Party;
  * Where the arena's setup is and what each move does, apart from drawing and
  * input devices: the arena reads semantic moves (up, down, left, right, a
  * page step, confirm, cancel) and passes them here, and draws what this
- * says. Pane actions switch between troops, party and items. Confirm opens
- * a member or item choice, and cancel closes that choice or leaves its
+ * says. Pane actions cycle only the visible list and party panes, retaining
+ * each editing context. Party management owns members, frontline capacity,
+ * opening advantage and inventory. Cancel closes a choice or leaves its
  * enclosing setup context. Member fields include the actor, level, starting
  * HP, MP, states, form and equipment. Where arenas
  * are offered (a graphical renderer draws them), left and right on the troop
@@ -23,41 +26,66 @@ use Ichiloto\Engine\Entities\Party;
  */
 final class ArenaSetupEditor
 {
-  public const string TROOPS = 'troops';
-  public const string PARTY = 'party';
-  public const string MEMBER = 'member';
-  public const string CHOOSER = 'chooser';
-  public const string COMPOSER = 'composer';
-  public const string ITEMS = 'items';
+  public const ArenaSetupFocus TROOPS = ArenaSetupFocus::TROOPS;
+  public const ArenaSetupFocus PARTY = ArenaSetupFocus::PARTY;
+  public const ArenaSetupFocus MEMBER = ArenaSetupFocus::MEMBER;
+  public const ArenaSetupFocus CHOOSER = ArenaSetupFocus::CHOOSER;
+  public const ArenaSetupFocus COMPOSER = ArenaSetupFocus::COMPOSER;
+  public const ArenaSetupFocus ITEMS = ArenaSetupFocus::ITEMS;
+  public const ArenaSetupFocus MANAGEMENT = ArenaSetupFocus::MANAGEMENT;
   /** Confirm on the troop list asks for a fight. */
   public const string FIGHT = 'fight';
-  /** Cancelling the root setup asks to leave from any pane. */
+  /** Legacy request identity retained for callers; setup cancellation no longer returns it. */
   public const string QUIT = 'quit';
   /** The composer asks to fight its test troop, or to keep it as a troop. */
   public const string FIGHT_TEST = 'fight-test';
   public const string KEEP = 'keep';
   /** A member's fields that step by one with left and right and by ten with a page step. */
-  public const array VITAL_FIELDS = ['hp', 'mp'];
+  public const array VITAL_FIELDS = ['hp', 'mp', 'ap'];
   /** A member's fields whose choices are toggled, several at once. */
   private const array TOGGLED_FIELDS = ['commands', 'skills', 'magic', 'summons', 'states'];
 
-  public private(set) string $focus = self::TROOPS;
+  private ArenaSetupFocus $leftFocus = self::TROOPS;
+  private ArenaSetupFocus $rootFocus = self::TROOPS;
+  private ?DirectionalFocusGraph $paneFocus = null;
+  public private(set) ArenaSetupFocus $focus {
+    get => $this->getPaneFocus()->getFocusedNode()?->id === ArenaSetupPane::PARTY->value ? self::PARTY : $this->leftFocus;
+    set {
+      $this->getPaneFocus()->setFocus($value === self::PARTY ? ArenaSetupPane::PARTY->value : ArenaSetupPane::LIST->value);
+      if ($value !== self::PARTY) {
+        $this->leftFocus = $value;
+        if ($value === self::TROOPS || $value === self::COMPOSER) { $this->rootFocus = $value; }
+      }
+    }
+  }
+  public private(set) int $managementIndex = 0;
+  /** @return list<BattleTestPartySetting> */
+  public array $partySettings {
+    get => [BattleTestPartySetting::MEMBERS, BattleTestPartySetting::FRONTLINE, BattleTestPartySetting::OPENING,
+      ...($this->inventoryEditor === null ? [] : [BattleTestPartySetting::ITEMS])];
+  }
+  public ?BattleTestPartySetting $partySetting { get => $this->partySettings[$this->managementIndex] ?? null; }
+
+  private function getPaneFocus(): DirectionalFocusGraph
+  {
+    if ($this->paneFocus === null) {
+      $this->paneFocus = new DirectionalFocusGraph();
+      $this->paneFocus->replaceCycle([ArenaSetupPane::LIST->value, ArenaSetupPane::PARTY->value], ArenaSetupPane::LIST->value);
+    }
+    return $this->paneFocus;
+  }
   public private(set) int $troopIndex = 0;
   public private(set) int $memberIndex = 0;
   public private(set) int $fieldIndex = 0;
   public private(set) int $choiceIndex = 0;
-  private string $partyReturnFocus = self::TROOPS;
 
   /** Party and Items share the composer context when opened from its troop list. */
   public bool $isInTroopComposer {
-    get => $this->focus === self::COMPOSER
-      || ($this->focus !== self::TROOPS && $this->partyReturnFocus === self::COMPOSER);
+    get => $this->rootFocus === self::COMPOSER;
   }
 
   /** The left pane keeps its list while the party pane has focus. */
-  public string $listFocus {
-    get => $this->focus === self::PARTY ? $this->partyReturnFocus : $this->focus;
-  }
+  public ArenaSetupFocus $listFocus { get => $this->leftFocus; }
 
   /**
    * @param list<string> $actorIds Every actor a member can be, in order.
@@ -70,6 +98,7 @@ final class ArenaSetupEditor
    *   `hp`, `mp`, `states` and `form` may be ({@see BattleTestChoices::getConditionChoices()}); none leaves the starting condition unset.
    * @param Closure(BattleTestMember, string): int|null $vitalMaximumFor A member's maximum `hp` or `mp`, to count points within.
    * @param BattleTestInventoryEditor|null $inventoryEditor Setting the party's items; none where they cannot be set.
+   * @param Closure(string): int|null $actorStartingApFor The authored AP for opted-in projects.
    */
   public function __construct(
     public private(set) BattleTestSetup $setup,
@@ -84,6 +113,7 @@ final class ArenaSetupEditor
     private readonly ?Closure $conditionChoicesFor = null,
     private readonly ?Closure $vitalMaximumFor = null,
     public readonly ?BattleTestInventoryEditor $inventoryEditor = null,
+    private readonly ?Closure $actorStartingApFor = null,
   ) {
     $this->inventoryEditor?->load($setup->inventory);
   }
@@ -131,7 +161,7 @@ final class ArenaSetupEditor
       $member = $this->member;
       if ($member === null) { return []; }
 
-      return ['actor', 'level', ...($this->offersCondition ? ['hp', 'mp', 'states'] : []),
+      return ['actor', 'level', ...($this->offersCondition ? ['hp', 'mp', ...($this->actorStartingApFor !== null ? ['ap'] : []), 'states'] : []),
         ...($this->offersCondition && ($this->conditionChoicesFor)($member, 'form') !== [] ? ['form'] : []),
         ...array_map(static fn(string $slot): string => "slot:{$slot}", ($this->slotsFor)($member->actorId)),
         ...($this->loadoutChoicesFor === null ? [] : ['commands', 'skills', 'magic', 'summons']),
@@ -174,8 +204,7 @@ final class ArenaSetupEditor
       'skills', 'magic' => $id !== null && in_array($id, $member->skills, true),
       'summons' => $id !== null && in_array($id, $member->summons, true),
       'states' => $id === null ? $member->states === [] : in_array($id, $member->states, true),
-      'hp' => $id === $member->hp?->format(),
-      'mp' => $id === $member->mp?->format(),
+      'hp', 'mp', 'ap' => $id === $member->getVital(BattleTestResource::from($field))?->format(),
       'form' => $id === BattleTestChoices::getWorldKey($member->world),
       default => $id === ($member->equipment[substr($field, 5)] ?? null),
     };
@@ -188,24 +217,28 @@ final class ArenaSetupEditor
       self::TROOPS => $this->troopIndex = max(0, min(max(0, $this->troopRows - 1), $this->troopIndex + $step)),
       self::COMPOSER => $this->composer?->moveVertical($step),
       self::ITEMS => $this->inventoryEditor?->moveVertical($step),
-      self::PARTY => $this->memberIndex = max(0, min(BattleTestSetup::MAX_MEMBERS - 1, $this->memberIndex + $step)),
+      self::PARTY => $this->memberIndex = max(0, min(BattleTestSetup::MAX_MEMBERS, $this->memberIndex + $step)),
+      self::MANAGEMENT => $this->managementIndex = max(0, min(count($this->partySettings) - 1, $this->managementIndex + $step)),
       self::MEMBER => $this->fieldIndex = max(0, min(count($this->fields) - 1, $this->fieldIndex + $step)),
       self::CHOOSER => $this->choiceIndex = max(0, min(count($this->getChoices()) - 1, $this->choiceIndex + $step)),
     };
   }
 
   /**
-   * Left and right change the arena on the troop list, the frontline limit
-   * on the party pane, a quantity in Items by ten, or the focused member field.
+   * Left and right change the arena on the troop list, the selected frontline
+   * or opening setting in party management, an item quantity, or a member field.
    */
   public function moveHorizontal(int $step): void
   {
-    if ($this->focus === self::PARTY) {
-      $size = max(1, min(Party::MAX_BATTLE_SIZE, $this->setup->battleSize + $step));
-      if ($size !== $this->setup->battleSize) {
-        $this->setup = $this->setup->withBattleSize($size);
+    if ($this->focus === self::MANAGEMENT) {
+      if ($this->partySetting === BattleTestPartySetting::FRONTLINE) {
+        $this->setup = $this->setup->withBattleSize(max(1, min(Party::MAX_BATTLE_SIZE, $this->setup->battleSize + $step)));
+      } elseif ($this->partySetting === BattleTestPartySetting::OPENING) {
+        $choices = [null, ...EncounterAdvantage::cases()];
+        $index = array_search($this->setup->firstStrike, $choices, true);
+        $next = (($index + $step) % count($choices) + count($choices)) % count($choices);
+        $this->setup = $this->setup->withFirstStrike($choices[$next]);
       }
-
       return;
     }
     if ($this->focus === self::ITEMS) {
@@ -224,7 +257,7 @@ final class ArenaSetupEditor
     match ($this->field) {
       'actor' => $this->changeActor($member, $step),
       'level' => $this->stepLevel($step),
-      'hp', 'mp' => $this->stepVital($this->field, $step),
+      'hp', 'mp', 'ap' => $this->stepVital($this->field, $step),
       'form' => $this->stepForm($member, $step),
       default => null,
     };
@@ -232,20 +265,12 @@ final class ArenaSetupEditor
 
   /**
    * Tab and Shift+Tab (the menus' shared next and previous actions) switch
-   * the top-level panes: troops, party and items.
+   * only the visible list and party panes, preserving their editing contexts.
    */
   public function movePane(int $direction): void
   {
-    if ($direction > 0 && ($this->focus === self::TROOPS
-      || ($this->focus === self::COMPOSER && $this->composer?->focus === TestTroopComposer::MEMBERS))) {
-      $this->enterParty();
-    } elseif ($direction > 0 && $this->focus === self::PARTY && $this->inventoryEditor !== null) {
-      $this->focus = self::ITEMS;
-    } elseif ($direction < 0 && $this->focus === self::ITEMS && $this->inventoryEditor?->focus === BattleTestInventoryFocus::ENTRIES) {
-      $this->focus = self::PARTY;
-    } elseif ($direction < 0 && $this->focus === self::PARTY) {
-      $this->focus = $this->partyReturnFocus;
-    }
+    if ($direction === 0) { return; }
+    $this->getPaneFocus()->moveFocus($direction > 0 ? FocusDirection::RIGHT : FocusDirection::LEFT);
   }
 
   /**
@@ -272,7 +297,7 @@ final class ArenaSetupEditor
   }
 
   /**
-   * Changes the HP or MP the member starts with by a step in the unit it is
+   * Changes a starting resource by a step in the unit it is
    * counted in: percent within 0 and 100, points within 0 and the member's
    * maximum. Full is 100 percent.
    */
@@ -282,10 +307,16 @@ final class ArenaSetupEditor
     if ($this->focus !== self::MEMBER || $member === null || $this->vitalMaximumFor === null || !in_array($field, self::VITAL_FIELDS, true)) {
       return;
     }
-    $vital = ($field === 'hp' ? $member->hp : $member->mp) ?? BattleTestVital::createFull();
+    $resource = BattleTestResource::from($field);
+    if ($resource === BattleTestResource::AP && $this->actorStartingApFor === null) {
+      return;
+    }
+    $vital = $member->getVital($resource) ?? ($resource === BattleTestResource::AP
+      ? new BattleTestVital(($this->actorStartingApFor)($member->actorId), BattleTestVitalUnit::POINTS)
+      : BattleTestVital::createFull());
     $next = $vital->withAmount($vital->amount + $step, $vital->unit === BattleTestVitalUnit::POINTS
       ? ($this->vitalMaximumFor)($member, $field) : 100);
-    $this->setup = $this->setup->withMember($this->memberIndex, $field === 'hp' ? $member->withHp($next) : $member->withMp($next));
+    $this->setup = $this->setup->withMember($this->memberIndex, $member->withVital($resource, $next));
   }
 
   /** Steps the member's form through its choices, none first, round to the start. */
@@ -318,7 +349,19 @@ final class ArenaSetupEditor
         $this->inventoryEditor?->confirm();
         $this->setup = $this->setup->withInventory($this->inventoryEditor?->items);
         return null;
+      case self::MANAGEMENT:
+        if ($this->partySetting === BattleTestPartySetting::MEMBERS) {
+          $this->focus = self::PARTY;
+          $this->memberIndex = min($this->memberIndex, count($this->setup->members) - 1);
+        } elseif ($this->partySetting === BattleTestPartySetting::ITEMS) {
+          $this->focus = self::ITEMS;
+        }
+        return null;
       case self::PARTY:
+        if ($this->memberIndex === BattleTestSetup::MAX_MEMBERS) {
+          $this->focus = self::MANAGEMENT;
+          return null;
+        }
         // An empty place becomes a new member, the first actor not yet in the party.
         if ($this->member === null) {
           $used = array_map(static fn(BattleTestMember $member): string => $member->actorId, $this->setup->members);
@@ -356,8 +399,8 @@ final class ArenaSetupEditor
             return null;
           }
           $this->setup = $this->setup->withMember($this->memberIndex, match ($field) {
-            'hp' => $member->withHp($choice['id'] === null ? null : BattleTestVital::parse($choice['id'])),
-            'mp' => $member->withMp($choice['id'] === null ? null : BattleTestVital::parse($choice['id'])),
+            'hp', 'mp', 'ap' => $member->withVital(BattleTestResource::from($field),
+              $choice['id'] === null ? null : BattleTestVital::parse($choice['id'])),
             'form' => $member->withWorld($choice['world'] ?? null),
             default => $member->withEquipment(substr($field, 5), $choice['id']),
           });
@@ -369,33 +412,31 @@ final class ArenaSetupEditor
     return null;
   }
 
-  /** @return self::QUIT|null Leaving the root setup or cancelling a confirmed subcontext. */
+  /** Cancel closes one editing level; it never requests process exit. */
   public function cancel(): ?string
   {
     switch ($this->focus) {
       case self::TROOPS:
-        return self::QUIT;
+        break;
       case self::COMPOSER:
         if ($this->composer?->cancel() === TestTroopComposer::LEAVE) { $this->focus = self::TROOPS; }
         break;
       case self::ITEMS:
+        if ($this->inventoryEditor?->cancel() === BattleTestInventoryEditor::LEAVE) { $this->focus = self::MANAGEMENT; }
+        break;
+      case self::MANAGEMENT:
+        $this->focus = $this->rootFocus;
+        break;
       case self::PARTY:
-        if ($this->focus === self::ITEMS && $this->inventoryEditor?->cancel() !== BattleTestInventoryEditor::LEAVE) {
-          return null;
-        }
-        if (!$this->isInTroopComposer) {
-          return self::QUIT;
-        }
-        $this->focus = self::TROOPS;
+        $this->getPaneFocus()->setFocus(ArenaSetupPane::LIST->value);
         break;
       case self::MEMBER:
-        $this->focus = self::PARTY;
+        $this->focus = self::MANAGEMENT;
         break;
       case self::CHOOSER:
         $this->focus = self::MEMBER;
         break;
     }
-
     return null;
   }
 
@@ -414,13 +455,6 @@ final class ArenaSetupEditor
     $index = array_search($this->setup->arena, $choices, true);
     $next = $choices[((($index === false ? 0 : $index) + $step) % count($choices) + count($choices)) % count($choices)];
     $this->setup = $this->setup->withArena($next);
-  }
-
-  private function enterParty(): void
-  {
-    $this->partyReturnFocus = $this->focus;
-    $this->focus = self::PARTY;
-    $this->memberIndex = 0;
   }
 
   /** Toggles one of several choices; the first choice, with no id, clears them or, for commands, restores the normal menu. */

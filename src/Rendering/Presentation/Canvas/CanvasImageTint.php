@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSession;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use InvalidArgumentException;
 
@@ -100,10 +102,11 @@ final class CanvasImageTint
         $destination = new CanvasRectangle($left, $top, $right - $left, $bottom - $top);
       }
     }
-    [$sourceX, $sourceWidth] = self::getNormalizedInterval($crop?->x ?? 0,
-      $crop?->width ?? $size['width'], $size['width'], $startX, $endX, $image->flipX);
-    [$sourceY, $sourceHeight] = self::getNormalizedInterval($crop?->y ?? 0,
-      $crop?->height ?? $size['height'], $size['height'], $startY, $endY, $image->flipY);
+    $pixelSource = PresentationSession::supportsCapability(RendererSessionConfig::CANVAS_SOURCE_PIXELS);
+    [$sourceX, $sourceWidth] = self::getSourceInterval($crop?->x ?? 0,
+      $crop?->width ?? $size['width'], $pixelSource ? 1 : $size['width'], $startX, $endX, $image->flipX);
+    [$sourceY, $sourceHeight] = self::getSourceInterval($crop?->y ?? 0,
+      $crop?->height ?? $size['height'], $pixelSource ? 1 : $size['height'], $startY, $endY, $image->flipY);
     $source = ['x' => $sourceX, 'y' => $sourceY, 'width' => $sourceWidth, 'height' => $sourceHeight];
     $width = (int)ceil($destination->width);
     $height = (int)ceil($destination->height);
@@ -111,7 +114,7 @@ final class CanvasImageTint
     $mask = ['type' => 'image_alpha', 'asset' => $image->asset, 'destination' => $rectangle];
     if ($image->flipX) { $mask['flipX'] = true; }
     if ($image->flipY) { $mask['flipY'] = true; }
-    if ($crop !== null || $destination !== $image->destination) { $mask['source'] = $source; }
+    if ($crop !== null || $destination !== $image->destination) { $mask[$pixelSource ? 'sourcePixels' : 'source'] = $source; }
     $operations = [];
     foreach (CanvasCompositeValues::getList($tints, 1, 256) as $tint) {
       CanvasCompositeValues::validateKeys($tint, ['color', 'strength']);
@@ -124,7 +127,7 @@ final class CanvasImageTint
   }
 
   /** @return array{float, float} Source start and span, resolved from the bounded pixel endpoints. */
-  private static function getNormalizedInterval(int $origin, int $length, int $total,
+  private static function getSourceInterval(int $origin, int $length, int $total,
     float $start, float $end, bool $flip): array
   {
     if ($flip) { [$start, $end] = [1 - $end, 1 - $start]; }

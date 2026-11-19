@@ -20,6 +20,7 @@ final readonly class BattleHudStatusRow
     public int $currentMp,
     public int $totalMp,
     ?float $atbRatio = null,
+    public ?int $currentAp = null,
   ) {
     if ($atbRatio !== null && !is_finite($atbRatio)) {
       throw new InvalidArgumentException('Battle HUD ATB ratios must be finite.');

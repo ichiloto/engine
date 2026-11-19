@@ -111,12 +111,13 @@ final class BattleTestChoices
 
   /**
    * What a member's starting condition may be set to: `states` (none first,
-   * then every state the project defines), or `hp` and `mp`. HP and MP offer
+   * then every state the project defines), or a starting resource. HP and MP offer
    * full first; for HP, where the actor's crisis ability activates below an
-   * HP threshold, the highest whole percentage that activates it; then none
+   * HP threshold, a starting amount below it; then none
    * (knocked out for HP, empty for MP); then the amount the member starts
-   * with counted the other way, in points or percent. Each choice's id is
-   * the amount as typed ({@see BattleTestVital::parse()}), null for full.
+   * with counted the other way, when rounding can preserve a positive amount.
+   * Each choice's id is
+   * the amount as typed ({@see BattleTestVital::parse()}). Null keeps full HP/MP or the authored AP.
    *
    * @return list<array{id: ?string, name: string}>
    */
@@ -133,23 +134,76 @@ final class BattleTestChoices
       return [['id' => null, 'name' => '(None)'], ...array_values(array_map(
         static fn(State $state): array => ['id' => $state->id, 'name' => $state->name], StateRegistry::all()))];
     }
-    if (!in_array($field, ['hp', 'mp'], true)) {
+    $resource = BattleTestResource::tryFrom($field);
+    if ($resource === null || ($resource === BattleTestResource::AP && !$this->offersActionPoints())) {
       return [];
     }
     $character = $setup->createMemberCharacter($member, $this->actors, $this->items);
-    $maximum = $field === 'hp' ? $character->stats->totalHp : $character->stats->totalMp;
-    $choices = [['id' => null, 'name' => 'Full']];
-    $crisis = $field === 'hp' ? $this->getCrisisThresholdVital($character) : null;
-    if ($crisis !== null) {
-      $choices[] = ['id' => $crisis->format(), 'name' => sprintf('Below %s: %s', $character->crisisAbility?->name, $crisis->format())];
+    return $this->getVitalChoices($member, $character, $resource);
+  }
+
+  /**
+   * Starting resource limits and choices in project data format.
+   *
+   * @return array<string, array{maximum: int, default: array<string, int>, choices: list<array{name: string, value: ?array<string, int>}>}>
+   */
+  public function describeStartingVitals(BattleTestSetup $setup, int $memberIndex): array
+  {
+    $member = $setup->members[$memberIndex] ?? null;
+    if ($member === null) {
+      return [];
     }
-    $choices[] = ['id' => '0%', 'name' => $field === 'hp' ? 'Knocked out' : 'Empty'];
-    $current = ($field === 'hp' ? $member->hp : $member->mp) ?? BattleTestVital::createFull();
+    $character = $setup->createMemberCharacter($member, $this->actors, $this->items);
+    $vitals = [];
+    foreach (BattleTestResource::cases() as $resource) {
+      if ($resource === BattleTestResource::AP && !$this->offersActionPoints()) {
+        continue;
+      }
+      $vitals[$resource->value] = [
+        'maximum' => $resource->getMaximum($character->stats),
+        'default' => $this->getDefaultVital($character, $resource)->toArray(),
+        'choices' => array_map(
+          static fn(array $choice): array => ['name' => $choice['name'],
+            'value' => $choice['id'] === null ? null : BattleTestVital::parse($choice['id'])->toArray()],
+          $this->getVitalChoices($member, $character, $resource),
+        ),
+      ];
+    }
+
+    return $vitals;
+  }
+
+  /** @return list<array{id: ?string, name: string}> */
+  private function getVitalChoices(BattleTestMember $member, Character $character, BattleTestResource $resource): array
+  {
+    $maximum = $resource->getMaximum($character->stats);
+    $ap = $resource === BattleTestResource::AP;
+    $choices = $ap ? [
+      ['id' => null, 'name' => sprintf('Authored balance (%d)', $character->stats->currentAp)],
+      ['id' => '100%', 'name' => 'Full'],
+    ] : [['id' => null, 'name' => 'Full']];
+    $crisis = $resource === BattleTestResource::HP ? $this->getCrisisThresholdVital($character) : null;
+    if ($crisis !== null) {
+      $choices[] = ['id' => $crisis->format(), 'name' => sprintf('Below %s: %s%s', $character->crisisAbility?->name, $crisis->format(),
+        $crisis->unit === BattleTestVitalUnit::POINTS ? ' HP' : '')];
+    }
+    $choices[] = ['id' => '0%', 'name' => $resource === BattleTestResource::HP ? 'Knocked out' : 'Empty'];
+    $current = $member->getVital($resource) ?? $this->getDefaultVital($character, $resource);
     $other = $current->convert($maximum);
-    $choices[] = ['id' => $other->format(), 'name' => $other->unit === BattleTestVitalUnit::POINTS
-      ? sprintf('In points: %d of %d', $other->amount, $maximum) : sprintf('In percent: %s', $other->format())];
+    $duplicate = $ap && in_array($other->format(), array_column($choices, 'id'), true);
+    if (!$duplicate && ($current->resolvePoints($maximum) === 0 || $other->resolvePoints($maximum) > 0)) {
+      $choices[] = ['id' => $other->format(), 'name' => $other->unit === BattleTestVitalUnit::POINTS
+        ? sprintf('In points: %d of %d', $other->amount, $maximum) : sprintf('In percent: %s', $other->format())];
+    }
 
     return $choices;
+  }
+
+  private function getDefaultVital(Character $character, BattleTestResource $resource): BattleTestVital
+  {
+    return $resource === BattleTestResource::AP
+      ? new BattleTestVital($character->stats->currentAp, BattleTestVitalUnit::POINTS)
+      : BattleTestVital::createFull();
   }
 
   /**
@@ -196,16 +250,26 @@ final class BattleTestChoices
     return $world === null ? null : json_encode($world->toArray(), JSON_THROW_ON_ERROR);
   }
 
-  /** A member's maximum HP or MP as it fights: at its level and in its equipment. */
+  public function offersActionPoints(): bool
+  {
+    return $this->actors->actionPointPolicy !== null;
+  }
+
+  public function getActorStartingAp(string $actorId): int
+  {
+    return $this->createProbe($actorId)->stats->currentAp;
+  }
+
+  /** A member's resource maximum as it fights: at its level and in its equipment. */
   public function getVitalMaximum(BattleTestSetup $setup, int $memberIndex, string $field): int
   {
     $member = $setup->members[$memberIndex] ?? null;
-    if ($member === null || !in_array($field, ['hp', 'mp'], true)) {
+    $resource = BattleTestResource::tryFrom($field);
+    if ($member === null || $resource === null || ($resource === BattleTestResource::AP && !$this->offersActionPoints())) {
       return 0;
     }
-    $stats = $setup->createMemberCharacter($member, $this->actors, $this->items)->stats;
 
-    return $field === 'hp' ? $stats->totalHp : $stats->totalMp;
+    return $resource->getMaximum($setup->createMemberCharacter($member, $this->actors, $this->items)->stats);
   }
 
   /**
@@ -232,11 +296,7 @@ final class BattleTestChoices
     return BattleTestSetup::getDefaultStock($this->items);
   }
 
-  /**
-   * The highest whole percentage of HP at which the actor's crisis ability is
-   * active, by the ability's own rule; none when it has no HP threshold or
-   * no whole percentage above 0 reaches below it.
-   */
+  /** The highest whole percentage below the HP threshold, or one HP for a sub-percent threshold. */
   private function getCrisisThresholdVital(Character $character): ?BattleTestVital
   {
     $ability = $character->crisisAbility;
@@ -244,17 +304,14 @@ final class BattleTestChoices
     if ($ability === null || $threshold === null) {
       return null;
     }
-    for ($percent = (int) ceil($threshold); $percent >= 1; $percent--) {
-      $vital = new BattleTestVital(min(100, $percent));
-      $character->stats->currentHp = $vital->resolvePoints($character->stats->totalHp);
-      if ($ability->isActive($character)) {
-        $character->restoreVitals();
-        return $vital;
-      }
-    }
-    $character->restoreVitals();
 
-    return null;
+    $maximum = $character->stats->totalHp;
+    if (!$ability->isHpTriggerMet(1, $maximum)) {
+      return null;
+    }
+
+    $percent = (int) ceil($threshold) - 1;
+    return $percent > 0 ? new BattleTestVital($percent) : new BattleTestVital(1, BattleTestVitalUnit::POINTS);
   }
 
   /** The actor as authored, to read its slots, level and role from. */

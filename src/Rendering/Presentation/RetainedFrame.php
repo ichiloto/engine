@@ -19,5 +19,7 @@ final readonly class RetainedFrame
     public bool $canvasIsOverlay,
     /** @var list<PresentationWorldCanvas> */
     public array $worldCanvases = [],
+    /** @var list<\Ichiloto\Engine\Rendering\Assets\AssetHoldRequest> */
+    public array $assetHolds = [],
   ) {}
 }

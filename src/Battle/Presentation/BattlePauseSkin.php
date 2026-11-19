@@ -29,4 +29,10 @@ final readonly class BattlePauseSkin
       throw new InvalidArgumentException('Pause skin must use one PNG density.');
     }
   }
+  /** @return list<string> All authored pause states, before the player opens Pause. */
+  public function getAssetPaths(): array
+  {
+    return array_values(array_unique(array_map(static fn(CanvasNineSlice $art): string => $art->asset, $this->textures)));
+  }
+
 }

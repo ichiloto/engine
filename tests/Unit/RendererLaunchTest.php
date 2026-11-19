@@ -117,6 +117,41 @@ it('registers exactly the stable identities and constructs GPUI through its inje
     ->and(new ReflectionProperty(RendererRuntime::class, 'transport')->getValue($runtime))->toBeInstanceOf(ProcessRendererTransport::class);
 });
 
+it('requires both tool keyboard chords and resource readiness in the built-in graphical session', function (?string $missing) {
+  $resolver = new class implements RendererExecutableResolverInterface {
+    public function resolve(string $rendererId): string { return PHP_BINARY; }
+  };
+  $registry = new RendererRegistry($resolver);
+  $builtIn = $registry->require('gpui')->createRuntime(__DIR__);
+  $config = new ReflectionProperty(RendererRuntime::class, 'config')->getValue($builtIn);
+  $expected = [
+    \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::KEYBOARD_CHORDS,
+    \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS,
+  ];
+  $capabilities = array_values(array_filter($config->requiredCapabilities,
+    static fn(string $capability): bool => $capability !== $missing));
+  $this->transport->batches = [[\Ichiloto\Engine\Rendering\Transport\RendererEvent::fromJson(json_encode([
+    'protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities,
+  ], JSON_THROW_ON_ERROR))]];
+  $this->runtime = new RendererRuntime($config, $this->transport);
+  if ($missing === null) {
+    $this->runtime->start('Graphical readiness and input', 135, 36);
+    foreach ($expected as $capability) {
+      expect($this->runtime->supports($capability))->toBeTrue();
+    }
+  } else {
+    expect(fn() => $this->runtime->start('Graphical readiness and input', 135, 36))
+      ->toThrow(\Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException::class, $missing)
+      ->and($this->transport->running)->toBeFalse();
+  }
+  foreach ($expected as $capability) {
+    expect($this->transport->session->requiredCapabilities)->toContain($capability)
+      ->and($this->transport->session->getNegotiableCapabilities())->toContain($capability);
+  }
+  expect($registry->require('terminal')->createRuntime(__DIR__))->toBeNull();
+})->with(['both subscriptions' => null, 'keyboard chords unavailable' => 'keyboard_chords',
+  'hold worker unavailable' => 'asset_holds']);
+
 it('rejects unknown and duplicate renderer identities', function () {
   expect(fn() => $this->registry->require('foo'))->toThrow(InvalidArgumentException::class, 'Unknown renderer "foo". Valid renderer IDs: terminal, gpui.')
     ->and(fn() => new RendererRegistry(descriptors: [

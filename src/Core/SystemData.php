@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Battle\ActionPointPolicy;
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\EncounterAdvantage;
 use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleConfig;
@@ -20,6 +21,7 @@ readonly class SystemData
     public object $battle,
     public array $elements = [],
     public ProgressionSettings $progression = new ProgressionSettings(),
+    public ?ActionPointPolicy $actionPointPolicy = null,
   )
   {
   }
@@ -35,6 +37,7 @@ readonly class SystemData
       self::normalizeBattleSettings($data['battle'] ?? []),
       is_array($data['elements'] ?? null) ? $data['elements'] : [],
       ProgressionSettings::fromSystemData($data),
+      ActionPointPolicy::fromBattleData($data['battle'] ?? []),
     );
   }
 

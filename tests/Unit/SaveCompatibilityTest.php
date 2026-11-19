@@ -1217,6 +1217,36 @@ it('resolves actor aliases before reconstructing current project definitions', f
   }
 });
 
+it('hydrates legacy AP against the current authored capacity when a project earns battle AP', function () {
+  $slug = 'save-battle-action-points-' . uniqid();
+  $raw = require dirname(__DIR__) . '/Fixtures/Actors/FoundationHero.php';
+  $definition = $raw['data'];
+  $definition['stats']['totalAp'] = 60;
+  $definition['stats']['currentAp'] = 0;
+  $actorStore = new ActorStore(definitions: [ActorDefinition::fromArray($definition)],
+    actionPointPolicy: new \Ichiloto\Engine\Battle\ActionPointPolicy(10));
+  ConfigStore::put(ActorStore::class, $actorStore);
+  $manager = new SaveManager(new SaveCompatibilityTestGame(), "./tests/Support/Data/{$slug}",
+    "./tests/Support/Data/{$slug}/quick", makeCompatibilityManifest());
+  $config = makeCompatibilityConfig();
+  $legacy = new Character('Hero', 0, new Stats(currentHp: 63, currentAp: 95, totalHp: 100, totalAp: 1000),
+    actorId: $definition['id']);
+  $config->party->members[0] = $legacy;
+  try {
+    $manager->save(new SaveCompatibilitySceneStub($config), 1);
+    $restored = $manager->loadSlot(1)->config;
+    $restoredActor = $restored->party->members->toArray()[0];
+    expect([$restoredActor->stats->currentAp, $restoredActor->stats->totalAp])->toBe([60, 60]);
+    $restoredActor->stats->currentAp = 21;
+    $manager->save(new SaveCompatibilitySceneStub($restored), 2);
+    $reloaded = $manager->loadSlot(2)->config->party->members->toArray()[0];
+    expect([$reloaded->stats->currentAp, $reloaded->stats->totalAp])->toBe([21, 60]);
+  } finally {
+    cleanupCompatibilityManager($manager);
+    ConfigStore::remove(ActorStore::class);
+  }
+});
+
 describe('saved actor identities', function () {
   beforeEach(function () {
     $this->previousActorStore = ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null;

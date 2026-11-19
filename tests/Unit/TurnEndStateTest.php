@@ -30,10 +30,12 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
+use function Tests\Support\Battle\createCommandFixtureScene;
 use function Tests\Support\Battle\createTargetExecutionFixture;
 use function Tests\Support\Battle\queueTargetExecution;
 
@@ -58,8 +60,9 @@ final class TurnEndScreen extends BattleScreen
   public array $observed = [];
   public array $messages = [];
   public bool $failNextRedraw = false;
-  public function __construct(private bool $graphical)
+  public function __construct(BattleScene $scene, private bool $graphical)
   {
+    $this->battleScene = $scene;
     $this->fieldWindow = new TurnEndField();
     $this->characterStatusWindow = new class extends BattleCharacterStatusWindow {
       public function __construct() {}
@@ -102,7 +105,7 @@ function createTurnEndFixture(bool $partyTick, bool $graphical): array
   new ReflectionProperty($enemy, 'name')->setValue($enemy, 'Enemy without art');
   new ReflectionProperty($enemy, 'stats')->setValue($enemy,
     new Stats(currentHp: $partyTick ? 100 : 5, totalHp: 100));
-  $screen = new TurnEndScreen($graphical);
+  $screen = new TurnEndScreen(createCommandFixtureScene($game), $graphical);
   $context = new TurnStateExecutionContext($game, $party, new Troop('Synthetic', [$enemy]), $screen, []);
   $engine = new class($game) extends TraditionalTurnBasedBattleEngine {
     public array $transitions = [];

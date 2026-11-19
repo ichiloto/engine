@@ -134,7 +134,7 @@ it('keeps whole composite sources bounded under region accounting and reports me
   }
   $composite = new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite('image', 1, 1,
     new CanvasRectangle(0, 0, 1, 1), $operations);
-  expect(fn() => CanvasImagePreflight::runForSession(static fn(string $cap): bool => true,
+  expect(fn() => CanvasImagePreflight::runForSession(static fn(string $cap): bool => $cap === \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_REGION_BUDGET,
     fn() => CanvasImagePreflight::inspect([], $this->root, [$composite])))
     ->toThrow(RuntimeException::class, '134217728/67108864 bytes (whole-source consumers)');
 });
@@ -189,4 +189,42 @@ it('reports measured budget fallback defects once as errors and keeps ordinary f
   } finally {
     foreach ($statics as $name => $value) { new ReflectionProperty($debug, $name)->setValue(null, $value); }
   }
+});
+
+
+it('leaves aggregate image bytes to a subscribed renderer while preserving legacy limits and source validation', function () {
+  $images = [];
+  foreach (['first.png', 'second.png'] as $asset) {
+    ($this->png)($asset, 4096, 4096);
+    $images[] = new CanvasImage($asset, $asset, new CanvasRectangle(0, 0, 16, 16));
+  }
+  $subscribed = static fn(string $cap): bool => $cap === \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS;
+  CanvasImagePreflight::runForSession($subscribed, function () use ($images): void {
+    $usage = CanvasImagePreflight::inspect($images, $this->root);
+    expect(array_sum($usage['sources']))->toBeGreaterThan(CanvasImagePreflight::MAX_BYTES)
+      ->and(array_sum($usage['regions']))->toBeGreaterThan(CanvasImagePreflight::MAX_BYTES);
+    expect(fn() => CanvasImagePreflight::inspect([
+      new CanvasImage('invalid-crop', 'first.png', new CanvasRectangle(0, 0, 1, 1),
+        sourceRect: new SpriteSourceRect(4096, 0, 1, 1))], $this->root))
+      ->toThrow(RuntimeException::class, 'bounds');
+    ($this->png)('oversize.png', 4097, 1);
+    expect(fn() => CanvasImagePreflight::inspect([
+      new CanvasImage('oversize', 'oversize.png', new CanvasRectangle(0, 0, 1, 1))], $this->root))
+      ->toThrow(RuntimeException::class);
+  });
+  expect(fn() => CanvasImagePreflight::inspect($images, $this->root))
+    ->toThrow(\Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageBudgetExceeded::class, 'legacy whole-PNG');
+});
+
+it('retains structural prepared-region limits when the renderer owns aggregate allocation', function () {
+  ($this->png)('sheet.png', 100, 100);
+  $images = [];
+  for ($index = 0; $index < 4097; $index++) {
+    $images[] = new CanvasImage('cell-' . $index, 'sheet.png', new CanvasRectangle(0, 0, 1, 1),
+      sourceRect: new SpriteSourceRect($index % 100, intdiv($index, 100), 1, 1));
+  }
+  expect(fn() => CanvasImagePreflight::runForSession(
+    static fn(string $cap): bool => $cap === \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS,
+    fn() => CanvasImagePreflight::inspect($images, $this->root)))
+    ->toThrow(\Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageBudgetExceeded::class, 'structural image limits');
 });

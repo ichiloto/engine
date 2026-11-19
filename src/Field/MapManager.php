@@ -800,12 +800,12 @@ class MapManager implements CanRenderAt
       }
     }
     if ($cells === $this->terminalPresentationCells) { return; }
-    $this->terminalPresentationCells = $cells;
     $grid = $this->tileMap;
     foreach ($cells as $y => $row) {
       foreach ($row as $x => $symbol) { $grid[$y][$x] = $symbol; }
     }
-    $this->camera->worldSpace = $grid;
+    $this->camera->updateWorldPresentation($grid);
+    $this->terminalPresentationCells = $cells;
     $this->clearPresentationWorld();
   }
 

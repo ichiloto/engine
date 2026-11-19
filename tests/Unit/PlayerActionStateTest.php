@@ -700,7 +700,14 @@ it('reveals the live crisis technique only while semantic Right is held and conf
         'name' => 'Surge', 'hpBelowPercent' => 10, 'variants' => [['skill' => 'Synthetic long finisher']],
       ]));
     $party = new Party(); $party->addMember($actor);
-    $troop = new Troop('Test', [createTargetingTestEnemy('Enemy')]); $screen = createTargetingTestScreen();
+    $troop = new Troop('Test', [createTargetingTestEnemy('Enemy')]);
+    $screen = $this->getMockBuilder(BattleScreenTargetingTestProxy::class)->disableOriginalConstructor()
+      ->onlyMethods(['usesGraphicalField', 'prefetchActionResources'])->getMock();
+    $screen->method('usesGraphicalField')->willReturn(true);
+    $focusedAction = null;
+    $screen->method('prefetchActionResources')->willReturnCallback(
+      static function ($who, $action) use (&$focusedAction): void { $focusedAction = $action; });
+    createTargetingTestScreen($screen);
     setTestProperty($screen->commandWindow, 'height', 6);
     $screen->commandWindow->setTitle('Command');
     $engine = $activeTime ? new ActiveTimeBattleEngineCaptureProxy($game) : new TraditionalTurnBasedBattleEngine($game);
@@ -714,6 +721,7 @@ it('reveals the live crisis technique only while semantic Right is held and conf
     $label = fn() => $screen->commandWindow->presentationSnapshot()->rows[0]->label;
     $hintLabels = fn() => array_column($screen->commandWindow->getControlHints(), 'label');
     $refresh(); expect($label())->toBe('Attack')->and($hintLabels())->toBe(['Hold: Surge']);
+    expect($focusedAction->name)->toBe('Attack');
     new ReflectionMethod($state, 'beginSubmenuSelection')->invoke($state, $context);
     expect($hintLabels())->toBe(['Info']);
     $nativeOptions = new ReflectionProperty(BattleCommandContextWindow::class, 'items')->getValue($screen->commandContextWindow);
@@ -735,6 +743,7 @@ it('reveals the live crisis technique only while semantic Right is held and conf
     expect($label())->toBe('Synthetic long finisher')->and($screen->commandWindow->getActiveCommand()->type)->toBe(BattleCommandType::ATTACK)
       ->and($actor->stats->currentMp)->toBe(0)->and($turn->action)->toBeNull()
       ->and(new ReflectionMethod($state, 'resolveCommandInfo')->invoke($state, $context))->toBe('A test technique.');
+    expect($focusedAction)->toBeInstanceOf(\Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction::class);
     $screen->commandWindow->selectNext(); $refresh();
     expect($label())->toBe('Attack')->and($screen->commandWindow->getActiveCommand()->type)->not->toBe(BattleCommandType::ATTACK)
       ->and($hintLabels())->toBe(['Info']);
@@ -748,6 +757,7 @@ it('reveals the live crisis technique only while semantic Right is held and conf
     $actor->stats->currentHp = 10;
     $refresh();
     expect($label())->toBe('Attack');
+    expect($focusedAction->name)->toBe('Attack');
     $campaign->advanceActivePlay(0.5, $playing);
     expect($income->ledger->getAccount('work')->progress)->toBe($before);
     $actor->stats->currentHp = 9; $refresh(); expect($label())->toBe('Synthetic long finisher');
@@ -782,5 +792,56 @@ it('reveals the live crisis technique only while semantic Right is held and conf
     $lease->close();
     chdir($cwd);
     foreach ($statics as $class => $values) { foreach ($values as $key => $value) { new ReflectionProperty($class, $key)->setValue(null, $value); } }
+  }
+})->with(['traditional' => false, 'active time' => true]);
+
+
+it('prefetches only the usable semantic focus and clears unavailable, cancelled and waiting selections', function (bool $activeTime) {
+  $priorConfig = new ReflectionClass(ConfigStore::class)->getStaticProperties();
+  putSceneAudioConfig([]);
+  try {
+    $game = new ReflectionClass(GameTargetingTestProxy::class)->newInstanceWithoutConstructor();
+    $party = new Party();
+    $actor = new Character('Selector', 1, new Stats(currentHp: 100, totalHp: 100, currentMp: 10, totalMp: 10),
+      spellbook: new Spellbook([new MagicSkill('First', '', '', 2, 0), new MagicSkill('Second', '', '', 3, 0)]));
+    $party->addMember($actor);
+    $enemy = createTargetingTestEnemy('Target');
+    $troop = new Troop('Synthetic', [$enemy]);
+    $screen = $this->getMockBuilder(BattleScreenTargetingTestProxy::class)->disableOriginalConstructor()
+      ->onlyMethods(['usesGraphicalField', 'prefetchActionResources'])->getMock();
+    $screen->method('usesGraphicalField')->willReturn(true);
+    $focus = null;
+    $screen->method('prefetchActionResources')->willReturnCallback(
+      static function ($who, $action) use (&$focus): void { $focus = [$who, $action]; });
+    createTargetingTestScreen($screen);
+    setTestProperty($screen->commandWindow, 'height', BattleCommandWindow::HEIGHT);
+    $engine = $activeTime ? new ActiveTimeBattleEngine($game) : new TraditionalTurnBasedBattleEngine($game);
+    $engine->configure($activeTime ? new ActiveTimeBattleConfig($party, $troop, $screen)
+      : new TurnBasedBattleConfig($party, $troop, $screen));
+    $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
+    $context->setTurns([new Turn($actor)]);
+    $state = $activeTime ? new ActiveTimeFlowState($engine) : new PlayerActionState($engine);
+    setTestProperty($state, 'activeCharacterIndex', 0);
+    new ReflectionMethod($state, 'loadCharacterActions')->invoke($state, $context);
+    $sync = static fn() => new ReflectionMethod($state, 'synchronizeActionPrefetch')->invoke($state, $context);
+    $sync();
+    expect($focus[0])->toBe($actor)->and($focus[1]->name)->toBe('Attack');
+    $screen->commandWindow->selectNext(); $screen->commandWindow->selectNext();
+    expect($screen->commandWindow->getActiveCommand()->type)->toBe(BattleCommandType::MAGIC);
+    $sync(); expect($focus)->toBe([null, null]); // Opening a category never prepares its whole book.
+    new ReflectionMethod($state, 'beginSubmenuSelection')->invoke($state, $context);
+    $sync(); expect($focus[1]->name)->toBe('First');
+    $screen->commandContextWindow->selectNext(); $sync();
+    expect($focus[1]->name)->toBe('Second')->and($actor->stats->currentMp)->toBe(10);
+    $actor->stats->currentMp = 0; $sync(); expect($focus)->toBe([null, null]);
+    $actor->stats->currentMp = 10; $enemy->stats->currentHp = 0;
+    $sync(); expect($focus)->toBe([null, null]);
+    $enemy->stats->currentHp = 30; $sync(); expect($focus[1]->name)->toBe('Second');
+    new ReflectionMethod($state, 'returnToCommandSelection')->invoke($state, $context);
+    $sync(); expect($focus)->toBe([null, null]);
+    setTestProperty($state, 'activeCharacterIndex', -1); $sync(); expect($focus)->toBe([null, null]);
+    expect($actor->stats->currentHp)->toBe(100)->and($actor->stats->currentMp)->toBe(10);
+  } finally {
+    foreach ($priorConfig as $key => $value) { new ReflectionProperty(ConfigStore::class, $key)->setValue(null, $value); }
   }
 })->with(['traditional' => false, 'active time' => true]);

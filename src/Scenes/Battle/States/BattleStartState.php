@@ -41,6 +41,7 @@ class BattleStartState extends BattleSceneState
 
     $this->scene->ui = new BattleScreen($this->scene);
     $this->scene->resultWindow = new BattleResultWindow($this->scene->ui);
+    $this->scene->queueBattleResourcePreparation();
     if ($this->scene->getGame()->getRendererRuntime() !== null) {
       $characters = $this->scene->partyBattlers;
       $this->scene->ui->characterNameWindow->setNames(array_map(static fn($member): string => $member->name, $characters));

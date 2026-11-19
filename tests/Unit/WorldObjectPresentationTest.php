@@ -629,6 +629,51 @@ it('projects one-shot completion into both object artwork and terminal state acr
         ->and($object->getTerminalSymbol())->toBeNull(); // Old installation cannot claim the new map.
 });
 
+it('preserves dialogue framing and authored camera movement when the current map refreshes its projection', function (bool $retained) {
+    $source = createWorldObjectSource(['terminal' => 'c', 'variants' => [[
+        'id' => 'opened', 'conditions' => [['type' => 'switch', 'name' => 'opened']],
+        'sprites2d' => ['asset' => 'Graphics/energized.png'], 'terminal' => 'o',
+    ]]]);
+    $prepared = createWorldObjectPreparedMap([$source]);
+    $camera = $this->scene->camera;
+    $map = $this->scene->mapManager;
+    $camera->resizeViewport(4, 3);
+    $map->applyPreparedMap($prepared, $this->scene->player);
+    $dialogue = new stdClass();
+    $pan = new stdClass();
+    $subject = new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(1, 1, 2, 2);
+    $safeArea = new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(0, 0, 4, 1);
+    expect($camera->frameBounds($dialogue, $subject, $safeArea, .2))->toBeTrue();
+    $camera->beginTransition($pan, new Vector2(1, 0), .4);
+    $origin = $camera->getWorldOrigin();
+    $motion = $camera->presentationMotion;
+    $authored = $map->tileMap;
+    $collisions = $map->getCollisionGrid();
+
+    Console::setRetainedWorldPresentation($retained);
+    $map->render();
+    expect($camera->isFramed)->toBeTrue()
+        ->and($camera->ownsTransition($pan))->toBeTrue()
+        ->and($camera->getWorldOrigin())->toBe($origin)
+        ->and($camera->presentationMotion)->toBe($motion)
+        ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($camera->worldSpace[1][1]))->toBe('c');
+
+    $this->scene->gameState->setSwitch('opened');
+    $map->render();
+    expect($camera->isFramed)->toBeTrue()
+        ->and($camera->ownsTransition($pan))->toBeTrue()
+        ->and($camera->getWorldOrigin())->toBe($origin)
+        ->and($camera->presentationMotion)->toBe($motion)
+        ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($camera->worldSpace[1][1]))->toBe('o')
+        ->and($map->tileMap)->toBe($authored)
+        ->and($map->getCollisionGrid())->toBe($collisions);
+
+    $map->applyPreparedMap(createWorldObjectPreparedMap([$source], 'synthetic/replacement'), $this->scene->player);
+    expect($camera->isFramed)->toBeFalse()
+        ->and($camera->ownsTransition($pan))->toBeFalse()
+        ->and($camera->presentationMotion)->toBeNull();
+})->with(['Terminal' => false, 'retained graphical world' => true]);
+
 it('keeps overview subjects at the source anchor and resting pose without advancing field clocks', function () {
     $source = createWorldObjectSource(['sprites2d' => ['asset'=>'Graphics/glow.png',
         'animation'=>['columns'=>2,'frames'=>[0,1],'fps'=>10]]]);

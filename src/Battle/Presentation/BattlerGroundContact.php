@@ -72,17 +72,19 @@ final class BattlerGroundContact
   }
 
   /**
-   * Drawn bounds raised or sunk by an offset, kept on the canvas, and for a
-   * sunk body the part above the surface line, which is all that shows.
+   * Logical bounds raised or sunk without moving the ground anchor to fit a viewport.
+   * A submerged body retains its own surface clip, independently of parent painting bounds.
    *
-   * @return array{0: CanvasRectangle, 1: ?CanvasRectangle} The bounds and the clip, none for a body at or above the surface.
+   * @return array{0: CanvasRectangle, 1: ?CanvasRectangle, 2: bool} Logical bounds, surface clip and surface visibility.
    */
   public static function place(CanvasRectangle $bounds, float $offset, float $surfaceY, BattleCanvasLayout $layout): array
   {
-    $y = max(0.0, min($layout->height - $bounds->height, $bounds->y - $offset));
-    $placed = new CanvasRectangle($bounds->x, $y, $bounds->width, $bounds->height);
-    if ($offset >= 0) { return [$placed, null]; }
-    return [$placed, new CanvasRectangle($bounds->x, $y, $bounds->width, max(1.0, min($bounds->height, $surfaceY - $y)))];
+    $y = $bounds->y - $offset;
+    $placed = new CanvasRectangle($bounds->x, $y, $bounds->width, $bounds->height, allowOutsideCanvas: true);
+    if ($offset >= 0) { return [$placed, null, true]; }
+    $height = min($bounds->height, $surfaceY - $y);
+    if ($height <= 0) { return [$placed, null, false]; }
+    return [$placed, new CanvasRectangle($bounds->x, $y, $bounds->width, $height, allowOutsideCanvas: true), true];
   }
 
   /** Keeps the body image's order and identity while fading the part covered by water. */

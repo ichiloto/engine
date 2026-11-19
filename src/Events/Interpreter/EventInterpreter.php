@@ -575,7 +575,9 @@ class EventInterpreter
         foreach ($party?->participants->toArray() ?? [] as $member) {
           $member->clearBattleStates();
           $member->recoverFromRest();
-          $member->stats->currentAp = $member->stats->totalAp;
+          if ($this->gameScene->getGame()->actionPointPolicy === null) {
+            $member->stats->currentAp = $member->stats->totalAp;
+          }
         }
         return EventCommandResult::COMPLETED;
 

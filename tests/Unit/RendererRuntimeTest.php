@@ -145,6 +145,96 @@ it('pumps input while a scene holds its frame and sends the retained changes onc
     ->and($this->transport->sent)->toHaveCount(2);
 });
 
+it('services asset preloads and input while scene drawing readiness is held', function () {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities: [\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS]), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["asset_holds"]}')];
+  $this->runtime->start('Asset readiness', 12, 4);
+  Console::write('ORIGIN', 0, 0);
+  $this->runtime->present(null);
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
+  $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['canPresentSceneFrame', 'getPresentationWorld', 'getGraphicalSpriteProviders'])->getStub();
+  $scene->method('canPresentSceneFrame')->willReturn(false);
+  $owner = new stdClass();
+  $request = $this->runtime->assetHolds->replaceResources($owner,
+    ['return' => new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('fixtures/return.png')])[0];
+  Console::write('INCOMING', 0, 0);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"key","key":"right"}')];
+  expect($this->runtime->present($scene))->toBeTrue()
+    ->and(InputManager::getInputSource()->poll())->toBe(KeyCode::RIGHT)
+    ->and(end($this->transport->sent)->payload['operations'])->toBe([$request->createPutOperation()]);
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
+  expect($this->runtime->present($scene))->toBeFalse()
+    ->and($this->runtime->assetHolds->getReadiness($owner))
+    ->toBe(\Ichiloto\Engine\Rendering\Assets\AssetHoldReadiness::WAITING);
+});
+
+it('retains frozen asset owners through covered replacement and releases them on shutdown', function () {
+  require_once __DIR__ . '/../Fixtures/Rendering/ScreenTransitions.php';
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities: [\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS]), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["asset_holds","graphical_canvas","canvas_overlay","canvas_compositing"]}')];
+  $this->transport->acknowledgeFrames = true;
+  $this->runtime->start('Asset handoff', 12, 4);
+  $owner = new stdClass();
+  $request = $this->runtime->assetHolds->replaceResources($owner,
+    ['return' => new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('fixtures/return.png')])[0];
+  Console::write('ORIGIN', 0, 0);
+  $this->runtime->present(null);
+  $this->runtime->beginScreenHandoff(new \Ichiloto\Engine\Rendering\ScreenTransitionTreatment(getScreenTransitionFixture()));
+  $this->runtime->assetHolds->releaseOwner($owner);
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([$request]);
+  $this->runtime->setScreenHandoffPhase(\Ichiloto\Engine\Rendering\ScreenTransitionPhase::HOLD, 1.0);
+  $this->runtime->present(null);
+  $this->runtime->replaceScreenHandoff();
+  Console::recomposeFrame(fn() => Console::write('ARRIVAL', 0, 0));
+  $this->runtime->present(null);
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([]);
+  $this->runtime->endScreenHandoff();
+  $this->runtime->shutdown();
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([]);
+});
+
+it('retains an exclusive canvas and shares its leases only for its source scene', function () {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities: [\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS]), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson(
+    '{"protocol":2,"type":"ready","capabilities":["graphical_canvas","asset_holds"]}')];
+  $this->transport->acknowledgeFrames = true;
+  $this->runtime->start('Retain scene canvas', 12, 4);
+  $frame = new PresentationCanvas(320, 180, [
+    new CanvasImage('surface', 'fixtures/return.png', new CanvasRectangle(0, 0, 64, 32)),
+  ]);
+  $scene = $this->getStubBuilder(\Ichiloto\Engine\Scenes\Battle\BattleScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['getPresentationCanvas', 'canPresentSceneFrame'])->getStub();
+  $ready = true;
+  $scene->method('getPresentationCanvas')->willReturn($frame);
+  $scene->method('canPresentSceneFrame')->willReturnCallback(static function () use (&$ready): bool { return $ready; });
+  $source = new stdClass();
+  $overlay = new stdClass();
+  $request = $this->runtime->assetHolds->replaceResources($source,
+    ['surface' => new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('fixtures/return.png')])[0];
+  $this->runtime->present($scene);
+  $readyCanvas = new PresentationCanvas(320, 180);
+  expect($this->runtime->retainSceneFrame($scene, $overlay, $readyCanvas)?->canvas)->toBe($readyCanvas)
+    ->and($this->runtime->assetHolds->getOwnedRequests($overlay))->toBe([$request]);
+  $this->runtime->assetHolds->releaseOwner($overlay);
+  $ready = false;
+  $this->runtime->present($scene);
+  expect($this->runtime->retainSceneFrame(clone $scene, $overlay))->toBeNull()
+    ->and($this->runtime->assetHolds->getOwnedRequests($overlay))->toBe([])
+    ->and($this->runtime->retainSceneFrame($scene, $overlay)?->canvas)->toBe($frame)
+    ->and($this->runtime->assetHolds->getOwnedRequests($overlay))->toBe([$request]);
+  $this->runtime->assetHolds->releaseOwner($source);
+  $this->runtime->present(null);
+  expect($this->runtime->retainSceneFrame($scene, new stdClass()))->toBeNull()
+    ->and($this->runtime->assetHolds->getDesiredRequests())->toBe([$request]);
+  $this->runtime->assetHolds->releaseOwner($overlay);
+  $this->runtime->present(null);
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([]);
+});
+
 it('opts in exactly once and shares input and presentation on one session', function () {
   expect(InputManager::requiresTerminalInput())->toBeTrue()->and($this->transport->session)->toBeNull();
   $this->runtime->start('Test', 12, 4);

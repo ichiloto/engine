@@ -6,6 +6,10 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineContextInterface;
+use Ichiloto\Engine\Battle\Presentation\BattleArtworkFacts;
+use Ichiloto\Engine\Battle\Presentation\BattlerArtwork;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetBounds;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetFactsCache;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
@@ -74,6 +78,7 @@ final class EntrySceneManagerFixture extends SceneManager
 {
   public float $now = 0;
   public ?EntryBattleFixture $battleFixture = null;
+  public ?BattleArtworkFacts $artworkFacts = null;
   public function __construct(Game $game)
   {
     $this->game = $game;
@@ -87,6 +92,8 @@ final class EntrySceneManagerFixture extends SceneManager
   }
   public function findScene(string $className): ?SceneInterface
   { return $className === BattleScene::class ? $this->battleFixture : parent::findScene($className); }
+  protected function collectBattleEntryFacts(BattleConfig $config, string $assetRoot): ?BattleArtworkFacts
+  { return $this->artworkFacts ?? parent::collectBattleEntryFacts($config, $assetRoot); }
   protected function getTransitionTime(): float { return $this->now; }
   public function advance(float $seconds): void { $this->now += $seconds; $this->update(); }
 }
@@ -131,10 +138,24 @@ final class EntryBattleFixture extends BattleScene
   public bool $failPreparation = false;
   public bool $failComposition = false;
   public int $compositions = 0;
+  public bool $presentationReady = true;
+  public ?string $requiredEntryAsset = null;
+  public ?string $entryPresentationAsset = null;
+  public int $entryPresentationsPrepared = 0;
+  public function canPresentSceneFrame(): bool { return $this->presentationReady && parent::canPresentSceneFrame(); }
   public function __construct(SceneManager $manager)
   {
     parent::__construct($manager, 'Battle');
     $this->camera = getEntryFixtureCamera();
+  }
+  public function prepareEntryPresentation(BattleConfig $config): \Ichiloto\Engine\Scenes\Battle\BattleEntryPresentation
+  {
+    $this->entryPresentationsPrepared++;
+    if ($this->entryPresentationAsset !== null) {
+      \Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight::getContentIdentity(
+        $this->getGame()->getRendererRuntime()->getAssetRoot(), $this->entryPresentationAsset);
+    }
+    return parent::prepareEntryPresentation($config);
   }
   public function configure(SceneConfigurationInterface $config): void
   {
@@ -144,6 +165,9 @@ final class EntryBattleFixture extends BattleScene
   protected function initializeBattleSceneStates(): void
   {
     parent::initializeBattleSceneStates();
+    if ($this->requiredEntryAsset !== null) {
+      new ReflectionProperty(BattleScene::class, 'battleUiAssetPaths')->setValue($this, [$this->requiredEntryAsset]);
+    }
     if ($this->useGraphicalField) {
       // Entry owns terminal-layer replacement even when graphical field drawing makes no Console writes.
       new ReflectionProperty(BattleScene::class, 'graphicalPresentation')->setValue($this,
@@ -419,3 +443,165 @@ it('carries explicit standalone world facts from battle loading to the running b
   $this->manager->loadBattleScene($this->party, $this->troop);
   expect($property->getValue($this->game->engine)->getGameState())->toBeNull();
 })->with([false, true]);
+
+
+it('keeps the encounter fully covered for slow readiness instead of revealing a merely started battle', function () {
+  $this->battle->presentationReady = false;
+  $this->manager->loadBattleScene($this->party, $this->troop);
+  $this->manager->advance(1);
+  $this->runtime->present($this->field);
+  $covered = RetainedFrameState::getLatestFrame($this->transport->sent);
+  $this->manager->advance(.08);
+  $this->manager->advance(30);
+  $this->runtime->present($this->battle);
+  expect($this->manager->hasSceneTransition())->toBeTrue()
+    ->and($this->battle->state)->toBeInstanceOf(BattleStartState::class)
+    ->and($this->battle->compositions)->toBe(0)
+    ->and($this->game->engine->starts)->toBe(0)->and($this->game->engine->runs)->toBe(0)
+    ->and(RetainedFrameState::getLatestFrame($this->transport->sent))->toBe($covered);
+  $this->battle->presentationReady = true;
+  $this->manager->advance(.01);
+  $this->runtime->present($this->battle);
+  expect($this->game->engine->starts)->toBe(0)->and($this->battle->compositions)->toBe(1);
+  $this->manager->advance(.4);
+  expect($this->manager->hasSceneTransition())->toBeFalse()->and($this->game->engine->starts)->toBe(1);
+});
+
+
+it('owns cold sprite preparation from encounter request to graphical swap', function (bool $cover) {
+  if (!function_exists('imagecreatefrompng') || !function_exists('proc_open')) {
+    $this->markTestSkipped('This fixture needs the PHP PNG and worker extensions.');
+  }
+  ConfigStore::get(ProjectConfig::class)->set('ui.transitions.battle', $cover);
+  $cache = new ReflectionClass(PngAssetBounds::class);
+  $before = $cache->getStaticProperties();
+  $root = createTestDirectory('battle-entry-worker');
+  $sheet = $root . '/entry.png';
+  $image = imagecreatetruecolor(12, 12);
+  imagepng($image, $sheet);
+  PngAssetBounds::setFactsCache(new PngAssetFactsCache($root . '/facts'));
+  $facts = new BattleArtworkFacts($root);
+  $facts->addArtwork(new BattlerArtwork('entry.png', 12, 12, 6, 12));
+  $this->manager->artworkFacts = $facts;
+  try {
+    expect($facts->hasCurrentFacts())->toBeFalse();
+    $this->manager->loadBattleScene($this->party, $this->troop);
+    expect($this->manager->hasSceneTransition())->toBeTrue()
+      ->and($this->manager->currentScene)->toBe($this->field)
+      ->and($this->field->suspends)->toBe(0)
+      ->and($this->game->engine->starts)->toBe(0);
+    $deadline = hrtime(true) + 5_000_000_000;
+    do {
+      $this->manager->advance(1);
+      usleep(10_000);
+    } while ($this->manager->hasSceneTransition() && hrtime(true) < $deadline);
+    expect($facts->hasCurrentFacts())->toBeTrue()
+      ->and($this->manager->hasSceneTransition())->toBeFalse()
+      ->and($this->manager->currentScene)->toBe($this->battle)
+      ->and($this->field->suspends)->toBe(1)
+      ->and($this->game->engine->starts)->toBe(1);
+  } finally {
+    $this->manager->stop();
+    foreach (['cache', 'factsCache', 'factsCacheResolved'] as $key) {
+      $cache->getProperty($key)->setValue(null, $before[$key]);
+    }
+  }
+})->with(['cover' => [true], 'direct' => [false]]);
+
+
+it('declares incoming battle assets on the next update and keeps the view and combat held until confirmation',
+  function (bool $cover, bool $cancel) {
+    $this->runtime->shutdown();
+    new ReflectionProperty(Game::class, 'rendererRuntime')->setValue($this->game, null);
+    $this->transport = new FakeRendererTransport();
+    $this->transport->acknowledgeFrames = true;
+    $capabilities = ['graphical_canvas', 'canvas_compositing', 'canvas_overlay', 'window_activation', 'asset_holds'];
+    $this->transport->onStart = static function ($peer) use ($capabilities): void {
+      $peer->batches = [[RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
+        'capabilities' => $capabilities], JSON_THROW_ON_ERROR))]];
+    };
+    $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root,
+      requiredCapabilities: $capabilities), $this->transport);
+    $this->game->useRendererRuntime($this->runtime);
+    $this->runtime->start('Silent fixture', 135, 36);
+    $this->manager->render();
+    $this->runtime->present($this->field);
+    $this->battle->requiredEntryAsset = 'entry-test.png';
+    ConfigStore::get(ProjectConfig::class)->set('ui.transitions.battle', $cover);
+    $this->manager->loadBattleScene($this->party, $this->troop);
+    if ($cover) {
+      $this->manager->advance(1);
+      $this->runtime->present($this->field);
+      $this->manager->advance(.1);
+    }
+    $this->runtime->present($this->battle);
+    expect($this->manager->currentScene)->toBe($this->battle)
+      ->and($this->runtime->assetHolds->getDesiredRequests())->toBe([])
+      ->and($this->battle->compositions)->toBe(0)
+      ->and($this->game->engine->starts)->toBe(0);
+    if ($cancel) {
+      $this->manager->loadScene(EntryOtherFixture::class);
+      $this->manager->advance(1);
+      expect($this->manager->hasSceneTransition())->toBeFalse()
+        ->and($this->runtime->assetHolds->getDesiredRequests())->toBe([])
+        ->and($this->game->engine->starts)->toBe(0);
+      return;
+    }
+    $this->manager->advance(.08);
+    $requests = $this->runtime->assetHolds->getDesiredRequests();
+    expect($requests)->toHaveCount(1)
+      ->and($requests[0]->resource->asset)->toBe('entry-test.png')
+      ->and($this->battle->canPresentSceneFrame())->toBeFalse()
+      ->and($this->game->engine->starts)->toBe(0);
+    $this->runtime->assetHolds->applyFeedback(\Ichiloto\Engine\Rendering\Assets\AssetHoldFeedback::fromArray([
+      'holds' => [['id' => $requests[0]->id, 'revision' => $requests[0]->revision, 'attempt' => 1,
+        'state' => 'held', 'regionBytes' => 64, 'baseBytes' => 0]],
+      'holdCapacity' => createTestAssetHoldCapacity(0, 0),
+    ]));
+    $this->manager->advance(1);
+    $this->manager->advance(1);
+    expect($this->battle->state)->toBeInstanceOf(BattleRunState::class)
+      ->and($this->game->engine->starts)->toBe(1);
+  })->with(['covered' => [true, false], 'direct' => [false, false], 'cancelled' => [true, true]]);
+
+
+it('restages a changed presentation while the field still owns the transition', function () {
+  if (!function_exists('imagecreatefrompng')) { $this->markTestSkipped('Optional GD PNG inspection is unavailable.'); }
+  $catalog = $this->root . '/Data/Presentation/battle.php';
+  $path = $this->root . '/entry.png';
+  $replacement = $this->root . '/replacement.png';
+  file_put_contents($catalog, '<?php return new \Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog([], [], []);');
+  $image = imagecreatetruecolor(8, 4);
+  imagepng($image, $path);
+  imagesetpixel($image, 3, 2, 0x00558899);
+  imagepng($image, $replacement);
+  $this->battle->entryPresentationAsset = 'entry.png';
+  try {
+    $this->manager->loadBattleScene($this->party, $this->troop);
+    $this->manager->advance(1);
+    $this->manager->advance(.1);
+    expect($this->battle->entryPresentationsPrepared)->toBe(1)
+      ->and($this->manager->currentScene)->toBe($this->field)
+      ->and($this->battle->config)->toBeNull()
+      ->and($this->battle->isStarted())->toBeFalse();
+    rename($replacement, $path);
+    $this->manager->advance(.1);
+    expect($this->manager->currentScene)->toBe($this->field)
+      ->and($this->battle->entryPresentationsPrepared)->toBe(1)
+      ->and($this->battle->config)->toBeNull();
+    $this->manager->advance(.1);
+    expect($this->battle->entryPresentationsPrepared)->toBe(2)
+      ->and($this->manager->currentScene)->toBe($this->field);
+    $this->manager->advance(.1);
+    expect($this->manager->currentScene)->toBe($this->battle)
+      ->and($this->battle->entryPresentationsPrepared)->toBe(2)
+      ->and($this->battle->config->entryRulesEvaluated())->toBeTrue()
+      ->and($this->battle->state)->toBeInstanceOf(BattleStartState::class);
+    $this->manager->advance(1);
+    expect($this->game->engine->starts)->toBe(1);
+  } finally {
+    foreach ([$catalog, $path, $replacement] as $file) {
+      if (is_file($file)) { unlink($file); }
+    }
+  }
+});

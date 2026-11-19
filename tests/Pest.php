@@ -47,6 +47,9 @@ pest()->extend(\Ichiloto\Engine\Tests\Support\TemporaryFixtureTestCase::class)->
 
 uses()->beforeEach(function () {
     Ichiloto\Engine\IO\Console\TerminalCapabilities::reset();
+    Ichiloto\Engine\Rendering\Sprites\PngAssetBounds::setFactsCache(
+        new Ichiloto\Engine\Rendering\Sprites\PngAssetFactsCache(createTestDirectory('png-generated-facts')));
+
 })->in(__DIR__);
 
 // TemporaryFixtures owns shutdown cleanup and recovery of killed process runs.
@@ -404,4 +407,14 @@ function writeSkillRecords(string $root, \Ichiloto\Engine\Entities\Skills\Skill 
       "<?php\n\nreturn ['class' => \\Ichiloto\\Engine\\Entities\\Skills\\Skill::class, 'data' => {$data}];\n",
     );
   }
+}
+
+
+/** Explicit synthetic one-ledger budget; these values are not production defaults. */
+function createTestAssetHoldCapacity(int $bytes = 4096, int $count = 1): array
+{
+  return ['bytes' => $bytes, 'limitBytes' => 33554432, 'count' => $count, 'limitCount' => 2560,
+    'owners' => ['held' => ['bytes' => $bytes, 'count' => $count],
+      'staging' => ['bytes' => 0, 'count' => 0, 'limitBytes' => 8388608],
+      'foreground' => ['bytes' => 0, 'count' => 0], 'cache' => ['bytes' => 0, 'count' => 0]]];
 }

@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\BattlePartyRoster;
 use Ichiloto\Engine\Battle\BattleConfusion;
 use Ichiloto\Engine\Battle\BattleTargetPolicy;
 use Ichiloto\Engine\Battle\CounterAttackResolver;
+use Ichiloto\Engine\Battle\EncounterAdvantage;
 use Ichiloto\Engine\Battle\EnemyActionEvaluator;
 use Ichiloto\Engine\Battle\InherentAttack;
 use Ichiloto\Engine\Entities\Character;
@@ -17,6 +18,8 @@ use Ichiloto\Engine\Battle\Resolution\CombatActionResult;
 use Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\States\StateInstance;
+use InvalidArgumentException;
 use Ichiloto\Engine\Entities\Troop;
 
 /**
@@ -34,7 +37,8 @@ use Ichiloto\Engine\Entities\Troop;
  * what a player brings to change that shape. Each turn keeps the live turn's
  * rules: a guard ends when its battler acts again, a blocking state consumes
  * the turn, recipients are revalidated against the action's scope, counters
- * answer landed hits, and states tick when the battler's turn ends.
+ * answer landed hits, and states tick when the battler's turn ends. The
+ * simulator has no elapsed combat timeline for seconds-based states.
  *
  * @package Ichiloto\Engine\Battle\Simulation
  */
@@ -44,6 +48,20 @@ class BattleSimulator
    * How many turns a battle may run before it is called a stalemate.
    */
   public const int DEFAULT_TURN_LIMIT = 50;
+
+  /** @param list<CharacterInterface> $battlers */
+  private function checkTurnBasedStates(array $battlers): void
+  {
+    foreach ($battlers as $battler) {
+      $timed = array_find($battler->states ?? [],
+        static fn(StateInstance $instance): bool => $instance->state->durationSeconds !== null);
+      if ($timed !== null) {
+        throw new InvalidArgumentException(sprintf(
+          'The turn-only battle simulator cannot measure elapsed duration for state "%s".', $timed->state->id
+        ));
+      }
+    }
+  }
 
   /**
    * @param int $turnLimit How long a battle may run before it is abandoned.
@@ -65,7 +83,7 @@ class BattleSimulator
    * @param Party $party The party.
    * @param Troop $troop The troop.
    * @param int $runs How many battles to fight.
-   * @param array<string, mixed> $settings Per-battle settings, including reservePolicy.
+   * @param array<string, mixed> $settings Per-battle settings, including reservePolicy and an explicit firstStrike opening.
    * @return SimulationReport What happened.
    */
   public function simulate(Party $party, Troop $troop, int $runs = 100, array $settings = []): SimulationReport
@@ -74,6 +92,7 @@ class BattleSimulator
     $policy = ReservePolicy::resolve($settings['reservePolicy'] ?? null);
     $allies = $this->battlersOf($party->members->toArray());
     $enemies = $this->battlersOf($troop->members->toArray());
+    $this->checkTurnBasedStates([...$allies, ...$enemies]);
 
     $victories = 0;
     $defeats = 0;
@@ -185,6 +204,7 @@ class BattleSimulator
     $counters = new CounterAttackResolver($this->skills, $random);
     $reactions = new \Ichiloto\Engine\Battle\BattleReactions($this->skills, $random);
     $responseWindows = $reactions->responseWindows;
+    $opening = EncounterAdvantage::fromSetting($battleConfig?->settings['firstStrike'] ?? null);
     $turns = 0;
 
     try {
@@ -195,8 +215,9 @@ class BattleSimulator
       $allies = $roster->battlers;
       $turns++;
 
-      // Faster battlers act first, as they do in a real turn.
-      $order = [...$allies, ...$enemies];
+      // The surprised side misses only the first round. Eligible battlers act by speed.
+      $surprised = $turns === 1 ? $opening->getSurprisedSide() : null;
+      $order = [...($surprised === 'party' ? [] : $allies), ...($surprised === 'troop' ? [] : $enemies)];
       $battleSpeed = [];
 
       foreach ($order as $battler) {
@@ -256,6 +277,7 @@ class BattleSimulator
           if ($targets !== []) {
             $targets = $reactions->resolveTargets($action, $battler, $targets, $allies, $enemies);
             $action->executeWithReactions($battler, $targets, $reactions, formation: $battleConfig?->formation);
+            $this->checkTurnBasedStates([$battler, ...$targets]);
             if ($responseAction !== null) {
               $responseWindows->consumeExecutedAction($battler, $responseAction);
             }
@@ -267,6 +289,7 @@ class BattleSimulator
                 if (!$counters->canExecute($response, $allies, $enemies)) { continue; }
                 $response->action->executeWithReactions($response->actor, [$response->target], $reactions,
                   allowInterception: false, formation: $battleConfig?->formation);
+                $this->checkTurnBasedStates([$response->actor, $response->target]);
                 if (($counterResult = $response->action->lastResult) !== null) {
                   $this->recordResult($counterResult, $response->actor, [$response->target], !$isAlly,
                     $damage, $hpLoss, $healing, $mitigation);

@@ -511,3 +511,29 @@ it('keeps an explicitly selected three and inherits the project size only when o
     ->and((new ProjectBattleTest())->createSetup($this->actors, ['hero'])->battleSize)->toBe(8)
     ->and((new ProjectBattleTest())->createSetup($this->actors, battleSize: 1)->battleSize)->toBe(1);
 });
+
+it('applies a frontline override to the current starting party through the battle launch contract', function () {
+  file_put_contents($this->root . '/assets/Data/system.php', "<?php return ['title' => 'Test', 'currency' => [],
+    'startingPositions' => ['player' => []], 'startingParty' => ['hero', 'veteran'], 'battle' => ['partySize' => 3]];");
+  $entry = ['battleSize' => 1, 'firstStrike' => 'troop', 'inventory' => []];
+  $launch = \Ichiloto\Engine\Core\GameLaunchContext::fromArray(['battleTest' => $entry]);
+  $preset = $launch->battleTest;
+  $setup = $preset->createSetup($this->actors);
+  $party = $setup->createParty($this->actors, $this->items);
+
+  expect($preset->toArray())->toEqual($entry)
+    ->and($party->battleSize)->toBe(1)
+    ->and($party->battlers->count())->toBe(1)
+    ->and(array_map(static fn(BattleTestMember $member): string => $member->actorId, $setup->members))->toBe(['hero', 'veteran'])
+    ->and($preset->createSetup($this->actors, ['veteran'], 8)->members[0]->actorId)->toBe('veteran')
+    ->and($preset->getBattleSize(8))->toBe(1)
+    ->and($setup->getBattleSettings()['firstStrike'])->toBe('troop')
+    ->and($setup->inventory)->toBe([]);
+
+  foreach ([0, 9, '3', 1.5, true] as $invalid) {
+    expect(fn() => ProjectBattleTest::fromArray(['battleSize' => $invalid]))
+      ->toThrow(InvalidArgumentException::class, 'frontline')
+      ->and(fn() => ProjectBattleTest::fromArray(['members' => [['actor' => 'hero', 'level' => 1]], 'battleSize' => $invalid]))
+      ->toThrow(InvalidArgumentException::class, 'frontline');
+  }
+});

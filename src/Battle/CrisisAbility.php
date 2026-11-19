@@ -86,12 +86,18 @@ final readonly class CrisisAbility
   public function isActive(Character $actor): bool
   {
     if (!$actor->isFighting) { return false; }
-    if ($this->hpBelowPercent !== null && $actor->stats->totalHp > 0
-      && $actor->stats->currentHp * 100 < $actor->stats->totalHp * $this->hpBelowPercent) { return true; }
+    if ($this->isHpTriggerMet($actor->stats->currentHp, $actor->stats->totalHp)) { return true; }
     foreach ($this->states as $state) {
       if ($actor->hasState($state)) { return true; }
     }
     return false;
+  }
+
+  /** A living battler's HP alone can activate this ability. */
+  public function isHpTriggerMet(int $currentHp, int $totalHp): bool
+  {
+    return $this->hpBelowPercent !== null && $currentHp > 0 && $totalHp > 0
+      && $currentHp * 100 < $totalHp * $this->hpBelowPercent;
   }
 
   /** The current form's technique, available only while live HP or states activate it. */

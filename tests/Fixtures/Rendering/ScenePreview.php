@@ -48,8 +48,7 @@ final class ScenePreviewScene extends AbstractScene implements CanvasProviderInt
     public int $stops = 0;
     public function __construct(SceneManager $manager)
     {
-        $this->sceneManager = $manager;
-        $this->name = 'Synthetic';
+        parent::__construct($manager, 'Synthetic');
         $this->camera = new Camera($this, Console::getWidth(), Console::getHeight());
     }
     public function start(): void { $this->started = true; }

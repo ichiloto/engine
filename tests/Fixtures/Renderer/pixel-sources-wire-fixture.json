@@ -1,0 +1,285 @@
+{
+  "version": 1,
+  "capability": "canvas_source_pixels",
+  "description": "Synthetic shared sampling contract. Alpha values are bytes; samples use pixel centers and round the final alpha to one byte. Whole decoded and held guarded-region backings must produce equal output. Source selection and flips are independent of asset identity.",
+  "images": [
+    {
+      "id": "edge-11x1",
+      "width": 11,
+      "height": 1,
+      "alphaRows": [
+        [
+          255,
+          255,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          255,
+          255
+        ]
+      ]
+    },
+    {
+      "id": "pattern-11x1",
+      "width": 11,
+      "height": 1,
+      "alphaRows": [
+        [
+          0,
+          0,
+          0,
+          0,
+          255,
+          0,
+          0,
+          0,
+          0,
+          255,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "pattern-1x11",
+      "width": 1,
+      "height": 11,
+      "alphaRows": [
+        [
+          0
+        ],
+        [
+          0
+        ],
+        [
+          0
+        ],
+        [
+          0
+        ],
+        [
+          255
+        ],
+        [
+          0
+        ],
+        [
+          0
+        ],
+        [
+          0
+        ],
+        [
+          0
+        ],
+        [
+          255
+        ],
+        [
+          0
+        ]
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "integer-boundary",
+      "image": "edge-11x1",
+      "sourcePixels": {
+        "x": 2,
+        "y": 0,
+        "width": 7,
+        "height": 1
+      },
+      "destination": {
+        "x": 0,
+        "y": 0,
+        "width": 70,
+        "height": 10
+      },
+      "samples": [
+        {
+          "x": 68.5,
+          "y": 5.5,
+          "alpha": 0
+        },
+        {
+          "x": 69.5,
+          "y": 5.5,
+          "alpha": 0
+        }
+      ],
+      "samplers": [
+        "image",
+        "image_alpha"
+      ],
+      "heldRect": {
+        "x": 2,
+        "y": 0,
+        "width": 7,
+        "height": 1
+      }
+    },
+    {
+      "id": "horizontal-selection",
+      "image": "pattern-11x1",
+      "sourcePixels": {
+        "x": 2,
+        "y": 0,
+        "width": 7,
+        "height": 1
+      },
+      "destination": {
+        "x": 0,
+        "y": 0,
+        "width": 7,
+        "height": 1
+      },
+      "samples": [
+        {
+          "x": 2.5,
+          "y": 0.5,
+          "alpha": 255
+        },
+        {
+          "x": 4.5,
+          "y": 0.5,
+          "alpha": 0
+        }
+      ],
+      "samplers": [
+        "image",
+        "image_alpha"
+      ],
+      "heldRect": {
+        "x": 2,
+        "y": 0,
+        "width": 7,
+        "height": 1
+      }
+    },
+    {
+      "id": "horizontal-flip",
+      "image": "pattern-11x1",
+      "sourcePixels": {
+        "x": 2,
+        "y": 0,
+        "width": 7,
+        "height": 1
+      },
+      "destination": {
+        "x": 0,
+        "y": 0,
+        "width": 7,
+        "height": 1
+      },
+      "flipX": true,
+      "samples": [
+        {
+          "x": 2.5,
+          "y": 0.5,
+          "alpha": 0
+        },
+        {
+          "x": 4.5,
+          "y": 0.5,
+          "alpha": 255
+        }
+      ],
+      "samplers": [
+        "image_alpha"
+      ],
+      "heldRect": {
+        "x": 2,
+        "y": 0,
+        "width": 7,
+        "height": 1
+      }
+    },
+    {
+      "id": "vertical-flip",
+      "image": "pattern-1x11",
+      "sourcePixels": {
+        "x": 0,
+        "y": 2,
+        "width": 1,
+        "height": 7
+      },
+      "destination": {
+        "x": 0,
+        "y": 0,
+        "width": 1,
+        "height": 7
+      },
+      "flipY": true,
+      "samples": [
+        {
+          "x": 0.5,
+          "y": 2.5,
+          "alpha": 0
+        },
+        {
+          "x": 0.5,
+          "y": 4.5,
+          "alpha": 255
+        }
+      ],
+      "samplers": [
+        "image_alpha"
+      ],
+      "heldRect": {
+        "x": 0,
+        "y": 2,
+        "width": 1,
+        "height": 7
+      }
+    },
+    {
+      "id": "fractional-interval",
+      "image": "pattern-11x1",
+      "sourcePixels": {
+        "x": 2.5,
+        "y": 0,
+        "width": 6,
+        "height": 1
+      },
+      "destination": {
+        "x": 0,
+        "y": 0,
+        "width": 12,
+        "height": 1
+      },
+      "samples": [
+        {
+          "x": 0.5,
+          "y": 0.5,
+          "alpha": 0
+        },
+        {
+          "x": 3.5,
+          "y": 0.5,
+          "alpha": 191
+        },
+        {
+          "x": 11.5,
+          "y": 0.5,
+          "alpha": 0
+        }
+      ],
+      "samplers": [
+        "image",
+        "image_alpha"
+      ],
+      "heldRect": {
+        "x": 2,
+        "y": 0,
+        "width": 7,
+        "height": 1
+      }
+    }
+  ],
+  "guardPixels": 2
+}

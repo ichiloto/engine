@@ -64,6 +64,11 @@ final readonly class BattleCommandTimeline
   /** @var array{track: string, release: int, arrival: int, speed: float}|null */
   public ?array $flightTiming;
 
+  public function requiresImagePreparation(): bool
+  {
+    return $this->actionPoseOverride !== null || $this->timeline->getImageSources() !== [];
+  }
+
   public function requiresGraphicalAnchorCapture(): bool
   {
     return array_any($this->timeline->cueSchedule, static fn(array $cue): bool =>
@@ -540,6 +545,22 @@ final readonly class BattleCommandTimeline
   public function hasCinematicStages(): bool
   {
     return $this->cinematicStages !== [];
+  }
+
+  /** First battlefield samples after each exclusive stage, on the existing command clock.
+   * @return list<int>
+   */
+  public function getCinematicReturnFrames(): array
+  {
+    $frames = [];
+    foreach ($this->cinematicStages as $lane => $stage) {
+      $phase = $this->phases[$this->getPhaseForAuthoredLane($lane)];
+      $frame = $this->getCommandFrameForAuthoredFrame($lane, $stage->data['restoreFrame'])
+        ?? $phase['start'] + $phase['length'];
+      if ($frame < $this->timeline->defaults['lengthFrames']) { $frames[$frame] = $frame; }
+    }
+    sort($frames);
+    return array_values($frames);
   }
 
   private function getActiveCinematicLane(int $frame): ?string

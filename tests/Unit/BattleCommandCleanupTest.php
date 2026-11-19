@@ -13,7 +13,9 @@ use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Symfony\Component\Console\Output\ConsoleOutput;
+use function Tests\Support\Battle\createCommandFixtureScene;
 use function Tests\Support\Battle\createTargetExecutionFixture;
 
 require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
@@ -25,8 +27,9 @@ final class CommandCleanupScreen extends BattleScreen
   public int $selection = 0;
   public bool $failControls = false;
 
-  public function __construct(private bool $graphical)
+  public function __construct(BattleScene $scene, private bool $graphical)
   {
+    $this->battleScene = $scene;
     $this->fieldWindow = new class($this) extends BattleFieldWindow {
       public function __construct(BattleScreen $screen)
       {
@@ -83,6 +86,67 @@ function createCommandCleanupRunner(TurnStateExecutionContext $context, callable
     $resolve, static fn() => [], static fn() => null);
 }
 
+it('holds command time and every cue while resources wait and starts with a fresh update boundary', function (string $outcome) {
+  require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
+  $clock = new \Tests\Support\ManualRuntimeClock();
+  $clockLease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($clock);
+  $runner = null;
+  try {
+    [, $context] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
+    $leases = new \Ichiloto\Engine\Rendering\Assets\AssetHoldLeases();
+    $leases->startSession(true);
+    $preparation = null;
+    $context->ui->prepareResources = static function ($playback, float $started, float $timeout) use ($leases, &$preparation) {
+      return $preparation = new \Ichiloto\Engine\Rendering\Assets\AssetHoldPreparation($leases,
+        ['return' => new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('fixtures/return.png')], $started, $timeout);
+    };
+    $resourceRefreshes = 0;
+    $resolved = $cues = 0;
+    $context->ui->refreshResources = static function ($scope, $playback) use (&$resourceRefreshes, &$resolved): void {
+      expect($resolved)->toBe(1);
+      $resourceRefreshes++;
+      $scope->mergeResources(['actual-outcome' => new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('fixtures/outcome.png')]);
+    };
+    $runner = new BattleCommandRunner($context, $context->partyRoster->battlers[0], [], null, '',
+      new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), null, null,
+      static function () use (&$resolved) { $resolved++; }, static fn() => [],
+      static function () use (&$cues) { $cues++; });
+    $runner->begin();
+    $runner->update(30);
+    expect($runner->playback->session->currentFrame)->toBe(0)->and($resolved)->toBe(0)->and($cues)->toBe(0)
+      ->and($context->ui->fieldWindow->getCommandPlayback())->toBeNull();
+    expect(fn() => $runner->update(INF))->toThrow(InvalidArgumentException::class);
+    if ($outcome === 'cancel') {
+      $runner->dispose();
+      $runner->update(30);
+      expect($resolved)->toBe(0)->and($cues)->toBe(0)->and($leases->getDesiredRequests())->toBe([]);
+      return;
+    }
+    if ($outcome === 'timeout') { $clock->seconds += BattleCommandRunner::RESOURCE_PREPARATION_TIMEOUT_SECONDS; }
+    else {
+      $r = $preparation->requests[0];
+      $leases->applyFeedback(\Ichiloto\Engine\Rendering\Assets\AssetHoldFeedback::fromArray([
+        'holds' => [['id' => $r->id, 'revision' => $r->revision, 'attempt' => 1,
+          'state' => $outcome === 'ready' ? 'held' : 'refused', 'regionBytes' => 4096, 'baseBytes' => 0,
+          ...($outcome === 'refused' ? ['reason' => 'over_budget'] : [])]],
+        'holdCapacity' => createTestAssetHoldCapacity(4096, 1),
+      ]));
+    }
+    $runner->update(30);
+    expect($runner->playback->session->currentFrame)->toBe(0)->and($resolved)->toBe(0)
+      ->and($context->ui->fieldWindow->getCommandPlayback())->toBe($runner->playback);
+    if ($outcome === 'ready') { expect($runner->playback->presentationFailure)->toBeNull(); }
+    else { expect($runner->playback->presentationFailure?->getMessage())->toContain($outcome === 'timeout' ? 'timed_out' : 'refused'); }
+    $runner->update(30);
+    $runner->update(30);
+    expect($resolved)->toBe(1)->and($resourceRefreshes)->toBe(1)
+      ->and(array_map(static fn($request) => $request->resource->asset, $leases->getDesiredRequests()))
+      ->toContain('fixtures/return.png', 'fixtures/outcome.png')->and($cues)->toBeGreaterThan(0)->and($clock->sleeps)->toBe(0);
+    $runner->dispose();
+    expect($leases->getDesiredRequests())->toBe([]);
+  } finally { $runner?->dispose(); $clockLease->close(); }
+})->with(['ready', 'timeout', 'refused', 'cancel']);
+
 function failCommandCleanupOutput(): void
 {
   $output = new class extends ConsoleOutput {
@@ -91,6 +155,58 @@ function failCommandCleanupOutput(): void
   };
   new ReflectionProperty(Console::class, 'output')->setValue(null, $output);
 }
+
+it('waits without a deadline for required effect images and refuses without starting cues or combat', function (string $outcome) {
+  require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
+  $clock = new \Tests\Support\ManualRuntimeClock();
+  $clockLease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($clock);
+  $runner = null;
+  try {
+    [, $context] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
+    $leases = new \Ichiloto\Engine\Rendering\Assets\AssetHoldLeases(); $leases->startSession(true);
+    $preparation = null;
+    $context->ui->prepareResources = static function ($playback, float $started) use ($leases, &$preparation) {
+      return $preparation = new \Ichiloto\Engine\Rendering\Assets\AssetHoldPreparation($leases,
+        ['effect' => new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('fixtures/effect.png')], $started, null);
+    };
+    $resolved = $cues = 0;
+    $effect = new \Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline('effect', '', fps: 10,
+      playbackSegments: [['layer' => 'image', 'startFrame' => 0, 'endFrame' => 1, 'drawCommands' => [[
+        'trackId' => 'picture', 'assetId' => 'fixtures/effect.png', 'payload' => [],
+      ]]]], defaults: ['lengthFrames' => 2]);
+    $runner = new BattleCommandRunner($context, $context->partyRoster->battlers[0], [], null, '',
+      new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), null, $effect,
+      static function () use (&$resolved) { $resolved++; }, static fn() => [],
+      static function () use (&$cues) { $cues++; });
+    $runner->begin();
+    $clock->seconds += 30;
+    $runner->update(30);
+    expect($preparation->deadline)->toBeNull()->and($runner->playback->session->currentFrame)->toBe(0)
+      ->and($resolved)->toBe(0)->and($cues)->toBe(0)
+      ->and($context->ui->fieldWindow->getCommandPlayback())->toBeNull();
+    if ($outcome === 'cancelled') { $preparation->release(); }
+    else {
+      $r = $preparation->requests[0];
+      $leases->applyFeedback(\Ichiloto\Engine\Rendering\Assets\AssetHoldFeedback::fromArray([
+        'holds' => [['id' => $r->id, 'revision' => $r->revision, 'attempt' => 1,
+          'state' => $outcome === 'ready' ? 'held' : 'refused', 'regionBytes' => 4096, 'baseBytes' => 0,
+          ...($outcome === 'refused' ? ['reason' => 'over_budget'] : [])]],
+        'holdCapacity' => createTestAssetHoldCapacity(4096, 1),
+      ]));
+    }
+    if ($outcome === 'ready') {
+      $runner->update(30);
+      expect($context->ui->fieldWindow->getCommandPlayback())->toBe($runner->playback)
+        ->and($runner->playback->session->currentFrame)->toBe(0);
+    } else {
+      expect(fn() => $runner->update(30))->toThrow(
+        \Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException::class, $outcome)
+        ->and($context->ui->fieldWindow->getCommandPlayback())->toBeNull();
+    }
+    expect($resolved)->toBe(0);
+    if ($outcome !== 'ready') { expect($cues)->toBe(0); }
+  } finally { $runner?->dispose(); $clockLease->close(); }
+})->with(['ready', 'refused', 'cancelled']);
 
 it('keeps stage damage resolution separate from arena result feedback', function (bool $graphical) {
   [, $original] = createTargetExecutionFixture(false, $graphical, $this->createStub(AudioManager::class));
@@ -130,7 +246,7 @@ it('keeps stage damage resolution separate from arena result feedback', function
 
 it('releases command state and its overlay even when terminal cleanup cannot be painted', function (bool $graphical) {
   [, $original] = createTargetExecutionFixture(false, $graphical, $this->createStub(AudioManager::class));
-  $screen = new CommandCleanupScreen($graphical);
+  $screen = new CommandCleanupScreen(createCommandFixtureScene($original->game), $graphical);
   $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
   $resolved = 0;
   $runner = createCommandCleanupRunner($context, function () use (&$resolved): void { $resolved++; });
@@ -164,7 +280,7 @@ it('releases command state and its overlay even when terminal cleanup cannot be 
 it('cleans up after frame rollback and preserves the original gameplay failure in both battle engines',
   function (bool $activeTime, bool $graphical, bool $retained) {
     [$engine, $original] = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
-    $screen = new CommandCleanupScreen($graphical);
+    $screen = new CommandCleanupScreen(createCommandFixtureScene($original->game), $graphical);
     $screen->failControls = true;
     $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
     $error = new RuntimeException('Original combat failure');
@@ -196,7 +312,7 @@ it('cleans up after frame rollback and preserves the original gameplay failure i
 
 it('does not let a disposed old command erase a replacement commands presentation', function () {
   [, $original] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
-  $screen = new CommandCleanupScreen(true);
+  $screen = new CommandCleanupScreen(createCommandFixtureScene($original->game), true);
   $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
   $old = createCommandCleanupRunner($context, static fn() => null);
   $next = createCommandCleanupRunner($context, static fn() => null);
@@ -214,7 +330,7 @@ it('does not let a disposed old command erase a replacement commands presentatio
 
 it('retires a completed command after a failed final frame without replaying combat', function (bool $activeTime) {
   [$engine, $original] = createTargetExecutionFixture($activeTime, false, $this->createStub(AudioManager::class));
-  $screen = new CommandCleanupScreen(false);
+  $screen = new CommandCleanupScreen(createCommandFixtureScene($original->game), false);
   $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
   $resolved = 0;
   $runner = createCommandCleanupRunner($context, function () use (&$resolved): void { $resolved++; });
@@ -236,7 +352,7 @@ it('retires a completed command after a failed final frame without replaying com
 
 it('ends ordinary callouts before source animation and overlaps summon callouts until their visibility expires', function (bool $graphical, bool $summon) {
   [, $original] = createTargetExecutionFixture(false, $graphical, $this->createStub(AudioManager::class));
-  $screen = new CommandCleanupScreen($graphical);
+  $screen = new CommandCleanupScreen(createCommandFixtureScene($original->game), $graphical);
   $screen->announcement = null;
   $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
   $target = $summon ? new \Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene('synthetic', '', fps: 10,
@@ -262,7 +378,7 @@ it('ends ordinary callouts before source animation and overlaps summon callouts 
 
 it('lets an authored summon message replace the callout without the callout timer clearing its replacement', function () {
   [, $original] = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
-  $screen = new CommandCleanupScreen(false);
+  $screen = new CommandCleanupScreen(createCommandFixtureScene($original->game), false);
   $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
   $target = new \Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene('visitor', '', fps: 10,
     cueSchedule: [['id' => 'caption', 'type' => 'showMessage', 'frame' => 1, 'payload' => ['text' => 'Authored caption']]],
@@ -280,3 +396,36 @@ it('lets an authored summon message replace the callout without the callout time
   $runner->dispose();
   expect($screen->announcement)->toBeNull();
 });
+
+
+it('declares the actual post-result reaction outside combat resolution and never replays a failed resource handoff', function (bool $failHandoff) {
+  [, $context] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
+  $leases = new \Ichiloto\Engine\Rendering\Assets\AssetHoldLeases(); $leases->startSession(true);
+  $preparation = null;
+  $context->ui->prepareResources = static function ($playback, $started, $timeout) use ($leases, &$preparation) {
+    return $preparation = new \Ichiloto\Engine\Rendering\Assets\AssetHoldPreparation($leases, [], $started, $timeout);
+  };
+  $actor = $context->partyRoster->battlers[0]; $resolved = $refreshes = 0; $insideResolver = false;
+  $context->ui->refreshResources = static function ($scope, $playback) use (&$refreshes, &$resolved, &$insideResolver, $actor, $failHandoff): void {
+    expect($insideResolver)->toBeFalse()->and($resolved)->toBe(1)
+      ->and($playback->getPoseRole($actor))->toBe(BattlePoseRole::DAMAGE);
+    $refreshes++;
+    if ($failHandoff) { throw new RuntimeException('Synthetic resource admission refused'); }
+    $scope->mergeResources(['damage' => new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('fixtures/damage.png')]);
+  };
+  $runner = new BattleCommandRunner($context, $actor, [$actor], null, '',
+    new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), null, null,
+    static function () use (&$insideResolver, &$resolved, $actor): void {
+      $insideResolver = true; $resolved++; $actor->stats->currentHp -= 1; $insideResolver = false;
+    }, static fn() => [], static fn() => null);
+  try {
+    $runner->begin();
+    $runner->update($runner->playback->plan->impactFrame / \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline::FPS);
+    expect($resolved)->toBe(1)->and($refreshes)->toBe(1);
+    if ($failHandoff) { expect($runner->playback->presentationFailure?->getMessage())->toBe('Synthetic resource admission refused'); }
+    else { expect($preparation->scope->getRequests())->toHaveCount(1); }
+    $runner->update(10); $runner->update(10);
+    expect($resolved)->toBe(1)->and($refreshes)->toBe(1);
+  } finally { $runner->dispose(); }
+  expect($leases->getDesiredRequests())->toBe([]);
+})->with([false, true]);

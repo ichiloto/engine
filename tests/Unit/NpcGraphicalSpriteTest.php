@@ -36,6 +36,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
+use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -61,13 +62,14 @@ final class NpcGraphicalTestGame extends Game
 /** Real NPC, map collision, camera, scene provider, and cinematic ownership paths. */
 final class NpcGraphicalTestScene extends GameScene
 {
-  public function __construct(private readonly Game $testGame)
+  public function __construct(Game $game)
   {
+    $this->sceneManager = makeBareScene(SceneManager::class);
+    new ReflectionProperty(SceneManager::class, 'game')->setValue($this->sceneManager, $game);
+    $this->sceneManager->currentScene = $this;
     $this->gameState = new GameState();
     $this->party = new Party();
-    $this->uiManager = new class($this->testGame) extends \Ichiloto\Engine\UI\UIManager {
-      public function __construct(Game $game) { parent::__construct($game); }
-    };
+    $this->uiManager = $game->getUIManager();
     $this->currentMapId = 'Village/Plaza';
     $this->camera = new Camera($this, 24, 8, worldSpace: array_fill(0, 12, str_repeat('.', 32)));
     $this->mapManager = makeBareScene(MapManager::class);
@@ -83,8 +85,6 @@ final class NpcGraphicalTestScene extends GameScene
     $this->fieldState = new FieldState(new SceneStateContext($this));
     $this->state = $this->fieldState;
   }
-
-  public function getGame(): Game { return $this->testGame; }
 
   public function renderBackgroundTile(int $x, int $y): void
   {

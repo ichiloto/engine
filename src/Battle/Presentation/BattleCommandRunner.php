@@ -19,10 +19,14 @@ use Ichiloto\Engine\Battle\Resolution\CombatResourceChange;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Core\Clocks\RuntimeClock;
+use Ichiloto\Engine\Rendering\Assets\{AssetHoldPreparation, AssetHoldPreparationState};
 
 /** Owns one action's presentation lifetime, not its combat rules or the battle clock. */
 final class BattleCommandRunner
 {
+  /** Optional return-only retention keeps its finite policy; required image sources wait for readiness. */
+  public const float RESOURCE_PREPARATION_TIMEOUT_SECONDS = \Ichiloto\Engine\Battle\UI\BattleScreen::RESOURCE_PREPARATION_TIMEOUT_SECONDS;
   public private(set) BattleCommandPlayback $playback;
   private Closure $formatResult;
   private Closure $presentCue;
@@ -39,6 +43,10 @@ final class BattleCommandRunner
   /** @var list<array{target: CharacterInterface, frame: int, clear: bool, result?: CombatTargetResult, hit?: CombatHitResult}> */
   private array $scheduledResults = [];
   private bool $announcementVisible = false;
+  private ?AssetHoldPreparation $resourcePreparation = null;
+  private ?BattleCommandResourceStream $resourceStream = null;
+  private bool $playbackStarted = false;
+  private bool $resourceRefreshPending = false;
 
   /** @param list<CharacterInterface> $targets */
   public function __construct(
@@ -109,6 +117,7 @@ final class BattleCommandRunner
         $resolve();
         $result = $this->action?->lastResult;
         $this->commandResult = $result !== $previousResult ? $result : null;
+        $this->resourceRefreshPending = $this->resourcePreparation !== null;
       }, $this->handleCue(...), EnemyDefeatStyle::createFromConfig());
     if ($travelFailure !== null) { $this->playback->recordPresentationFailure($travelFailure); }
   }
@@ -121,17 +130,80 @@ final class BattleCommandRunner
       $this->beginRefusal($refusal);
       return;
     }
+    try {
+      $this->resourceStream = $this->context->ui->createCommandResourceStream($this->playback, RuntimeClock::getSeconds());
+      if ($this->resourceStream !== null) { $this->context->ui->setCommandResourceStream($this->resourceStream); }
+      $this->resourcePreparation = $this->resourceStream?->initialPreparation
+        ?? $this->context->ui->prepareCommandResources($this->playback,
+          RuntimeClock::getSeconds(), self::RESOURCE_PREPARATION_TIMEOUT_SECONDS);
+    } catch (\InvalidArgumentException|\RuntimeException $failure) {
+      if ($this->context->ui->usesGraphicalField() && $this->playback->plan->requiresImagePreparation()) {
+        throw new \Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException(
+          'Battle effect resource preparation failed: ' . $failure->getMessage(), previous: $failure);
+      }
+      $this->playback->recordPresentationFailure($failure);
+    }
+    $this->beginPreparedPlayback();
+  }
+
+  /** Entry cues and the command clock start together, after the owning resource decision. */
+  private function beginPreparedPlayback(): bool
+  {
+    if ($this->playbackStarted) { return true; }
+    $state = $this->resourceStream?->prepareInitialAt(RuntimeClock::getSeconds())
+      ?? $this->resourcePreparation?->pollAt(RuntimeClock::getSeconds());
+    if ($state === AssetHoldPreparationState::WAITING) { return false; }
+    if ($state !== null && $state !== AssetHoldPreparationState::READY) {
+      if ($this->resourcePreparation->deadline === null) {
+        throw new \Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException(
+          'Battle effect resource preparation ' . $state->value . '; command has not started.');
+      }
+      $this->playback->recordPresentationFailure(new \RuntimeException(
+        'Battle return-resource preparation ' . $state->value . '; continuing with foreground preparation.'));
+    }
+    $this->playbackStarted = true;
     if ($this->announcement === '') { $this->context->ui->hideMessage(); }
     $this->context->ui->bindCommandPosePoints($this->playback);
     $this->context->ui->fieldWindow->setCommandPlayback($this->playback);
     $this->playback->begin();
+    $this->resourceStream?->afterAdvanceAt(RuntimeClock::getSeconds());
+    return true;
   }
 
   public function update(float $seconds): void
   {
+    if (!is_finite($seconds)) { throw new \InvalidArgumentException('Battle elapsed time must be finite.'); }
     if ($this->disposed) { return; }
-    $this->playback->update($seconds);
-    $this->showScheduledResults($this->playback->session->currentFrame);
+    if ($this->resourcePreparation !== null && !$this->playbackStarted) {
+      if (($refusal = $this->getExecutionRefusal()) !== null) {
+        $this->beginRefusal($refusal);
+        return;
+      }
+      if (!$this->beginPreparedPlayback()) { return; }
+      // This update includes time spent waiting. It cannot be charged to the command's first frame.
+      $seconds = 0;
+    }
+    $remaining = max(0, $seconds);
+    do {
+      $advance = $this->resourceStream?->approveElapsedSeconds($remaining, RuntimeClock::getSeconds(),
+        array_map(fn(array $result): float => $this->playback->getElapsedSecondsAtFrame($result['frame']), $this->scheduledResults)) ?? $remaining;
+      $this->playback->update($advance);
+      $this->showScheduledResults($this->playback->session->currentFrame);
+      if ($this->resourceRefreshPending && $this->resourcePreparation !== null) {
+        // Actual results have committed. Newly known artwork is qualified before any further clock traversal.
+        $this->resourceRefreshPending = false;
+        if ($this->resourceStream !== null) { $this->resourceStream->refreshReturnsAt(RuntimeClock::getSeconds()); }
+        else {
+          try { $this->context->ui->refreshCommandResources($this->resourcePreparation->scope, $this->playback); }
+          catch (\InvalidArgumentException|\RuntimeException $failure) { $this->playback->recordPresentationFailure($failure); }
+        }
+      }
+      $this->resourceStream?->afterAdvanceAt(RuntimeClock::getSeconds());
+      $remaining = max(0, $remaining - $advance);
+      if ($this->resourceStream === null || $advance <= 0 || $this->resourceStream->didResumeWait
+        || $this->playback->isCompleted || !$this->resourceStream->canPresentAt(RuntimeClock::getSeconds())) { break; }
+      // Warm decisions retain their unused active time. A readiness wait ends this update without catch-up.
+    } while ($remaining > 0);
     if ($this->executionRefusal !== null && $this->playback->isCancelled) {
       $this->beginRefusal($this->executionRefusal);
     }
@@ -144,6 +216,15 @@ final class BattleCommandRunner
   public function dispose(): void
   {
     $this->disposed = true;
+    if ($this->resourceStream !== null) {
+      $this->resourceStream->release();
+      $this->context->ui->releaseCommandResourceStream($this->resourceStream);
+      $this->resourceStream = null;
+    }
+    $this->resourcePreparation?->release();
+    $this->resourcePreparation = null;
+    $this->playbackStarted = false;
+    $this->resourceRefreshPending = false;
     $this->scheduledResults = [];
     $this->announcementVisible = false;
     $this->playback->cancel();
@@ -181,6 +262,7 @@ final class BattleCommandRunner
       static function (): void {}, $this->handleCue(...));
     $this->context->ui->fieldWindow->setCommandPlayback($this->playback);
     $this->playback->begin();
+    $this->playbackStarted = true;
   }
 
   private function handleCue(array $cue): void
@@ -376,6 +458,7 @@ final class BattleCommandRunner
       default => BattlePoseRole::getRestingRole($target),
     };
     $this->playback->setReaction($target, $role, $startFrame);
+    $this->resourceRefreshPending = $this->resourcePreparation !== null;
     if ($result?->interceptingStateId !== null) {
       $effects = $this->context->ui->fieldWindow->getConditionEffects();
       $frame = $startFrame ?? $this->playback->session->currentFrame;

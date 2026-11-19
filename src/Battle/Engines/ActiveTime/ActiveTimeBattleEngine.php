@@ -111,7 +111,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine implements \Ichiloto\Engine
       return;
     }
 
-    $this->state->update($this->turnStateExecutionContext);
+    $this->updateBattlePhase();
   }
 
   /**

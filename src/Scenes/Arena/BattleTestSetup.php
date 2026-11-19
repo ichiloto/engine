@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Scenes\Arena;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\SystemData;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
+use Ichiloto\Engine\Battle\EncounterAdvantage;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
@@ -37,7 +38,7 @@ final readonly class BattleTestSetup
   /** At most this many different items, as many as a party's inventory holds. */
   public const int MAX_ITEMS = Inventory::DEFAULT_CAPACITY;
   /** The keys project data writes a setup with ({@see fromArray()}), for every reader that embeds one. */
-  public const array KEYS = ['members', 'arena', 'battleSize', 'inventory'];
+  public const array KEYS = ['members', 'arena', 'battleSize', 'inventory', 'firstStrike'];
 
   public ?int $configuredBattleSize;
   public int $battleSize;
@@ -50,19 +51,26 @@ final readonly class BattleTestSetup
    * @param list<BattleTestItem>|null $inventory The party's items, each once; null for the default stock.
    */
   public function __construct(public array $members, public ?string $arena = null, ?int $battleSize = null,
-    public ?array $inventory = null)
+    public ?array $inventory = null, public ?EncounterAdvantage $firstStrike = null)
   {
-    if ($battleSize !== null && ($battleSize < 1 || $battleSize > Party::MAX_BATTLE_SIZE)) {
-      throw new InvalidArgumentException('A battle test frontline has 1 to 8 members.');
-    }
     if ($members === [] || count($members) > self::MAX_MEMBERS || !array_is_list($members)) {
       throw new InvalidArgumentException(sprintf('A battle test party has 1 to %d members.', self::MAX_MEMBERS));
     }
     if ($inventory !== null) {
       BattleTestItem::requireUnique($inventory);
     }
-    $this->configuredBattleSize = $battleSize;
+    $this->configuredBattleSize = self::validateConfiguredBattleSize($battleSize);
     $this->battleSize = $battleSize ?? Party::BATTLE_SIZE;
+  }
+
+  /** The test may inherit the project limit or choose a whole-number limit. */
+  public static function validateConfiguredBattleSize(mixed $size): ?int
+  {
+    if ($size !== null && (!is_int($size) || $size < 1 || $size > Party::MAX_BATTLE_SIZE)) {
+      throw new InvalidArgumentException(sprintf('A battle test frontline has 1 to %d members.', Party::MAX_BATTLE_SIZE));
+    }
+
+    return $size;
   }
 
   /**
@@ -124,7 +132,9 @@ final readonly class BattleTestSetup
     }
     $inventory = array_key_exists('inventory', $data) ? BattleTestItem::listFromArray($data['inventory']) : null;
 
-    return new self(array_map(BattleTestMember::fromArray(...), $members), $arena, $data['battleSize'] ?? null, $inventory);
+    return new self(array_map(BattleTestMember::fromArray(...), $members), $arena,
+      self::validateConfiguredBattleSize($data['battleSize'] ?? null), $inventory,
+      array_key_exists('firstStrike', $data) ? EncounterAdvantage::fromSetting($data['firstStrike']) : null);
   }
 
   /**
@@ -136,6 +146,7 @@ final readonly class BattleTestSetup
   {
     return [
       ...($this->configuredBattleSize === null ? [] : ['battleSize' => $this->configuredBattleSize]),
+      ...($this->firstStrike === null ? [] : ['firstStrike' => $this->firstStrike->value]),
       'members' => array_map(static fn(BattleTestMember $member): array => $member->toArray(), $this->members),
       ...($this->arena === null ? [] : ['arena' => $this->arena]),
       ...($this->inventory === null ? [] : ['inventory' => array_map(static fn(BattleTestItem $item): array => $item->toArray(), $this->inventory)]),
@@ -217,12 +228,19 @@ final readonly class BattleTestSetup
         $forms = array_map(static fn(array $form): string => $form['world']->describe(), BattleTestWorld::listCharacterForms($character));
         $memberProblems[] = sprintf('%s is not one of its forms (%s).', $member->world->describe(), $forms === [] ? 'it has none' : implode('; ', $forms));
       }
+      if ($member->ap !== null && $actors->actionPointPolicy === null) {
+        $memberProblems[] = 'starting AP requires the project to enable battle action points.';
+      }
       // Points are checked against the member as it fights, at its level and in its equipment.
-      if ($memberProblems === [] && ($member->hp?->unit === BattleTestVitalUnit::POINTS || $member->mp?->unit === BattleTestVitalUnit::POINTS)) {
+      $pointResources = array_filter(BattleTestResource::cases(), static fn(BattleTestResource $resource): bool =>
+        $member->getVital($resource)?->unit === BattleTestVitalUnit::POINTS);
+      if ($memberProblems === [] && $pointResources !== []) {
         $built = $this->createMemberCharacter($member, $actors, $items);
-        foreach (['HP' => [$member->hp, $built->stats->totalHp], 'MP' => [$member->mp, $built->stats->totalMp]] as $label => [$vital, $maximum]) {
-          if ($vital?->unit === BattleTestVitalUnit::POINTS && $vital->amount > $maximum) {
-            $memberProblems[] = sprintf('%d %s is beyond its maximum, %d.', $vital->amount, $label, $maximum);
+        foreach ($pointResources as $resource) {
+          $vital = $member->getVital($resource);
+          $maximum = $resource->getMaximum($built->stats);
+          if ($vital->amount > $maximum) {
+            $memberProblems[] = sprintf('%d %s is beyond its maximum, %d.', $vital->amount, $resource->getLabel(), $maximum);
           }
         }
       }
@@ -276,7 +294,7 @@ final readonly class BattleTestSetup
         array_splice($members, $index, 1);
       }
 
-      return new self($members, $this->arena, $this->configuredBattleSize, $this->inventory);
+      return new self($members, $this->arena, $this->configuredBattleSize, $this->inventory, $this->firstStrike);
     }
     if ($index >= count($members)) {
       $members[] = $member;
@@ -284,24 +302,24 @@ final readonly class BattleTestSetup
       $members[$index] = $member;
     }
 
-    return new self(array_slice($members, 0, self::MAX_MEMBERS), $this->arena, $this->configuredBattleSize, $this->inventory);
+    return new self(array_slice($members, 0, self::MAX_MEMBERS), $this->arena, $this->configuredBattleSize, $this->inventory, $this->firstStrike);
   }
 
   public function withBattleSize(int $size): self
   {
-    return new self($this->members, $this->arena, $size, $this->inventory);
+    return new self($this->members, $this->arena, $size, $this->inventory, $this->firstStrike);
   }
 
   /** The setup fighting in an arena of the battle presentation, by key; null for its default. */
   public function withArena(?string $arena): self
   {
-    return new self($this->members, $arena === null || trim($arena) === '' ? null : $arena, $this->configuredBattleSize, $this->inventory);
+    return new self($this->members, $arena === null || trim($arena) === '' ? null : $arena, $this->configuredBattleSize, $this->inventory, $this->firstStrike);
   }
 
   /** @param list<BattleTestItem>|null $inventory The party's items; null for the default stock. */
   public function withInventory(?array $inventory): self
   {
-    return new self($this->members, $this->arena, $this->configuredBattleSize, $inventory);
+    return new self($this->members, $this->arena, $this->configuredBattleSize, $inventory, $this->firstStrike);
   }
 
   /**
@@ -347,6 +365,11 @@ final readonly class BattleTestSetup
     }));
   }
 
+  public function withFirstStrike(?EncounterAdvantage $opening): self
+  {
+    return new self($this->members, $this->arena, $this->configuredBattleSize, $this->inventory, $opening);
+  }
+
   /**
    * The settings a fight from this setup passes its battle: the arena, when
    * one is chosen, and a fresh world state holding the members' story
@@ -359,6 +382,7 @@ final readonly class BattleTestSetup
     $world = $this->createWorldState();
 
     return [...($this->arena === null ? [] : ['battleArena' => $this->arena]),
+      ...($this->firstStrike === null ? [] : ['firstStrike' => $this->firstStrike->value]),
       ...($world === null ? [] : [BattleConfig::TEST_WORLD_STATE => $world])];
   }
 
@@ -449,14 +473,14 @@ final readonly class BattleTestSetup
     return null;
   }
 
-  /** Sets the member's starting HP and MP from its maxima and gives it its starting states, without a chance roll. */
+  /** Applies the test-only resource overrides and gives the member its starting states, without a chance roll. */
   private function applyStartingCondition(BattleTestMember $member, Character $character): void
   {
-    if ($member->hp !== null) {
-      $character->stats->currentHp = $member->hp->resolvePoints($character->stats->totalHp);
-    }
-    if ($member->mp !== null) {
-      $character->stats->currentMp = $member->mp->resolvePoints($character->stats->totalMp);
+    foreach (BattleTestResource::cases() as $resource) {
+      $amount = $member->getVital($resource);
+      if ($amount !== null) {
+        $resource->apply($character->stats, $amount);
+      }
     }
     foreach ($member->states as $stateId) {
       $state = StateRegistry::get($stateId) ?? throw new InvalidArgumentException("The project has no state {$stateId}.");

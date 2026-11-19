@@ -45,6 +45,7 @@ abstract class Skill implements SkillInterface
    * @param SkillEffect[] $effects The effects of the skill.
    * @param Weapon[] $requiredWeapons The required weapons of the skill.
    * @param int|null $animationId The stable animation id, or null for legacy selection.
+   * @param int $apCost The AP consumed by a valid battle execution.
    * @param float $animationScale How large the bound animation's target effect plays.
    */
   public function __construct(
@@ -62,8 +63,10 @@ abstract class Skill implements SkillInterface
     protected(set) ?CounterAttackRule $counterAttack = null,
     float $animationScale = \Ichiloto\Engine\Animations\EffectScale::DEFAULT,
     ?\Ichiloto\Engine\Battle\Formation\BattleTargeting $battleTargeting = null,
+    protected(set) int $apCost = 0,
   )
   {
+    $this->validateActionPointCost();
     $this->animationId = $animationId;
     $battleTargeting?->validateScope($scope, $occasion);
     $this->battleTargeting = $battleTargeting;
@@ -95,6 +98,7 @@ abstract class Skill implements SkillInterface
   {
     $this->counterAttack = null;
     $this->battleTargeting = null;
+    $this->apCost = 0;
     foreach ($data as $key => $value) {
       $name = str_contains($key, "\0") ? substr($key, strrpos($key, "\0") + 1) : $key;
       if ($name === 'requiredWeapon') {
@@ -126,6 +130,14 @@ abstract class Skill implements SkillInterface
       }, null, $property->getDeclaringClass()->getName());
       if ($assign === null) { throw new \InvalidArgumentException('Cannot restore serialized skill field.'); }
       $assign($this, $name, $value);
+    }
+    $this->validateActionPointCost();
+  }
+
+  private function validateActionPointCost(): void
+  {
+    if ($this->apCost < 0 || ($this->apCost > 0 && $this->occasion !== Occasion::BATTLE_SCREEN)) {
+      throw new \InvalidArgumentException('apCost must be nonnegative and requires a battle-only skill when positive.');
     }
   }
 }

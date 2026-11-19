@@ -39,11 +39,7 @@ class TurnInitState extends TurnState
       )
       : EncounterAdvantage::NORMAL;
 
-    $this->determineTurnOrder($context, match ($firstStrike) {
-      EncounterAdvantage::PARTY => 'troop',
-      EncounterAdvantage::TROOP => 'party',
-      default => null,
-    });
+    $this->determineTurnOrder($context, $firstStrike->getSurprisedSide());
 
     if ($firstStrike === EncounterAdvantage::PARTY) {
       $context->ui->alert('Preemptive strike! The party moves first.');

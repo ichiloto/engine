@@ -137,7 +137,14 @@ final class GraphicalBattleHud
         $hpWidth = max($hpWidth, max(strlen((string)$row->currentHp), strlen((string)$row->totalHp)) * $pitch->cellWidth);
         $mpWidth = max($mpWidth, max(strlen((string)$row->currentMp), strlen((string)$row->totalMp)) * $pitch->cellWidth);
       }
-      $trackSpace = $width - 32 - $hpWidth - $mpWidth - 28 - ($atb ? 52 : 0);
+      $apWidth = 0;
+      foreach ($hud->status->rows as $row) {
+        if ($row->currentAp !== null) {
+          $apWidth = max($apWidth, max(2, strlen((string)$row->currentAp)) * $pitch->cellWidth);
+        }
+      }
+      $trackSpace = $width - 32 - $hpWidth - $mpWidth - 28 - ($atb ? 52 : 0)
+        - ($apWidth > 0 ? $apWidth + 12 : 0);
       $hpTrackWidth = max(24, floor($trackSpace * 0.63));
       $mpTrackWidth = $trackSpace - $hpTrackWidth;
       if ($mpTrackWidth < 24) {
@@ -147,18 +154,24 @@ final class GraphicalBattleHud
       $mpX = $hpTrackX + $hpTrackWidth + 12;
       $mpTrackX = $mpX + $mpWidth + 8;
       $atbX = $mpTrackX + $mpTrackWidth + 12;
+      $apX = $atbX + ($atb ? 52 : 0);
       foreach ([['HP', 'stats.hp', $hpTrackX], ['MP', 'stats.mp', $mpTrackX],
-        ...($atb ? [['Time', 'battle.atb', $atbX]] : [])] as [$id, $term, $labelX]) {
+        ...($atb ? [['Time', 'battle.atb', $atbX]] : []),
+        ...($apWidth > 0 ? [['AP', 'stats.ap', $apX]] : [])] as [$id, $term, $labelX]) {
         self::line($text, 'stats-' . $id, Vocabulary::getTerm($term, $id), $labelX, $y + 2, $x + $width - 16 - $labelX, 16,
           $skin->colors['muted'], cellWidth: 8);
       }
-      $hpText = $mpText = $hpUnknown = $mpUnknown = $atbFallback = [];
+      $hpText = $mpText = $apText = $hpUnknown = $mpUnknown = $atbFallback = [];
       foreach ($hud->status->rows as $index => $row) {
         $rowY = $y + ($index + 1) * $pitch->cellHeight;
         self::line($hpText, 'hp-' . $index, (string)$row->currentHp, $x + 16, $rowY, $hpWidth,
           $pitch->cellHeight, $skin->colors['text'], cellWidth: $pitch->cellWidth, rightAligned: true);
         self::line($mpText, 'mp-' . $index, (string)$row->currentMp, $mpX, $rowY, $mpWidth,
           $pitch->cellHeight, $skin->colors['text'], cellWidth: $pitch->cellWidth, rightAligned: true);
+        if ($row->currentAp !== null) {
+          self::line($apText, 'ap-' . $index, (string)$row->currentAp, $apX, $rowY, $apWidth,
+            $pitch->cellHeight, $skin->colors['text'], cellWidth: $pitch->cellWidth);
+        }
         $hpUnknown[] = self::renderGauge($images, $skin, 'hp', $index, $hpTrackX, $rowY + 4, $hpTrackWidth,
           $row->totalHp > 0 ? $row->hpRatio : null, $pitch->cellHeight, $assetRoot);
         $mpUnknown[] = self::renderGauge($images, $skin, 'mp', $index, $mpTrackX, $rowY + 4, $mpTrackWidth,
@@ -167,6 +180,7 @@ final class GraphicalBattleHud
       }
       self::column($text, 'hp-rows', $hpText);
       self::column($text, 'mp-rows', $mpText);
+      self::column($text, 'ap-rows', $apText);
       self::column($text, 'hp-unknown', $hpUnknown);
       self::column($text, 'mp-unknown', $mpUnknown);
       self::column($text, 'atb-fallback', $atbFallback);
