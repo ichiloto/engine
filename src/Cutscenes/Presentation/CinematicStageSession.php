@@ -72,7 +72,8 @@ final class CinematicStageSession
         || $this->timeline->getReducedMotionSampleFrame($this->currentFrame) !== null);
   }
 
-  public function getCanvas(int $width, int $height, bool $reducedMotion = false, bool $imageFlips = true): ?PresentationCanvas
+  public function getCanvas(int $width, int $height, bool $reducedMotion = false, bool $imageFlips = true,
+    bool $retainSourceAtViewport = true): ?PresentationCanvas
   {
     if (!$this->isPresenting($reducedMotion)) { return null; }
     try {
@@ -81,7 +82,7 @@ final class CinematicStageSession
         : $this->stage->getFrame($this->currentFrame, $reducedMotion);
       return CinematicStagePresentation::compose($frame,
         \Ichiloto\Engine\Animations\Timelines\EffectMotionScope::filterSegments($this->timeline->playbackSegments, $reducedMotion),
-        $this->assetRoot, $width, $height, $imageFlips);
+        $this->assetRoot, $width, $height, $imageFlips, retainSourceAtViewport: $retainSourceAtViewport);
     } catch (InvalidArgumentException|RuntimeException $error) {
       $this->hasPresentationFailure = true;
       Debug::warn('Optional stage presentation unavailable: ' . $error->getMessage());

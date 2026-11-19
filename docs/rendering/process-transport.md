@@ -264,22 +264,25 @@ resynchronization. Non-reset packets require the current `baseGeneration`;
 reset packets ignore a mismatched base but still require a newer generation.
 See [atomic staging and limits](presentation.md#retained-operations-and-generations).
 
-`frame_rejected` is recoverable presentation feedback, not a gameplay failure:
-Runtime logs it and invalidates once per drained batch, taking the highest
-`expectedGeneration` from that batch. `invalidate(expectedGeneration: ...)`
-retains desired content and rebases the next reset above both the local and
-reported receiver generation. A receiver ahead of PHP therefore does not cause
-a succession of impossible resets. Resize and rejection in the same drain share
-that one invalidation.
+Runtime logs rejected packets from the current delivery window and requests one
+reset per drained batch, rebased above the local generation and the highest
+`expectedGeneration` reported for those packets. Resize and rejection in the
+same drain share one invalidation. Delayed rejections of abandoned or already
+presented generations do not trigger another reset.
 
 If pending delivery makes neither partial-write nor ACK progress for
 `RetainedPresentation::ACK_TIMEOUT_SECONDS` (2.0 seconds), the next present
-requests a reset even when content is unchanged. This uses a monotonic clock and
-also detects a dropped final packet with no successor to trigger rejection.
-Repeated old ACKs do not extend the deadline. Recovery still obeys queue capacity;
-it neither discards a partially written line nor keeps appending full resets
-behind a blocked reader. An actual send failure invalidates future delivery but
-still propagates as a transport error; temporary `trySend(false)` does not.
+requests a reset even when content is unchanged or the pipe cannot accept the
+first packet. Recovery still obeys queue capacity and leaves partially written
+lines intact. An actual send failure propagates as a transport error.
+
+Removed indefinite reset retries. The first rejection or delivery timeout starts
+a recovery period on the monotonic clock. A displayed frame from the current
+window clears it. If another rejection or timeout arrives after one full
+acknowledgement interval without a displayed frame, the sender reports a
+protocol error and the game uses its existing failure cleanup. A staging ACK
+or an old ACK cannot clear the recovery period. A replacement that is making
+write or acknowledgement progress can finish, including a multi-packet world.
 
 A native `resized` event requests one resend on the next present, not a logical
 grid resize. Explicit `RendererRuntime::restart()` cleans up the old peer and

@@ -123,7 +123,7 @@ it('restores the battlefield before fading its white cover completely clear', fu
     ->and($clear->images)->toBeEmpty()->and($clear->composites)->toBeEmpty();
 });
 
-it('composes fractional zoomed image edges under strict canvas bounds in normal and reduced motion', function () {
+it('retains the authored cell while clipping the painted stage in normal and reduced motion', function () {
   writeTestPng($this->root . '/body.png', 2048, 1536);
   $this->source['stage']['canvas'] = ['width' => 1920, 'height' => 1080];
   $this->source['stage']['subjects'][0] = ['id' => 'visitor', 'position' => ['x' => 0, 'y' => 0],
@@ -140,13 +140,19 @@ it('composes fractional zoomed image edges under strict canvas bounds in normal 
       $canvas = CinematicStagePresentation::compose($stage->getFrame($frame, $reduced),
         $compiled->playbackSegments, $this->root, 1280, 720);
       foreach ($canvas->images as $image) {
-        expect($image->destination->x + $image->destination->width)->toBeLessThanOrEqual(1280)
-          ->and($image->destination->y + $image->destination->height)->toBeLessThanOrEqual(720)
-          ->and($image->sourceRect->width)->toBe(1599)->and($image->sourceRect->height)->toBe(899);
+        expect($image->getPaintBounds()->x + $image->getPaintBounds()->width)->toBeLessThanOrEqual(1280)
+          ->and($image->getPaintBounds()->y + $image->getPaintBounds()->height)->toBeLessThanOrEqual(720)
+          ->and($image->sourceRect->width)->toBe(2048)->and($image->sourceRect->height)->toBe(1536);
+        expect($image->destination->y)->toBeLessThan(0.0)->and($image->clipRect)->not->toBeNull();
       }
       if ($frame === 3) {
         expect($canvas->images)->toHaveCount(1)
-          ->and($canvas->images[0]->destination->y)->toBe(0.7999999999999261);
+          ->and($canvas->images[0]->getPaintBounds()->y)->toBe(0.0);
+        $legacy = CinematicStagePresentation::compose($stage->getFrame($frame, $reduced),
+          $compiled->playbackSegments, $this->root, 1280, 720, retainSourceAtViewport: false);
+        expect($legacy->images[0]->sourceRect->width)->toBe(1599)
+          ->and($legacy->images[0]->sourceRect->height)->toBe(899)
+          ->and($legacy->images[0]->destination->y)->toBe(0.7999999999999261);
       }
     }
   }

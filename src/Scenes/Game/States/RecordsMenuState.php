@@ -283,7 +283,9 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     if ($this->demo !== null) {
       $runtime = $this->getGameScene()->getGame()->getRendererRuntime();
       $stage = $this->demo->getCanvas(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT,
-        Accessibility::prefersReducedMotion(), $runtime?->supports(RendererSessionConfig::CANVAS_IMAGE_FLIP) ?? false);
+        Accessibility::prefersReducedMotion(), $runtime?->supports(RendererSessionConfig::CANVAS_IMAGE_FLIP) ?? false,
+        retainSourceAtViewport: ($runtime?->supports(RendererSessionConfig::CANVAS_IMAGE_ROTATION) ?? false)
+          && $runtime->supports(RendererSessionConfig::CANVAS_CLIP_OPACITY));
       if ($stage !== null) {
         $view = new MenuCanvas($theme, $stage->width, $stage->height, $time, background: false);
         $hint = [ActionHints::resolve('cancel', 'Back')];

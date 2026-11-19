@@ -18,7 +18,8 @@ final class CinematicStagePresentation
 {
   /** @param ?\Closure(object, ?string): void $recordSource */
   public static function compose(CinematicStageFrame $frame, array $segments, string $assetRoot,
-    int $width, int $height, bool $imageFlips = true, bool $compositing = true, ?\Closure $recordSource = null): PresentationCanvas
+    int $width, int $height, bool $imageFlips = true, bool $compositing = true, ?\Closure $recordSource = null,
+    bool $retainSourceAtViewport = true): PresentationCanvas
   {
     $images = $composites = [];
     $hasBackground = $frame->active && $frame->stage->data['background'] !== null;
@@ -51,15 +52,20 @@ final class CinematicStagePresentation
           if ($flipX) { $pivot['x'] = 1 - $pivot['x']; }
           if ($flipY) { $pivot['y'] = 1 - $pivot['y']; }
           $rectangle = $frame->getImagePlacement($placement, $pivot, $command['position'], $width, $height);
-          $image = CanvasImage::createClipped('cinematic-stage-' . $command['trackId'], $asset,
-            $rectangle['x'], $rectangle['y'], $rectangle['width'], $rectangle['height'], $width, $height,
-            PresentationLayerPolicy::CINEMATIC + $data['zIndex'],
-            $crop,
-            $flipX, $flipY);
+          $id = 'cinematic-stage-' . $command['trackId'];
+          $layer = PresentationLayerPolicy::CINEMATIC + $data['zIndex'];
+          if ($retainSourceAtViewport) {
+            // The command holds the authored cell. Camera motion changes only placement and viewport coverage.
+            $destination = new CanvasRectangle(...$rectangle, allowOutsideCanvas: true);
+            $image = new CanvasImage($id, $asset, $destination, $layer, $crop, $data['opacity'],
+              flipX: $flipX, flipY: $flipY)->clipToViewport($width, $height);
+          } else {
+            $image = CanvasImage::createClipped($id, $asset, $rectangle['x'], $rectangle['y'],
+              $rectangle['width'], $rectangle['height'], $width, $height, $layer, $crop, $flipX, $flipY, $data['opacity']);
+          }
           if ($image !== null) {
-            $images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer, $image->sourceRect,
-              $data['opacity'], $image->clipRect, flipX: $image->flipX, flipY: $image->flipY);
-            $recordSource?->__invoke($images[array_key_last($images)], $command['trackId']);
+            $images[] = $image;
+            $recordSource?->__invoke($image, $command['trackId']);
           }
         }
       }

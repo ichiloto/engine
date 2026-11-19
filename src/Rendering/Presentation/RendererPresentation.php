@@ -42,6 +42,13 @@ final class RendererPresentation
 
   public function hasPendingUpload(): bool { return $this->retained->hasPendingUpload(); }
 
+  public function isAwaitingGeneration(int $generation): bool { return $this->retained->isAwaitingGeneration($generation); }
+
+  public function recoverDelivery(string $failure, int $expectedGeneration): void
+  {
+    $this->retained->recoverDelivery($failure, $expectedGeneration);
+  }
+
   public function hasPendingWorldDelivery(): bool { return $this->retained->hasPendingWorldDelivery(); }
 
   public function continueWorldUpload(int $deadline): bool { return $this->retained->continueWorldUpload($deadline); }
@@ -67,7 +74,7 @@ final class RendererPresentation
     return PresentationSession::runForSession($this->client->supports(...), function () use ($canvas, $world): RetainedFrame {
       $this->validateCanvas($canvas);
       $this->validateCanvasFrame([$canvas]);
-      return $this->retained->prepareCanvas($canvas, $world, $this->getSessionAssetHolds($this->visibleAssetOwner));
+      return $this->retained->prepareCanvas($canvas, $world, $this->getSessionAssetHolds());
     });
   }
 
@@ -96,7 +103,7 @@ final class RendererPresentation
     $canvas?->assertWorldReferences($frame->world);
     $this->validateCanvasFrame([...($canvas === null ? [] : [$canvas]),
       ...array_map(static fn($group) => $group->canvas, $frame->worldCanvases)]);
-    $this->assetHolds->borrowRequests($this->visibleAssetOwner, $frame->assetHolds);
+    $this->assetHolds->borrowRequests($this->visibleAssetOwner, $frame->getReferencedAssetHolds());
     return $this->retained->presentFrame($frame, $screenOverlay, $this->getSessionAssetHolds());
   }
 
@@ -162,9 +169,9 @@ final class RendererPresentation
         : $this->retained->present($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases);
     }
     $frame = $this->retained->prepareFrame($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases,
-      $this->getSessionAssetHolds($this->visibleAssetOwner));
+      $this->getSessionAssetHolds());
     if ($prepare) { return $frame; }
-    $this->assetHolds->borrowRequests($this->visibleAssetOwner, $frame->assetHolds);
+    $this->assetHolds->borrowRequests($this->visibleAssetOwner, $frame->getReferencedAssetHolds());
     return $this->retained->presentFrame($frame, assetHolds: $this->getSessionAssetHolds());
   }
 
@@ -183,17 +190,17 @@ final class RendererPresentation
       $this->validateCanvas($canvas);
       $this->validateCanvasFrame([$canvas]);
       if (!$this->client->supports(RendererSessionConfig::ASSET_HOLDS)) { return $this->retained->presentCanvas($canvas, $world); }
-      $frame = $this->retained->prepareCanvas($canvas, $world, $this->getSessionAssetHolds($this->visibleAssetOwner));
-      $this->assetHolds->borrowRequests($this->visibleAssetOwner, $frame->assetHolds);
+      $frame = $this->retained->prepareCanvas($canvas, $world, $this->getSessionAssetHolds());
+      $this->assetHolds->borrowRequests($this->visibleAssetOwner, $frame->getReferencedAssetHolds());
       return $this->retained->presentFrame($frame, assetHolds: $this->getSessionAssetHolds());
     });
   }
 
   /** @return list<\Ichiloto\Engine\Rendering\Assets\AssetHoldRequest> */
-  private function getSessionAssetHolds(?object $exceptOwner = null): array
+  private function getSessionAssetHolds(): array
   {
     return $this->client->supports(RendererSessionConfig::ASSET_HOLDS)
-      ? $this->assetHolds->getDesiredRequests($exceptOwner) : [];
+      ? $this->assetHolds->getDesiredRequests() : [];
   }
 
   /** Preload traffic is independent of drawing readiness and never waits for a worker. */

@@ -15,6 +15,7 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Presentation\RetainedPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
@@ -290,6 +291,36 @@ it('recovers a dropped final packet without requiring another changed frame and 
     expect($sender->present($text, [], null))->toBeFalse()->and($transport->sent)->toHaveCount(2);
 });
 
+it('exhausts recovery when the replacement frame also goes unacknowledged', function () {
+    $transport = new FakeRendererTransport();
+    $time = 0.0;
+    $sender = new RetainedPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
+    $text = new ConsolePresentationChanges(20, 4, true, order: []);
+    expect($sender->present($text, [], null))->toBeTrue();
+    $text = new ConsolePresentationChanges(20, 4, false);
+    $time += RetainedPresentation::ACK_TIMEOUT_SECONDS;
+    expect($sender->present($text, [], null))->toBeTrue()->and(end($transport->sent)->payload['reset'])->toBeTrue();
+    $time += RetainedPresentation::ACK_TIMEOUT_SECONDS;
+    expect(fn() => $sender->present($text, [], null))
+        ->toThrow(RendererProtocolException::class, 'Renderer presentation could not recover: retained frame delivery timed out.');
+    expect($transport->sent)->toHaveCount(2);
+});
+
+it('exhausts recovery when the pipe cannot accept even the first packet', function () {
+    $transport = new FakeRendererTransport();
+    $transport->acceptWrites = false;
+    $time = 0.0;
+    $sender = new RetainedPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
+    $text = new ConsolePresentationChanges(20, 4, true, order: []);
+    expect($sender->present($text, [], null))->toBeFalse()->and($sender->hasPendingUpload())->toBeTrue();
+    $text = new ConsolePresentationChanges(20, 4, false);
+    $time += RetainedPresentation::ACK_TIMEOUT_SECONDS;
+    expect($sender->present($text, [], null))->toBeFalse()->and($sender->hasPendingUpload())->toBeTrue();
+    $time += RetainedPresentation::ACK_TIMEOUT_SECONDS;
+    expect(fn() => $sender->present($text, [], null))->toThrow(RendererProtocolException::class, 'Renderer presentation could not recover');
+    expect($transport->sent)->toBe([]);
+});
+
 it('bounds unacknowledged cold packets and coalesces changing text sprites and viewport without starving completion', function () {
     $transport = new FakeRendererTransport();
     $sender = new RetainedPresentation(new RendererClient($transport));
@@ -352,10 +383,12 @@ it('counts partial pipe writes as progress but resets a stalled upload without g
     $time += 2;
     expect($sender->present(new ConsolePresentationChanges(20, 4, false), [], null))->toBeTrue()
         ->and(end($transport->sent)->payload['reset'])->toBeTrue();
+    $transport->pendingWriteBytes = 0;
+    $sender->acknowledge(end($transport->sent)->payload['generation'], true);
     $world = retainedTestWorld(256, 128);
     $transport->pendingWriteBytes = RetainedPresentation::MAX_PENDING_WRITE_BYTES;
     foreach (range(1, 5) as $_) {
-        $time += 2;
+        $time += 0.25;
         expect($sender->present(new ConsolePresentationChanges(20, 4, false), [], null, $world))->toBeFalse();
     }
     expect($transport->sent)->toHaveCount(2)->and($sender->hasPendingUpload())->toBeTrue();

@@ -169,10 +169,13 @@ an obsolete frame. The desired session set is limited to 1024 unique leases.
 The retained sender diffs `asset_hold` values alongside other entities. Their
 wire values contain neither a drawable id nor draw order. Resource-only traffic
 keeps the last scene intact and proceeds even when scene drawing readiness is
-held. Captured frames preserve resource intent; presentation and screen-handoff
-owners retain old references through covered replacement and release them on
-completion or shutdown. A new renderer session replays desired requests but
-requires fresh residency feedback.
+held. The low-level sender captures and restores its complete requested resource
+set, including explicit preloads. Visible and frozen composition owners borrow
+the latest captured lease for each referenced preparation through covered
+replacement and release their leases on completion or shutdown. Removed
+automatic borrowing of unrelated preloads. Their producer scopes control their
+lifetime. A new renderer session
+replays desired requests and requires fresh residency feedback.
 
 `AssetHoldScope` owns one presentation’s ongoing resource intent. It can replace
 or atomically merge newly known resources, keeps existing role requests stable,

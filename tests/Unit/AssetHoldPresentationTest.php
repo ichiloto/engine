@@ -119,7 +119,10 @@ it('replays the complete typed resource set in a bounded multi-chunk reset', fun
 
 it('keeps frozen resources alive across producer replacement and preserves incoming preloads', function () {
   $presentation = new RendererPresentation($this->client, new RendererGridConfig());
-  $presentation->presentCanvas($this->canvas);
+  $bounds = new CanvasRectangle(0, 0, 80, 60);
+  $presentation->presentCanvas(new PresentationCanvas(80, 60, [
+    new CanvasImage('outgoing', $this->request->resource->asset, $bounds),
+  ]));
   $this->transport->acknowledgeLatestFrame($presentation);
   $frozen = $presentation->captureFrame();
   $next = $this->client->assetHolds->replaceResources($this->owner,
@@ -128,7 +131,9 @@ it('keeps frozen resources alive across producer replacement and preserves incom
   $presentation->presentFrame($frozen);
   $this->transport->acknowledgeLatestFrame($presentation);
   expect($presentation->captureFrame()->assetHolds)->toContain($this->request, $next);
-  $presentation->presentCanvas(new PresentationCanvas(80, 60));
+  $presentation->presentCanvas(new PresentationCanvas(80, 60, [
+    new CanvasImage('incoming', $next->resource->asset, $bounds),
+  ]));
   expect($this->client->assetHolds->getDesiredRequests())->toBe([$next]);
   $this->client->assetHolds->releaseOwner($this->owner);
   expect($this->client->assetHolds->getDesiredRequests())->toBe([$next]);
@@ -138,11 +143,41 @@ it('keeps frozen resources alive across producer replacement and preserves incom
 
 it('refuses to resurrect an obsolete prepared resource after every owner releases it', function () {
   $presentation = new RendererPresentation($this->client, new RendererGridConfig());
-  $prepared = $presentation->prepareCanvas($this->canvas);
+  $prepared = $presentation->prepareCanvas(new PresentationCanvas(80, 60, [
+    new CanvasImage('outgoing', $this->request->resource->asset, new CanvasRectangle(0, 0, 80, 60)),
+  ]));
   $this->client->assetHolds->releaseOwner($this->owner);
   expect(fn() => $presentation->presentFrame($prepared))->toThrow(LogicException::class, 'currently owned request');
   expect($this->transport->sent)->toBe([])
     ->and($this->client->assetHolds->getDesiredRequests())->toBe([]);
+});
+
+it('keeps unrelated preloads with their producer across a frozen canvas replay', function () {
+  $presentation = new RendererPresentation($this->client, new RendererGridConfig());
+  $prepared = $presentation->prepareCanvas($this->canvas);
+  $presentation->presentFrame($prepared);
+  expect($presentation->captureFrame()->assetHolds)->toBe([$this->request])
+    ->and($prepared->getReferencedAssetHolds())->toBe([]);
+  $this->client->assetHolds->releaseOwner($this->owner);
+  expect($this->client->assetHolds->getDesiredRequests())->toBe([]);
+  $this->transport->acknowledgeLatestFrame($presentation);
+  $presentation->presentFrame($prepared);
+  expect(end($this->transport->sent)->payload['operations'])
+    ->toContain(['op' => 'remove', 'kind' => 'asset_hold', 'id' => $this->request->id]);
+});
+
+it('releases an older preparation when the visible source is reread', function () {
+  $presentation = new RendererPresentation($this->client, new RendererGridConfig());
+  $canvas = new PresentationCanvas(80, 60, [
+    new CanvasImage('outgoing', $this->request->resource->asset, new CanvasRectangle(0, 0, 80, 60)),
+  ]);
+  $presentation->presentCanvas($canvas);
+  $this->transport->acknowledgeLatestFrame($presentation);
+  $replacement = $this->client->assetHolds->rereadResource($this->owner, 'return');
+  expect($this->client->assetHolds->getDesiredRequests())->toContain($this->request, $replacement);
+  $presentation->presentCanvas($canvas);
+  expect($this->client->assetHolds->getDesiredRequests())->toBe([$replacement])
+    ->and($presentation->captureFrame()->getReferencedAssetHolds())->toBe([$replacement]);
 });
 
 

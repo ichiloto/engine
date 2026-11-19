@@ -161,8 +161,9 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     } else {
       $this->client->pump();
     }
-    $invalidate = false;
+    $resized = false;
     $expectedGeneration = null;
+    $rejection = null;
     foreach ($this->client->drainEvents() as $event) {
       if ($event->type === RendererEventType::CLOSE_REQUESTED) {
         $this->closeRequested = true;
@@ -172,11 +173,12 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
         LatencyTrace::record('presentation.frame.rejected', ['generation' => $event->generation,
           'expected_generation' => $event->expectedGeneration, 'resync_required' => $event->resyncRequired,
           'message' => $event->message]);
+        if ($this->presentation?->isAwaitingGeneration($event->generation) !== true) { continue; }
         $this->recordFrameRejectionWarning($event->message);
-        $invalidate = true;
+        $rejection ??= $event->message ?? throw new LogicException('Frame rejection lacks its validated reason.');
         $expectedGeneration = max($expectedGeneration ?? 0, $event->expectedGeneration ?? 0);
       } elseif ($event->type === RendererEventType::RESIZED) {
-        $invalidate = true;
+        $resized = true;
       } elseif ($event->type === RendererEventType::FRAME_ACK) {
         $this->presentation?->acknowledge($event->generation, $event->presented);
         if ($event->presented === true) { $this->flushFrameRejectionWarnings(); }
@@ -187,12 +189,15 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
           $this->transport->getDiagnostics(), $this->transport->getExitCode());
       }
     }
-    if ($invalidate) {
-      $this->presentation?->invalidate(expectedGeneration: $expectedGeneration);
-      $this->resetText = true;
-    }
     if ($this->closeRequested) {
       throw new RendererWindowClosed('Renderer window closed.');
+    }
+    if ($rejection !== null) {
+      $this->presentation?->recoverDelivery($rejection, $expectedGeneration ?? 0);
+      $this->resetText = true;
+    } elseif ($resized) {
+      $this->presentation?->invalidate();
+      $this->resetText = true;
     }
   }
 
@@ -282,7 +287,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
       LatencyTrace::end('presentation.prepare', $prepareStarted);
       $submitStarted = LatencyTrace::getTimeNow();
       if ($this->handoffTreatment !== null) {
-        $this->assetHolds->borrowRequests($this->handoffAssetOwner, $frame->assetHolds);
+        $this->assetHolds->borrowRequests($this->handoffAssetOwner, $frame->getReferencedAssetHolds());
         $this->handoffFrame = $frame;
         $changed = $this->presentHandoffFrame($notifications);
       } else {
@@ -314,7 +319,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     $frame = $readyCanvas !== null ? $this->presentation->prepareCanvas($readyCanvas)
       : ($this->sceneFrameSource?->get() === $scene ? $this->sceneFrame : null);
     if ($frame?->canvas === null || $frame->canvasIsOverlay) { return null; }
-    $this->assetHolds->borrowRequests($owner, $frame->assetHolds);
+    $this->assetHolds->borrowRequests($owner, $frame->getReferencedAssetHolds());
     return $frame;
   }
 
@@ -341,7 +346,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
       if (!$this->supports($capability)) { throw new LogicException('A screen handoff requires ' . $capability); }
     }
     $frame = $this->sceneFrame ?? $this->presentation->captureFrame();
-    $this->assetHolds->borrowRequests($this->handoffAssetOwner, $frame->assetHolds);
+    $this->assetHolds->borrowRequests($this->handoffAssetOwner, $frame->getReferencedAssetHolds());
     $this->handoffFrame = $frame;
     $this->handoffTreatment = $treatment;
     $this->handoffPhase = ScreenTransitionPhase::GATHER;
