@@ -89,7 +89,7 @@ function createCommandCleanupRunner(TurnStateExecutionContext $context, callable
 it('holds command time and every cue while resources wait and starts with a fresh update boundary', function (string $outcome) {
   require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
   $clock = new \Tests\Support\ManualRuntimeClock();
-  $clockLease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($clock);
+  $clockLease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
   $runner = null;
   try {
     [, $context] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
@@ -159,7 +159,7 @@ function failCommandCleanupOutput(): void
 it('waits without a deadline for required effect images and refuses without starting cues or combat', function (string $outcome) {
   require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
   $clock = new \Tests\Support\ManualRuntimeClock();
-  $clockLease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($clock);
+  $clockLease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
   $runner = null;
   try {
     [, $context] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));

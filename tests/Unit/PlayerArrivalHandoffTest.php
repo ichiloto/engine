@@ -398,7 +398,7 @@ it('keeps instant terminal and reduced-motion committed steps and their arrivals
 it('renews campaign activity after accepted movement and field interactions', function () {
   require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
   $clock = new \Tests\Support\ManualRuntimeClock();
-  $lease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($clock);
+  $lease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
   $playing = $this->createMockForIntersectionOfInterfaces([
     \Ichiloto\Engine\Scenes\Interfaces\SceneInterface::class,
     \Ichiloto\Engine\Core\Interfaces\PlayActivitySourceInterface::class,

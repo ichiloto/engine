@@ -535,7 +535,7 @@ it('retires only focused speculation before pause and clears it again on scene s
 
 it('keeps a seconds-based state through a real Pause and resumes its exact remaining time', function () {
   $clock = new \Tests\Support\ManualRuntimeClock();
-  $lease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($clock);
+  $lease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
   try {
     $actor = $this->scene->partyBattlers[0];
     $state = new \Ichiloto\Engine\Entities\States\State('synthetic-seconds', 'Synthetic duration', durationSeconds: 8);
