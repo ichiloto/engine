@@ -74,7 +74,10 @@ final class ContextFieldSceneProbe extends GameScene
         foreach (['layers' => $layers, 'presentationWorld' => null, 'presentationWorldPolicy' => null] as $key => $value) {
             new ReflectionProperty(MapManager::class, $key)->setValue($this->mapManager, $value);
         }
-        $this->camera->worldSpace = $layers?->getComposedGrid() ?? [];
+        // The map's tiles and the camera's world are one grid, as MapManager installs them for every map.
+        $tiles = $layers?->getComposedGrid() ?? [];
+        new ReflectionProperty(MapManager::class, 'tileMap')->setValue($this->mapManager, $tiles);
+        $this->camera->worldSpace = $tiles;
     }
 }
 

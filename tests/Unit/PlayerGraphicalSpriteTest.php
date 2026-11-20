@@ -77,6 +77,8 @@ function configurePlayerSpriteField(GameScene $scene, MapManager $map, bool $gra
   new ReflectionProperty(MapManager::class, 'layers')->setValue($map,
     new MapLayerSet([new MapLayer('ground', 0, false, 'synthetic',
       implode("\n", array_fill(0, 30, str_repeat('.', 40))))]));
+  // The map installs its tiles with the camera's world, as MapManager does for every installed map.
+  new ReflectionProperty(MapManager::class, 'tileMap')->setValue($map, $scene->camera->worldSpace);
   $scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(20, 10, 48, 48),
     static fn(string $capability): bool => true, graphical: $graphical));
 }

@@ -113,6 +113,8 @@ beforeEach(function () {
     array_fill(0, 10, array_fill(0, 10, CollisionType::ENCOUNTER->value)));
   new ReflectionProperty(MapManager::class, 'layers')->setValue($this->map,
     new MapLayerSet([new MapLayer('ground', 0, false, 'synthetic', implode("\n", array_fill(0, 10, str_repeat('.', 10))))]));
+  // The map installs its tiles with the camera's world, as MapManager does for every installed map.
+  new ReflectionProperty(MapManager::class, 'tileMap')->setValue($this->map, $this->camera->worldSpace);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $this->map);
   $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(10, 10, 48, 48),
     static fn(string $capability): bool => true, graphical: true));
