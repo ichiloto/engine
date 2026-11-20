@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\IO;
 
 use Assegai\Util\Path;
+use Closure;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Exceptions\CorruptSaveException;
@@ -20,6 +21,7 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\LocalDataFiles;
 use InvalidArgumentException;
+use LogicException;
 use RuntimeException;
 use Throwable;
 
@@ -54,13 +56,20 @@ class SaveManager
 
   /** The single compatibility pipeline shared by every save surface. */
   protected SaveCompatibilityPipeline $compatibilityPipeline;
+  /** @var Closure(): SaveCompatibilityManifest */
+  private Closure $loadCompatibilityManifest;
   private ?string $isolatedDataRoot = null;
 
+  /**
+   * @param SaveCompatibilityManifest|(Closure(): SaveCompatibilityManifest)|null $compatibilityManifest
+   *   A host may defer reading its manifest until the first save operation that needs it.
+   */
   public function __construct(
     protected Game $game,
     protected string $saveDirectory = './saves',
     protected string $quickSaveDirectory = './saves/quick',
-    ?SaveCompatibilityManifest $compatibilityManifest = null,
+    SaveCompatibilityManifest|Closure|null $compatibilityManifest = null,
+    private readonly bool $readOnly = false,
   )
   {
     $this->isolatedDataRoot = $game->hasIsolatedDataRoot() ? $game->getDataRoot() : null;
@@ -68,10 +77,25 @@ class SaveManager
     $this->quickSaveDirectory = Path::normalize(Path::join($game->getDataRoot(), $this->quickSaveDirectory));
     $this->validateStoragePath($this->saveDirectory);
     $this->validateStoragePath($this->quickSaveDirectory);
-    $compatibilityManifest ??= SaveCompatibilityManifest::fromProjectRoot(dirname($game->getProjectAssetRoot()));
-    $this->compatibilityPipeline = new SaveCompatibilityPipeline($compatibilityManifest,
-      projectStateRegistry: $game->getProjectStateRegistry());
-    $this->diagnoseStorageAvailability();
+    if ($compatibilityManifest instanceof Closure) {
+      $this->loadCompatibilityManifest = $compatibilityManifest;
+    } else {
+      $this->compatibilityPipeline = new SaveCompatibilityPipeline(
+        $compatibilityManifest ?? SaveCompatibilityManifest::fromProjectRoot(dirname($game->getProjectAssetRoot())),
+        projectStateRegistry: $game->getProjectStateRegistry());
+    }
+    if (!$readOnly) { $this->diagnoseStorageAvailability(); }
+  }
+
+  private function getCompatibilityPipeline(): SaveCompatibilityPipeline
+  {
+    return $this->compatibilityPipeline ??= new SaveCompatibilityPipeline(
+      ($this->loadCompatibilityManifest)(), projectStateRegistry: $this->game->getProjectStateRegistry());
+  }
+
+  private function requireWritableStorage(): void
+  {
+    if ($this->readOnly) { throw new LogicException('This Game uses read-only save storage.'); }
   }
 
   /** Existing callers resolve the save manager owned by their Game. */
@@ -271,6 +295,7 @@ class SaveManager
    */
   public function quickSave(GameScene $scene): SaveSlot
   {
+    $this->requireWritableStorage();
     if (!SaveFeatures::isQuickSaveEnabled()) { throw new RuntimeException('Quick Save is disabled by this project.'); }
     return $this->writeSave($scene, self::QUICK_SAVE_SLOT, $this->getQuickSavePath(self::QUICK_SAVE_NAME));
   }
@@ -278,6 +303,7 @@ class SaveManager
   /** Writes the single Autosave atomically; only the developer chooses when. */
   public function autoSave(GameScene $scene): SaveSlot
   {
+    $this->requireWritableStorage();
     if (!SaveFeatures::isAutosaveEnabled()) { throw new RuntimeException('Autosave is disabled by this project.'); }
     return $this->writeSave($scene, self::AUTO_SAVE_SLOT, $this->getQuickSavePath(self::AUTO_SAVE_NAME));
   }
@@ -303,6 +329,7 @@ class SaveManager
    */
   protected function writeSave(GameScene $scene, int $slot, string $path): SaveSlot
   {
+    $this->requireWritableStorage();
     $this->validateStoragePath($path);
     if ($scene->hasUnstableEventSession()) {
       throw new ActiveEventSaveException(
@@ -311,7 +338,7 @@ class SaveManager
     }
 
     $savedGame = $this->createSavedGame($scene, $slot, $path);
-    $envelope = $this->compatibilityPipeline->createEnvelope(
+    $envelope = $this->getCompatibilityPipeline()->createEnvelope(
       $savedGame->slot,
       $savedGame->config
     );
@@ -352,12 +379,13 @@ class SaveManager
       throw new RuntimeException(sprintf('Save file not found: %s', $path));
     }
 
-    return $this->compatibilityPipeline->load($this->decodeSavePayload($path), $path, $this->getDestinationSlot($path));
+    return $this->getCompatibilityPipeline()->load($this->decodeSavePayload($path), $path, $this->getDestinationSlot($path));
   }
 
   /** Import one selected checkpoint into isolated slot 1; the source is never written. */
   public function importIsolatedCheckpoint(string $source): SavedGame
   {
+    $this->requireWritableStorage();
     if ($this->isolatedDataRoot === null) {
       throw new InvalidArgumentException('Checkpoint import requires an isolated launch data root.');
     }
@@ -369,7 +397,7 @@ class SaveManager
     $destination = $this->getSlotPath(1);
     $contents = $this->readSaveFile($source);
     // Validate and migrate the captured bytes before creating a save or acquiring native resources.
-    $saved = $this->compatibilityPipeline->load($this->decodeSaveContents($contents, $source), $destination, 1);
+    $saved = $this->getCompatibilityPipeline()->load($this->decodeSaveContents($contents, $source), $destination, 1);
     $this->validateStoragePath($destination);
     LocalDataFiles::writeAtomically($destination, $contents);
     return $saved;
@@ -420,6 +448,7 @@ class SaveManager
    */
   public function deleteSlot(int $slot): bool
   {
+    $this->requireWritableStorage();
     $path = $this->getSlotPath($slot);
     try {
       return LocalDataFiles::runFileOperation(static fn(): bool => file_exists($path) && unlink($path));
