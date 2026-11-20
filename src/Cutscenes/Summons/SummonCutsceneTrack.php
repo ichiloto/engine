@@ -17,8 +17,8 @@ final class SummonCutsceneTrack
   protected array $keyframes = [];
   /** Authored presentation fields are validated by the shared timeline boundary. */
   private array $presentationFields = [];
-  /** Image frames stay uncoerced until shared geometry/range validation. */
-  private ?array $imageKeyframes = null;
+  /** Image and field-colour frames stay uncoerced until their shared validation. */
+  private ?array $authoredKeyframes = null;
 
   /**
    * @param SummonCutsceneKeyframe[] $keyframes
@@ -33,7 +33,7 @@ final class SummonCutsceneTrack
     $this->type = trim($type) !== '' ? trim($type) : 'glyph';
     $this->id = trim($id);
     $this->presentation = EffectPresentation::validateTrack($presentation);
-    if ($this->type === 'image') { $this->imageKeyframes = []; }
+    if (in_array($this->type, ['image', 'field-color'], true)) { $this->authoredKeyframes = []; }
 
     foreach ($keyframes as $keyframe) {
       if ($keyframe instanceof SummonCutsceneKeyframe) {
@@ -48,7 +48,7 @@ final class SummonCutsceneTrack
    */
   public static function fromArray(array $data): self
   {
-    $keyframes = ($data['type'] ?? 'glyph') === 'image' ? [] : array_map(
+    $keyframes = in_array($data['type'] ?? 'glyph', ['image', 'field-color'], true) ? [] : array_map(
       static fn(array $keyframe): SummonCutsceneKeyframe => SummonCutsceneKeyframe::fromArray($keyframe),
       array_values(array_filter($data['keyframes'] ?? [], 'is_array'))
     );
@@ -60,20 +60,20 @@ final class SummonCutsceneTrack
       EffectPresentation::validateTrack($data['presentation'] ?? 'all'),
     );
     $track->presentationFields = array_diff_key($data, array_flip(['type', 'id', 'presentation', 'keyframes']));
-    if ($track->type === 'image') {
+    if (in_array($track->type, ['image', 'field-color'], true)) {
       if (!is_array($data['keyframes'] ?? null)) {
-        throw new \InvalidArgumentException('Summon image tracks require authored keyframes.');
+        throw new \InvalidArgumentException('Summon image and field-colour tracks require authored keyframes.');
       }
-      $track->imageKeyframes = $data['keyframes'];
+      $track->authoredKeyframes = $data['keyframes'];
     }
     return $track;
   }
 
   public function addKeyframe(SummonCutsceneKeyframe $keyframe): void
   {
-    if ($this->imageKeyframes !== null) {
-      $this->imageKeyframes[] = $keyframe->toImageArray();
-      usort($this->imageKeyframes, static fn(array $left, array $right): int => $left['frame'] <=> $right['frame']);
+    if ($this->authoredKeyframes !== null) {
+      $this->authoredKeyframes[] = $this->type === 'image' ? $keyframe->toImageArray() : $keyframe->toArray();
+      usort($this->authoredKeyframes, static fn(array $left, array $right): int => $left['frame'] <=> $right['frame']);
       return;
     }
     $this->keyframes[] = $keyframe;
@@ -88,8 +88,9 @@ final class SummonCutsceneTrack
    */
   public function getKeyframes(): array
   {
-    if ($this->imageKeyframes !== null) {
-      return array_map(SummonCutsceneKeyframe::fromImageArray(...), $this->imageKeyframes);
+    if ($this->authoredKeyframes !== null) {
+      return array_map($this->type === 'image' ? SummonCutsceneKeyframe::fromImageArray(...)
+        : SummonCutsceneKeyframe::fromArray(...), $this->authoredKeyframes);
     }
     return array_values($this->keyframes);
   }
@@ -104,7 +105,7 @@ final class SummonCutsceneTrack
       'type' => $this->type,
       'id' => $this->id,
       ...($this->presentation === 'all' ? [] : ['presentation' => $this->presentation]),
-      'keyframes' => $this->imageKeyframes ?? array_map(
+      'keyframes' => $this->authoredKeyframes ?? array_map(
         static fn(SummonCutsceneKeyframe $keyframe): array => $keyframe->toArray(),
         $this->getKeyframes(),
       ),

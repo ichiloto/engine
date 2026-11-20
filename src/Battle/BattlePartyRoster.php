@@ -26,11 +26,22 @@ final class BattlePartyRoster
     $this->activeMembers = $party->battlers->toArray();
   }
 
+  /** All members this encounter can put on the field, including its eligible reserve pool.
+   * @return list<CharacterInterface>
+   */
+  public function getPotentialBattlers(): array
+  {
+    return match ($this->policy) {
+      ReservePolicy::NONE => $this->activeMembers,
+      ReservePolicy::REPLACE_AFTER_WIPEOUT => $this->party->participants->toArray(),
+    };
+  }
+
   /** Called at a resolution boundary, after the outgoing participants' KO presentation. */
   public function promoteReservesAfterWipeout(): bool
   {
     if ($this->policy !== ReservePolicy::REPLACE_AFTER_WIPEOUT || !$this->isDefeated) { return false; }
-    $reserves = array_slice(array_values(array_filter($this->party->participants->toArray(),
+    $reserves = array_slice(array_values(array_filter($this->getPotentialBattlers(),
       static fn(CharacterInterface $member): bool => !$member->isKnockedOut)), 0, $this->party->battleSize);
     if ($reserves === []) { return false; }
     $this->activeMembers = $reserves;

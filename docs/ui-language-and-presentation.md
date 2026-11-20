@@ -10,6 +10,21 @@ Tales of Arise, Trails of Cold Steel III and Octopath Traveler. Motion was check
 FFXIII, FFXVI and Persona 5 Royal. The Game UI Database's terms forbid using its content for AI asset
 generation, so its screenshots are reference only and must never be fed to an image generator.
 
+## Game-owned UI state
+
+Each `Game` owns its UI manager, elements and active presentation layers. Scenes
+in that Game share `Game::getUIManager()`; the compatible
+`UIManager::getInstance(Game)` accessor resolves the same owner. Separate games,
+Editor previews and temporary campaigns have separate UI state. The former
+process-wide first-Game UI singleton is removed, so it cannot retain a retired
+Game or direct a later Game's scenes to the earlier UI.
+
+`Game::bindUIManager()` accepts one explicitly constructed manager before first
+acquisition, with the same Game owner. It rejects a foreign owner or replacing an
+acquired manager. Test and host presenters use this binding instead of changing
+global static state. Existing element registration, layer ordering, dismissal
+and frame-boundary behavior are preserved.
+
 ## Dismissible acquisition notices
 
 `NoticeContent` supplies a heading, message, optional actor identity or semantic

@@ -17,7 +17,7 @@ use Throwable;
 
 /**
  * Combat resolves once at impact; inspection and rendering are side-effect free.
- * @phpstan-type DetachedPosePoint array{point: Vector2, casterX: float, recipientX: ?float, party: bool, path?: BattlePresentationPath, fallback?: ?EffectStraightFlightFallback, targetOrder?: list<int>}
+ * @phpstan-type DetachedPosePoint array{point: Vector2, casterX: float, recipientX: ?float, party: bool, opponentsFacing?: ?\Ichiloto\Engine\Animations\Timelines\EffectHorizontalFacing, path?: BattlePresentationPath, fallback?: ?EffectStraightFlightFallback, targetOrder?: list<int>}
  */
 final class BattleCommandPlayback implements BattleEffectPlayback
 {
@@ -39,7 +39,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private array $initialRestRoles = [];
   private array $reactionFrames = [];
   private ?int $impactFrame = null;
-  private float $elapsedSeconds = 0;
+  public private(set) float $elapsedSeconds = 0;
   private bool $paused = false;
   private ?BattleFlightClock $flightClock = null;
   private ?float $arenaWidth = null;
@@ -69,6 +69,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     && ($this->flightClock === null || $this->elapsedSeconds >= $this->getDurationSeconds())
     && !array_any($this->defeats, static fn(array $defeat): bool => !$defeat['cleared'])); }
   public bool $isCancelled { get => $this->cancelled; }
+  public bool $isPaused { get => $this->paused || ($this->session->isPaused && !$this->session->isCompleted); }
 
   /** @param list<CharacterInterface> $targets */
   public function __construct(public readonly BattleCommandTimeline $plan,
@@ -90,7 +91,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     if (!is_finite($seconds)) { throw new \InvalidArgumentException('Battle elapsed time must be finite.'); }
     // A completed effect session cannot resume; the command still owns its defeat hold.
-    if ($this->paused || ($this->session->isPaused && !$this->session->isCompleted)) { return; }
+    if ($this->isPaused) { return; }
     if ($this->isCompleted) { return; }
     $remaining = max(0, $seconds);
     $release = $this->plan->flightTiming['release'] ?? null;
@@ -132,7 +133,11 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       $targetFrame = $this->session->timing->getFrameCountAt($authored);
       $advance = max(0, $targetFrame - $this->session->currentFrame) / BattleCommandTimeline::FPS;
     }
-    $this->dispatch($this->session->update($advance)->crossedCues);
+    $update = $this->session->update($advance);
+    // The timing owner can enter an exact frame across binary64 subtraction drift.
+    // Its cue and result clocks must then observe at least that entered frame's boundary.
+    $this->elapsedSeconds = max($this->elapsedSeconds, $this->getElapsedSecondsAtFrame($this->session->currentFrame));
+    $this->dispatch($update->crossedCues);
     // A result cue can extend presentation while crossing this update.
     $this->elapsedSeconds = max($this->elapsedSeconds, min($this->resultEffectsEnd, $previous + $seconds));
   }
@@ -150,6 +155,62 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   {
     $authored = $frame / BattleCommandTimeline::FPS;
     return $this->flightClock?->getElapsedSeconds($authored) ?? $authored;
+  }
+
+  /** Every authored or already-known result-image boundary, in elapsed-clock order. Inspection fires no cue.
+   * @return list<float>
+   */
+  public function getResourceSampleTimes(float $until): array
+  {
+    if (!is_finite($until) || $until < $this->elapsedSeconds) {
+      throw new \InvalidArgumentException('Resource samples require a finite forward elapsed boundary.');
+    }
+    $times = [];
+    for ($frame = $this->session->currentFrame + 1; $frame <= $this->session->totalFrames; $frame++) {
+      $at = $this->getElapsedSecondsAtFrame($frame);
+      if ($at > $until) { break; }
+      if ($at > $this->elapsedSeconds) { $times[] = $at; }
+    }
+    foreach ($this->resultEffects as $effect) {
+      $timing = $effect['timing'];
+      $first = max(0, $timing->getFrameCountAt(max(0, $this->elapsedSeconds - $effect['start'])));
+      for ($frame = $first; $frame <= $timing->totalFrames; $frame++) {
+        $at = $effect['start'] + $frame * $timing->secondsPerFrame;
+        if ($at > $until) { break; }
+        if ($at > $this->elapsedSeconds) { $times[] = $at; }
+      }
+    }
+    if ($until > $this->elapsedSeconds) { $times[] = $until; }
+    sort($times, SORT_NUMERIC);
+    return array_values(array_unique($times, SORT_REGULAR));
+  }
+
+  /** Resolution, captured anchors and scheduled recipient feedback can make new image requirements known. */
+  public function requiresResourceDecisionAt(float $seconds): bool
+  {
+    foreach ($this->plan->timeline->cueSchedule as $cue) {
+      if (in_array($cue['type'], ['commandImpact', 'commandCapturePosePoint', 'commandCaptureTargetGroup',
+        'commandCaptureTargetContacts', 'commandCaptureTerminalLane'], true)
+        && $this->getElapsedSecondsAtFrame($cue['frame']) === $seconds) { return true; }
+    }
+    foreach ([...$this->plan->hitFeedbackFrames, ...array_values($this->fallbackHitFrames), ...array_values($this->targetContactFrames)] as $frame) {
+      if ($this->getElapsedSecondsAtFrame($frame) === $seconds) { return true; }
+    }
+    return false;
+  }
+
+  /** Inspect the command and its result tails on their real elapsed clock, including flight retiming. */
+  public function createPresentationSampleAt(float $seconds): self
+  {
+    if (!is_finite($seconds) || $seconds < 0) {
+      throw new \InvalidArgumentException('A presentation sample requires finite nonnegative elapsed seconds.');
+    }
+    $authored = $this->flightClock?->getAuthoredSeconds($seconds) ?? $seconds;
+    $frame = min($this->session->totalFrames - 1, $this->session->timing->getFrameCountAt($authored));
+    $sample = $this->createPresentationSample($frame);
+    $sample->elapsedSeconds = $seconds;
+    $sample->session->seek($frame, $authored >= $this->session->timing->durationSeconds);
+    return $sample;
   }
 
   /** Abandonment removes visuals, never executes a command that has not hit. */
@@ -769,7 +830,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       if ($cue['type'] === 'commandCaptureTerminalLane') {
         // No Terminal consumer is required by a graphical command. A consuming lane diagnoses a missing capture.
         if ($this->captureTerminalLane !== null) {
-          try { $this->terminalLaneSnapshot = ($this->captureTerminalLane)($this->samplePoseAtFrame($cue['frame'])); }
+          try { $this->terminalLaneSnapshot = ($this->captureTerminalLane)($this->createPresentationSample($cue['frame'])); }
           catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
         }
         continue;
@@ -777,7 +838,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       if ($cue['type'] === 'commandCaptureTargetSnapshot') {
         try {
           if ($this->captureTargetGroup === null) { throw new \RuntimeException('Target snapshot requires the shared body capture.'); }
-          $this->targetGroups['snapshot'] = ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
+          $this->targetGroups['snapshot'] = ($this->captureTargetGroup)($this->createPresentationSample($cue['frame']));
           if ($this->targetGroups['snapshot'] === null && $this->targets !== []) {
             throw new \RuntimeException('Target snapshot has no selected body capture.');
           }
@@ -793,7 +854,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
             throw new \RuntimeException('Target contacts have no authored body snapshot.');
           }
           $group = $usesSnapshot ? $this->targetGroups['snapshot']
-            : ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
+            : ($this->captureTargetGroup)($this->createPresentationSample($cue['frame']));
           if ($group instanceof BattleEffectAnchorSnapshot) { $group = $group->targets; }
           if ($group !== null) { $this->targetContactFrames = $this->plan->targetContactSequence->getContactFrames($group); }
           elseif ($this->targets !== []) { throw new \RuntimeException('Target contact sequencing has no selected body capture.'); }
@@ -803,7 +864,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       if ($cue['type'] === 'commandCaptureTargetGroup') {
         if ($this->captureTargetGroup !== null) {
           try {
-            $this->targetGroups[$cue['payload']['lane']] = ($this->captureTargetGroup)($this->samplePoseAtFrame($cue['frame']));
+            $this->targetGroups[$cue['payload']['lane']] = ($this->captureTargetGroup)($this->createPresentationSample($cue['frame']));
           } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
         }
         continue;
@@ -813,7 +874,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
           try {
             $payload = $cue['payload'];
             $this->detachedPosePoints[$payload['trackId']] = ($this->capturePosePoints)(
-              $this->samplePoseAtFrame($cue['frame']), $payload['anchor'], $payload['attachmentPoint'], $payload['route'],
+              $this->createPresentationSample($cue['frame']), $payload['anchor'], $payload['attachmentPoint'], $payload['route'],
               $payload['curve'], $payload['clearance'] ?? null, $payload['contact'] ?? null, $payload['fallback'] ?? null);
             if ($payload['trackId'] === $this->plan->fallbackHitTrack) {
               $shot = $this->detachedPosePoints[$payload['trackId']][spl_object_id($this->actor)] ?? null;
@@ -848,24 +909,30 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   }
 
   /** Evaluate the exact visual clock without invoking a command or replaying its cues. */
-  private function samplePoseAtFrame(int $frame): self
+  public function createPresentationSample(int $frame): self
   {
-    $sample = new self($this->plan, $this->actor, $this->targets, $this->pose,
-      static function (): void {}, static function (): void {});
+    if ($frame < 0 || $frame >= $this->session->totalFrames) {
+      throw new \InvalidArgumentException('A command presentation sample must be within its timeline.');
+    }
+    $sample = clone $this;
     $sample->session->seek($frame);
-    $sample->flightClock = $this->flightClock;
+    $sample->session->resume();
     $sample->elapsedSeconds = $this->getElapsedSecondsAtFrame($frame);
+    $sample->phase = 'advance';
     foreach ($this->plan->phases as $phase => $range) {
       if ($range['length'] > 0 && $range['start'] <= $frame) { $sample->phase = $phase; }
     }
-    $sample->recordedHits = $this->recordedHits;
-    $sample->initialRestRoles = $this->initialRestRoles;
-    $sample->reactions = $this->reactions;
-    $sample->reactionFrames = $this->reactionFrames;
-    $sample->fallbackHitFrames = $this->fallbackHitFrames;
-    $sample->targetContactFrames = $this->targetContactFrames;
-    $sample->targetGroups = $this->targetGroups;
     return $sample;
+  }
+
+  /** Frame inspection keeps the prepared timeline and effects, with independent traversal and no live callbacks. */
+  private function __clone(): void
+  {
+    $this->session = clone $this->session;
+    $this->resolve = $this->presentCue = static function (): void {};
+    $this->capturePosePoints = $this->captureTargetGroup = $this->captureTerminalLane = null;
+    $this->paused = false;
+    $this->presentationFailure = null;
   }
 
   /** @return list<array{sample: self, opacity: float}> Cosmetic past poses on this command's clock. */
@@ -879,7 +946,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     for ($index = $count; $index >= 1; $index--) {
       $frame = $this->session->currentFrame - $index * $stride;
       if ($frame >= $window['start']) {
-        $echoes[] = ['sample' => $this->samplePoseAtFrame($frame), 'opacity' => 0.6 * (1 - $index / ($count + 1))];
+        $echoes[] = ['sample' => $this->createPresentationSample($frame), 'opacity' => 0.6 * (1 - $index / ($count + 1))];
       }
     }
     return $echoes;

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSession;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use InvalidArgumentException;
 
@@ -78,9 +80,8 @@ final class CanvasImageTint
     PngAssetPreflight::inspect($assetRoot, $image->asset, $image->sourceRect);
     $destination = $image->destination;
     $crop = $image->sourceRect;
-    $source = ['x' => ($crop?->x ?? 0) / $size['width'], 'y' => ($crop?->y ?? 0) / $size['height'],
-      'width' => ($crop?->width ?? $size['width']) / $size['width'],
-      'height' => ($crop?->height ?? $size['height']) / $size['height']];
+    $startX = $startY = 0.0;
+    $endX = $endY = 1.0;
     // An axis-aligned affine image keeps its full logical body behind the viewport.
     // Tint only the visible source interval, respecting mirroring before cropping.
     if ($image->rotation === 0 && $image->clipRect !== null) {
@@ -91,22 +92,29 @@ final class CanvasImageTint
       if ($right <= $left || $bottom <= $top) {
         throw new InvalidArgumentException('A clipped image tint requires visible source pixels.');
       }
-      $startX = ($left - $destination->x) / $destination->width;
-      $startY = ($top - $destination->y) / $destination->height;
-      $endX = ($right - $destination->x) / $destination->width;
-      $endY = ($bottom - $destination->y) / $destination->height;
-      $source['x'] += ($image->flipX ? 1 - $endX : $startX) * $source['width'];
-      $source['y'] += ($image->flipY ? 1 - $endY : $startY) * $source['height'];
-      $source['width'] *= $endX - $startX; $source['height'] *= $endY - $startY;
-      $destination = new CanvasRectangle($left, $top, $right - $left, $bottom - $top);
+      // A retained boundary is exactly 0 or 1; reconstructing it by subtraction
+      // can turn a complete fractional image interval into a span greater than 1.
+      $startX = $left === $destination->x ? 0.0 : ($left - $destination->x) / $destination->width;
+      $startY = $top === $destination->y ? 0.0 : ($top - $destination->y) / $destination->height;
+      $endX = $right === $destination->x + $destination->width ? 1.0 : ($right - $destination->x) / $destination->width;
+      $endY = $bottom === $destination->y + $destination->height ? 1.0 : ($bottom - $destination->y) / $destination->height;
+      if ($startX !== 0.0 || $startY !== 0.0 || $endX !== 1.0 || $endY !== 1.0) {
+        $destination = new CanvasRectangle($left, $top, $right - $left, $bottom - $top);
+      }
     }
+    $pixelSource = PresentationSession::supportsCapability(RendererSessionConfig::CANVAS_SOURCE_PIXELS);
+    [$sourceX, $sourceWidth] = self::getSourceInterval($crop?->x ?? 0,
+      $crop?->width ?? $size['width'], $pixelSource ? 1 : $size['width'], $startX, $endX, $image->flipX);
+    [$sourceY, $sourceHeight] = self::getSourceInterval($crop?->y ?? 0,
+      $crop?->height ?? $size['height'], $pixelSource ? 1 : $size['height'], $startY, $endY, $image->flipY);
+    $source = ['x' => $sourceX, 'y' => $sourceY, 'width' => $sourceWidth, 'height' => $sourceHeight];
     $width = (int)ceil($destination->width);
     $height = (int)ceil($destination->height);
     $rectangle = ['x' => 0, 'y' => 0, 'width' => $width, 'height' => $height];
     $mask = ['type' => 'image_alpha', 'asset' => $image->asset, 'destination' => $rectangle];
     if ($image->flipX) { $mask['flipX'] = true; }
     if ($image->flipY) { $mask['flipY'] = true; }
-    if ($crop !== null || $destination !== $image->destination) { $mask['source'] = $source; }
+    if ($crop !== null || $destination !== $image->destination) { $mask[$pixelSource ? 'sourcePixels' : 'source'] = $source; }
     $operations = [];
     foreach (CanvasCompositeValues::getList($tints, 1, 256) as $tint) {
       CanvasCompositeValues::validateKeys($tint, ['color', 'strength']);
@@ -116,5 +124,15 @@ final class CanvasImageTint
     }
     return new CanvasComposite($id, $width, $height, $destination, $operations,
       $image->layer + 1, $image->opacity, $image->clipRect);
+  }
+
+  /** @return array{float, float} Source start and span, resolved from the bounded pixel endpoints. */
+  private static function getSourceInterval(int $origin, int $length, int $total,
+    float $start, float $end, bool $flip): array
+  {
+    if ($flip) { [$start, $end] = [1 - $end, 1 - $start]; }
+    $left = ($origin + $start * $length) / $total;
+    $right = ($origin + $end * $length) / $total;
+    return [$left, $right - $left];
   }
 }

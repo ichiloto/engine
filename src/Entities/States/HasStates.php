@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\States;
 
 use Ichiloto\Engine\Entities\Elements\ElementRegistry;
+use Ichiloto\Engine\Battle\BattleStateClock;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\NativeCombatRandomSource;
 
@@ -17,6 +18,27 @@ trait HasStates
    * @var StateInstance[] The battler's live states.
    */
   protected(set) array $states = [];
+  private ?BattleStateClock $stateClock = null;
+
+  /** Admits timed states already present in a battle setup to the same clock as later casts. */
+  public function bindBattleStateClock(BattleStateClock $clock): void
+  {
+    $this->stateClock = $clock;
+    foreach ($this->states as $instance) { $instance->bindBattleClock($clock); }
+  }
+
+  public function releaseBattleStateClock(BattleStateClock $clock): void
+  {
+    if ($this->stateClock !== $clock) { return; }
+    $this->stateClock = null;
+    $this->states = array_values(array_filter($this->states,
+      static fn(StateInstance $instance): bool => $instance->state->durationSeconds === null));
+  }
+
+  public function expireElapsedBattleStates(): void
+  {
+    $this->removeExpiredStates();
+  }
   /**
    * @var bool True while the battler is guarding (halves incoming damage until their next turn).
    */
@@ -38,7 +60,7 @@ trait HasStates
   {
     $rate = 1.0;
     foreach ($this->states as $instance) {
-      if (!$instance->isPending && $instance->remainingTurns !== 0) { $rate *= $instance->state->atbRate; }
+      if ($instance->isActive && $instance->remainingTurns !== 0) { $rate *= $instance->state->atbRate; }
     }
     return $rate;
   }
@@ -138,7 +160,15 @@ trait HasStates
       return false;
     }
 
-    $this->states[] = new StateInstance($state, $state->durationTurns, awaitsNextTurn: $givenByBearer, delayTurns: $delayTurns);
+    $instance = new StateInstance($state, $state->durationTurns, awaitsNextTurn: $givenByBearer, delayTurns: $delayTurns);
+    if ($this->stateClock !== null) { $instance->bindBattleClock($this->stateClock); }
+    $this->removeExpiredStates();
+    $existing = $this->getConflictingStateIndex($state);
+    if ($existing === null) {
+      $this->states[] = $instance;
+    } else {
+      $this->states[$existing] = $instance;
+    }
 
     return true;
   }
@@ -146,8 +176,24 @@ trait HasStates
   /** Available application chance without rolling or changing live state; shared by effects and menu previews. */
   public function getStateApplicationChance(State $state, int $chancePercent = 100, bool $guaranteed = false): int
   {
-    if (array_any($this->states, static fn(StateInstance $instance): bool => $instance->state->id === $state->id)) { return 0; }
+    $existing = $this->getConflictingStateIndex($state);
+    if ($existing !== null
+      && ($state->stackGroup === null || $state->stackPriority < $this->states[$existing]->state->stackPriority)) {
+      return 0;
+    }
     return $guaranteed ? 100 : intval(round(clamp($chancePercent, 0, 100) * ($this->stateResistances[$state->id] ?? 1.0)));
+  }
+
+  /** Finds the live state occupying the authored group or, for ungrouped states, the same ID. */
+  private function getConflictingStateIndex(State $state): ?int
+  {
+    foreach ($this->states as $index => $instance) {
+      if (!$instance->isElapsedExpired && ($instance->state->id === $state->id
+        || ($state->stackGroup !== null && $instance->state->stackGroup === $state->stackGroup))) {
+        return $index;
+      }
+    }
+    return null;
   }
 
   /**
@@ -176,7 +222,7 @@ trait HasStates
   public function hasState(string $stateId): bool
   {
     foreach ($this->states as $instance) {
-      if (!$instance->isPending && $instance->state->id === trim($stateId)) {
+      if ($instance->isActive && $instance->state->id === trim($stateId)) {
         return true;
       }
     }
@@ -192,7 +238,7 @@ trait HasStates
   public function getActionBlockingState(): ?State
   {
     foreach ($this->states as $instance) {
-      if (!$instance->isPending && $instance->state->preventsAction) {
+      if ($instance->isActive && $instance->state->preventsAction) {
         return $instance->state;
       }
     }
@@ -209,7 +255,7 @@ trait HasStates
   {
     $rate = 1.0;
     foreach ($this->states as $instance) {
-      if (!$instance->isPending) { $rate *= $instance->state->damageTakenRate; }
+      if ($instance->isActive) { $rate *= $instance->state->damageTakenRate; }
     }
 
     return $rate;
@@ -220,7 +266,7 @@ trait HasStates
   {
     $modifier = 0;
     foreach ($this->states as $instance) {
-      if (!$instance->isPending && $instance->remainingTurns !== 0) {
+      if ($instance->isActive && $instance->remainingTurns !== 0) {
         $modifier += $instance->state->accuracyModifier;
       }
     }
@@ -233,7 +279,7 @@ trait HasStates
   {
     $rate = 1.0;
     foreach ($this->states as $instance) {
-      if (!$instance->isPending) { $rate *= $instance->state->physicalDamageDealtRate; }
+      if ($instance->isActive) { $rate *= $instance->state->physicalDamageDealtRate; }
     }
     return $rate;
   }
@@ -246,7 +292,7 @@ trait HasStates
   public function isCoveringAllies(): bool
   {
     foreach ($this->states as $instance) {
-      if (!$instance->isPending && $instance->state->coversAllies) {
+      if ($instance->isActive && $instance->state->coversAllies) {
         return true;
       }
     }
@@ -263,7 +309,7 @@ trait HasStates
   {
     $chance = 0;
     foreach ($this->states as $instance) {
-      if (!$instance->isPending) { $chance = max($chance, $instance->state->confusionChancePercent); }
+      if ($instance->isActive) { $chance = max($chance, $instance->state->confusionChancePercent); }
     }
 
     return $chance;
@@ -274,7 +320,7 @@ trait HasStates
   {
     $disposition = StateDisposition::NEUTRAL;
     foreach ($this->states as $instance) {
-      if ($instance->isPending) { continue; }
+      if (!$instance->isActive) { continue; }
       if ($instance->state->preventsAction || $instance->state->disposition === StateDisposition::HARMFUL) {
         return StateDisposition::HARMFUL;
       }
@@ -292,6 +338,7 @@ trait HasStates
    */
   public function tickStates(): array
   {
+    $this->removeExpiredStates();
     $events = [];
 
     foreach ($this->states as $instance) {
@@ -421,7 +468,7 @@ trait HasStates
   {
     $this->states = array_values(array_filter(
       $this->states,
-      static fn(StateInstance $instance): bool => $instance->remainingTurns !== 0
+      static fn(StateInstance $instance): bool => $instance->remainingTurns !== 0 && !$instance->isElapsedExpired
     ));
   }
 
@@ -455,7 +502,7 @@ trait HasStates
     $this->isGuarding = false;
     $this->states = array_values(array_filter(
       $this->states,
-      static fn(StateInstance $instance): bool => !$instance->isPending && $instance->state->persistsAfterBattle
+      static fn(StateInstance $instance): bool => $instance->isActive && $instance->state->persistsAfterBattle
     ));
   }
 }

@@ -35,9 +35,9 @@ use RuntimeException;
  * - an under-covered footprint: a world object whose art covers less than
  *   half of its solid cells' area and leaves some of them bare.
  *
- * Art covers a cell when it stands in the cell's middle, where the player
- * stops ({@see PngCellCoverage::isCentreCovered()}): a thin post does, a
- * sliver along the cell's edge does not.
+ * A solid footprint can show a thin upright through the middle of a cell or
+ * a low crossbar that visibly spans the cell ({@see PngCellCoverage::showsBarrier()}).
+ * Ground and coverage over walkable cells keep their separate appearance checks.
  *
  * What a cell shows is the topmost tile drawn there that makes a claim about
  * the ground, classified by its tileset ({@see \Ichiloto\Engine\Rendering\Tilesets\TilesetAppearance}),
@@ -46,7 +46,8 @@ use RuntimeException;
  * shows is unknown: a tile no class covers, a terminal glyph still showing,
  * an NPC, or art that cannot be read. Entrances and painted doorways are
  * {@see MapDoorwayRule}'s, and an object's art above its top ground row is
- * ordinary overhang, so neither is judged here. A solid cell under art drawn
+ * ordinary overhang unless an appearance region identifies a ground-level
+ * surface there. A solid cell under art drawn
  * over the player, such as a roof, shows more than ground. A tile layer drawn
  * half a cell off counts as an obstacle over every cell it overlaps but never
  * makes a walkable cell a walk-through.
@@ -124,12 +125,15 @@ final class MapPassageAgreementRule
             foreach ($art as $y => $row) {
                 foreach ($row as $x => $mask) {
                     $shown[$y][$x] = isset($shown[$y][$x]) ? $shown[$y][$x] | $mask : $mask;
-                    if ($object->appearance === TileAppearance::GROUND) {
+                    $region = $object->resource?->getAppearanceInRegion($x - $object->x, $y - $object->y);
+                    $appearance = $region ?? $object->appearance;
+                    if ($appearance === TileAppearance::GROUND) {
                         $openGround[$y][$x] = isset($openGround[$y][$x]) ? $openGround[$y][$x] | $mask : $mask;
                     } else {
                         $otherArt[$y][$x] = isset($otherArt[$y][$x]) ? $otherArt[$y][$x] | $mask : $mask;
                     }
-                    if ($y >= $groundTop && !in_array($object->appearance, [TileAppearance::GROUND, TileAppearance::OVERHEAD], true)) {
+                    if ($region?->showsObstacle() ?? ($y >= $groundTop
+                        && !in_array($appearance, [TileAppearance::GROUND, TileAppearance::OVERHEAD], true))) {
                         $grounded[$y][$x] = isset($grounded[$y][$x]) ? $grounded[$y][$x] | $mask : $mask;
                     }
                 }
@@ -154,7 +158,7 @@ final class MapPassageAgreementRule
                 $type = CollisionType::from($value);
                 if ($type === CollisionType::NPC) { continue; }
                 if ($type->blocksMovement()) {
-                    if (PngCellCoverage::isCentreCovered($otherArt[$y][$x] ?? null)
+                    if (PngCellCoverage::showsBarrier($otherArt[$y][$x] ?? null)
                         || isset($overdrawn[$y][$x])) {
                         continue;
                     }
@@ -380,7 +384,7 @@ final class MapPassageAgreementRule
     {
         if ($footprint === []) { return []; }
         $bare = array_values(array_filter($footprint, static fn(array $cell): bool
-            => !PngCellCoverage::isCentreCovered($art[$cell[1]][$cell[0]] ?? null)));
+            => !PngCellCoverage::showsBarrier($art[$cell[1]][$cell[0]] ?? null)));
         $share = array_sum(array_map(static fn(array $cell): float => PngCellCoverage::getShare($art[$cell[1]][$cell[0]] ?? null),
             $footprint)) / count($footprint);
         if ($bare === [] || $share >= self::FOOTPRINT_COVERED) { return []; }

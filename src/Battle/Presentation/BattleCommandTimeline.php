@@ -64,6 +64,11 @@ final readonly class BattleCommandTimeline
   /** @var array{track: string, release: int, arrival: int, speed: float}|null */
   public ?array $flightTiming;
 
+  public function requiresImagePreparation(): bool
+  {
+    return $this->actionPoseOverride !== null || $this->timeline->getImageSources() !== [];
+  }
+
   public function requiresGraphicalAnchorCapture(): bool
   {
     return array_any($this->timeline->cueSchedule, static fn(array $cue): bool =>
@@ -84,6 +89,9 @@ final readonly class BattleCommandTimeline
     public ?\Ichiloto\Engine\Animations\FlashStepTiming $flashStep = null, int $targetCount = 1)
   {
     $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
+    if (array_any($source?->playbackSegments ?? [], static fn(array $segment): bool => $segment['layer'] === 'field-color')) {
+      throw new InvalidArgumentException('Field colour is owned by the target effect timeline.');
+    }
     if ($actionPoseOverride !== null && $actionPoseOverride->impactFrame === null) {
       throw new InvalidArgumentException('A bound action pose requires an impact entry.');
     }
@@ -482,6 +490,19 @@ final readonly class BattleCommandTimeline
       : $this->cinematicStages[$lane]->getFrame($authored, $reducedMotion);
   }
 
+  /** Staged images retain authored render IDs; palette ownership uses the command lane's identity. */
+  public function getCinematicTrackIdAtFrame(int $frame, string $trackId): string
+  {
+    $lane = $this->getActiveCinematicLane($frame)
+      ?? throw new \LogicException('A cinematic track needs an active authored command lane.');
+    return self::getPrefixedTrackId($lane, $trackId);
+  }
+
+  private static function getPrefixedTrackId(string $lane, string $trackId): string
+  {
+    return $lane . '-' . $trackId;
+  }
+
   /** @return list<array> The active stage's original segments, using the same authored clock as its frame. */
   public function getCinematicStageSegments(int $frame, bool $reducedMotion = false): array
   {
@@ -524,6 +545,22 @@ final readonly class BattleCommandTimeline
   public function hasCinematicStages(): bool
   {
     return $this->cinematicStages !== [];
+  }
+
+  /** First battlefield samples after each exclusive stage, on the existing command clock.
+   * @return list<int>
+   */
+  public function getCinematicReturnFrames(): array
+  {
+    $frames = [];
+    foreach ($this->cinematicStages as $lane => $stage) {
+      $phase = $this->phases[$this->getPhaseForAuthoredLane($lane)];
+      $frame = $this->getCommandFrameForAuthoredFrame($lane, $stage->data['restoreFrame'])
+        ?? $phase['start'] + $phase['length'];
+      if ($frame < $this->timeline->defaults['lengthFrames']) { $frames[$frame] = $frame; }
+    }
+    sort($frames);
+    return array_values($frames);
   }
 
   private function getActiveCinematicLane(int $frame): ?string
@@ -597,9 +634,15 @@ final readonly class BattleCommandTimeline
     float $scale = EffectScale::DEFAULT): array
   {
     foreach ($segment['drawCommands'] as &$command) {
-      $command['trackId'] = $phase . '-' . ($command['trackId'] ?? 'track');
-      $command['payload']['anchor'] ??= $effect instanceof SummonCompiledCutscene && $segment['layer'] !== 'image'
-        ? 'legacy-screen' : ($phase === 'source' ? 'caster' : 'target');
+      $command['trackId'] = self::getPrefixedTrackId($phase, $command['trackId'] ?? 'track');
+      if (!in_array($segment['layer'], ['field-motion', 'field-color'], true)) {
+        $command['payload']['anchor'] ??= $effect instanceof SummonCompiledCutscene && $segment['layer'] !== 'image'
+          ? 'legacy-screen' : ($phase === 'source' ? 'caster' : 'target');
+      }
+      if ($segment['layer'] === 'field-color') {
+        foreach ($command['payload']['effects'] as &$selection) { $selection['track'] = self::getPrefixedTrackId($phase, $selection['track']); }
+        unset($selection);
+      }
       if ($segment['layer'] === 'image' && !EffectScale::playsAuthoredSize($scale)) {
         $command['payload']['scale'] = $scale;
       }

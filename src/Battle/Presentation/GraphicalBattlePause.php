@@ -82,6 +82,7 @@ final class GraphicalBattlePause
     return new PresentationCanvas($battlefield->width, $battlefield->height,
       [...$battlefield->images, ...$view->images], $battlefield->indicators, [...$battlefield->textLayers, ...$view->text],
       $battlefield->composites, [...$battlefield->getOverlayProtection(), $view->rect(0, 0, $width, $height)],
+      presentationOwners: $battlefield->presentationOwners, labels: $battlefield->labels,
       viewportFit: $battlefield->viewportFit, groups: $battlefield->groups);
   }
 

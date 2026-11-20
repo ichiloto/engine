@@ -207,7 +207,7 @@ final readonly class SaveContentResolver
         $config->party->members[$index] = $actorStore->require(
           $raw['actorId'],
           $this->actorLookupContext($raw['actorId'], $raw),
-        )->createCharacter($raw, $this->savePath);
+        )->createCharacter($raw, $this->savePath, preserveAuthoredAp: $actorStore->actionPointPolicy !== null);
       } else {
         // Compatibility for embedders without project actor assets. A running
         // Ichiloto game always configures ActorStore before loading saves.

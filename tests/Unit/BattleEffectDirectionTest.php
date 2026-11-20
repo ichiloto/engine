@@ -33,3 +33,25 @@ it('turns an opponent-facing ward toward the subject side, wherever its caster s
   expect(BattleEffectDirection::orientForSubject($stroke, 10, 30, true)['payload']['flipX'])->toBeTrue()
     ->and(BattleEffectDirection::orientForSubject($stroke, 10, null, true))->toBe($stroke);
 });
+
+
+it('resolves graphical facing from actual ground extents and retains explicit tie orientation', function () {
+  $east = \Ichiloto\Engine\Animations\Timelines\EffectHorizontalFacing::EAST;
+  $west = \Ichiloto\Engine\Animations\Timelines\EffectHorizontalFacing::WEST;
+  expect(BattleEffectDirection::getFacingToward(50, [80, 90, 80], $west))->toBe($east)
+    ->and(BattleEffectDirection::getFacingToward(50, [20, 10, 20], $east))->toBe($west)
+    ->and(BattleEffectDirection::getFacingToward(50, [90, 80], $west))->toBe($east)
+    ->and(BattleEffectDirection::getFacingToward(50, [], $west))->toBe($west)
+    ->and(BattleEffectDirection::getFacingToward(50, [20, 80], $east))->toBe($east);
+  $grounds = [1 => new \Ichiloto\Engine\Core\Vector2(20, 10), 2 => new \Ichiloto\Engine\Core\Vector2(80, 10),
+    3 => new \Ichiloto\Engine\Core\Vector2(90, 20)]; $sides = [1 => true, 2 => false, 3 => false];
+  expect(BattleEffectDirection::getOpponentsFacing(1, $grounds, $sides))->toBe($east)
+    ->and(BattleEffectDirection::getOpponentsFacing(2, $grounds, $sides))->toBe($west)
+    ->and(BattleEffectDirection::getOpponentsFacing(999, $grounds, $sides))->toBeNull()
+    ->and(BattleEffectDirection::getOpponentsFacingAt(85, false, $grounds, $sides))->toBe($west);
+  $ward = ['trackId' => 'ward', 'payload' => ['facing' => 'west', 'toward' => 'opponents']];
+  expect(BattleEffectDirection::orientForFacing($ward, null, null, $east)['payload']['flipX'])->toBeTrue()
+    ->and(BattleEffectDirection::orientForFacing($ward, null, null, $west))->toBe($ward)
+    ->and(fn() => BattleEffectDirection::getFacingToward(NAN, [], $east))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => BattleEffectDirection::getFacingToward(0, [INF], $east))->toThrow(InvalidArgumentException::class);
+});

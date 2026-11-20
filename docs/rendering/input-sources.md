@@ -170,6 +170,46 @@ hint for a key its controller does not remap.
 Editor authoring of control set paths must use the same project asset selection
 and safe round-trip contract as other presentation artwork.
 
+## Shared tool navigation
+
+`ToolNavigationAction` and `ToolNavigationBindings` own the tool keyboard
+profile: Tab advances pane focus, Shift+Tab reverses it, Escape cancels, and
+Ctrl+Q requests Quit. `DirectionalFocusGraph::replaceCycle()` connects the
+visible, focusable pane IDs in display order and wraps in both directions.
+Editing contexts and modal stacks retain their own state outside that cycle.
+Tool controllers use `Input::isDiscreteKeyPressed()` so rapid consecutive presses
+remain separate and native repeats never become a second tool action. Player
+`isButtonPressed()` uses that same input-owner predicate.
+Bindings and hints use the same profile; project/player bindings remain owned
+by `InputBindings`. A tool may inject explicit overrides, including an empty
+binding; assigning one key to two tool actions is rejected.
+
+Battle Test cycles its list and party panels. Manage party owns its members,
+frontline capacity, opening advantage and inventory. Escape backs out of edits
+and does nothing at the root; the old Escape-to-Quit and bare-Q quit behavior
+is removed. Items are removed from the pane cycle. The Editor uses the same
+profile while retaining its modal routing and unsaved-change Quit guard.
+
+Battle Test's optional `firstStrike` preset uses `EncounterAdvantage`:
+`normal`, `party` (preemptive), or `troop` (ambush). Omission inherits the
+project's opening rules; an explicit normal opening bypasses the random roll.
+It round-trips through `BattleTestSetup` and `ProjectBattleTest` without writing
+story progress or saves.
+
+`TerminalInputSource::decodeKey()` translates one complete terminal token into
+a canonical key. Ctrl+Q's byte maps to `KeyCode::CTRL_Q`; the tool adapter uses
+this decoder instead of copying escape sequences. Owned runtime terminal input
+disables IXON/IXOFF along with cbreak/echo configuration so software flow control
+does not swallow Ctrl+Q. The existing terminal lifecycle captures and restores
+the caller's settings on shutdown.
+
+Native Ctrl+Q is negotiated through the v2 `keyboard_chords` event subscription.
+The built-in GPUI launch profile requires it, removing startup compatibility
+with workers that lack this extension. The paired worker implementation and
+native qualification must land before this candidate is integrated. Keyboard
+chords retain their own semantic key and stable physical-control identity;
+unsubscribed clients must retain their existing event vocabulary.
+
 ## TerminalInputSource
 
 The terminal source contains the former manager's pending-byte buffer, escape
@@ -374,8 +414,11 @@ remain separate actions: an event-only source cannot infer a physical hold or
 release. This removes the old discrete-query suppression of consecutive equal
 keys; legacy `isButtonDown()`/`isKeyDown()` edge queries remain unchanged.
 `RendererInputSource`
-forwards the exact dequeued key's existing repeat metadata from `RendererClient`.
-Terminal input remains event-only. Navigation axes retain their existing repeat
+forwards the dequeued key's discrete eligibility from `RendererClient`. A focus
+reset invalidates discrete choices from earlier samples, including already
+queued keys and a key read before the reset was received. Later presses remain
+eligible with their original held-control context. Raw key reads and legacy
+navigation still receive their ordered stream. Terminal input remains event-only. Navigation axes retain their existing repeat
 behaviour. Shared modal confirm, cancel, back and dialogue-auto actions use the
 discrete query; native repeats no longer activate these choices.
 

@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
@@ -36,6 +37,22 @@ it('uses ordered native press samples for discrete actions without consuming lat
   expect(Input::isButtonPressed('confirm'))->toBeTrue()->and(Input::isButtonHeld('confirm'))->toBeFalse();
   InputManager::handleInput();
   expect(Input::isButtonPressed('confirm'))->toBeFalse();
+});
+
+it('advances navigation for every fresh same-key press in a renderer batch', function () {
+  [$transport, $client] = heldInputSession();
+  $transport->batches[] = [heldKey('down'), heldRelease('down'), heldKey('down'), heldRelease('down'),
+    heldKey('down'), heldRelease('down')];
+  $client->pump();
+  foreach (range(1, 3) as $_) {
+    InputManager::handleInput();
+    expect(Input::getAxis(AxisName::VERTICAL))->toBe(1.0)
+      ->and(Input::isButtonDown('down'))->toBeTrue()
+      ->and(Input::isButtonPressed('down'))->toBeTrue()
+      ->and(Input::isButtonHeld('down'))->toBeFalse();
+  }
+  InputManager::handleInput();
+  expect(Input::getAxis(AxisName::VERTICAL))->toBe(0.0);
 });
 
 it('rejects held repeats as discrete choices without changing event-stream navigation', function () {
@@ -129,12 +146,13 @@ it('respects disabled Quick Save for both event-only and native press samples', 
 })->with([false, true]);
 
 /** A renderer session that subscribed to key transitions, as the Game's GPUI session does. */
-function heldInputSession(bool $transitions = true, bool $modifiers = false): array
+function heldInputSession(bool $transitions = true, bool $modifiers = false, bool $chords = false): array
 {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
   $required = $transitions ? [RendererSessionConfig::KEY_TRANSITIONS] : [];
   if ($modifiers) { $required[] = RendererSessionConfig::MODIFIER_CONTROLS; }
+  if ($chords) { $required[] = RendererSessionConfig::KEYBOARD_CHORDS; }
   $client->start(new RendererSessionConfig('Held input', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
     requiredCapabilities: $required));
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
@@ -448,4 +466,112 @@ it('gives menus the same edges from the same key stream with or without held inp
   $transport->batches = [[heldKey('down')], [], [heldKey('down', repeat: true)], [heldKey('down', repeat: true)],
     [heldRelease('down'), heldKey('enter')], [heldRelease('enter')]];
   expect($edges())->toBe($legacy);
+});
+
+
+it('keeps quick repeated tool presses distinct from native repeats and releases chords by physical control', function () {
+  [$transport, $client] = heldInputSession(chords: true);
+  $bindings = new \Ichiloto\Engine\UI\Navigation\ToolNavigationBindings();
+  foreach ([['tab', 'tab', KeyCode::TAB, \Ichiloto\Engine\UI\Navigation\ToolNavigationAction::NEXT_PANE],
+    ['ctrl_q', 'q', KeyCode::CTRL_Q, \Ichiloto\Engine\UI\Navigation\ToolNavigationAction::QUIT]] as [$wire, $physical, $code, $action]) {
+    InputManager::setBinding('tool-test-press', [$code]);
+    $transport->batches[] = [heldKey($wire, $physical), heldKey($wire, $physical, true), heldRelease($physical),
+      heldKey($wire, $physical), heldRelease($physical)];
+    $client->pump();
+    InputManager::handleInput();
+    expect(Input::isDiscreteKeyPressed($code))->toBeTrue()
+      ->and($bindings->findAction(InputManager::getPressedKeyCode()))->toBe($action);
+    InputManager::consumeCurrentInput();
+    expect(Input::isDiscreteKeyPressed($code))->toBeFalse();
+    InputManager::handleInput();
+    expect(Input::isDiscreteKeyPressed($code))->toBeFalse();
+    InputManager::handleInput();
+    expect(Input::isDiscreteKeyPressed($code))->toBeTrue();
+    InputManager::handleInput();
+    expect(Input::isDiscreteKeyPressed($code))->toBeFalse()
+      ->and(InputManager::isButtonHeld('tool-test-press'))->toBeFalse();
+  }
+});
+
+it('treats each consecutive terminal pane token as a discrete press without inventing held state', function () {
+  $stream = fopen('php://memory', 'w+'); fwrite($stream, "\t\t"); rewind($stream);
+  try {
+    InputManager::setInputSource(new TerminalInputSource($stream));
+    InputManager::handleInput(); expect(Input::isDiscreteKeyPressed(KeyCode::TAB))->toBeTrue();
+    InputManager::handleInput(); expect(Input::isDiscreteKeyPressed(KeyCode::TAB))->toBeTrue();
+    InputManager::handleInput(); expect(Input::isDiscreteKeyPressed(KeyCode::TAB))->toBeFalse();
+  } finally { fclose($stream); }
+});
+
+it('keeps press-time chords separate from live holds, repeats and focus resets', function () {
+  [$transport] = heldInputSession();
+  heldUpdate($transport, heldKey('right'), heldKey('enter'), heldRelease('right'), heldRelease('enter'));
+  heldUpdate($transport);
+  expect(Input::isButtonPressed('confirm'))->toBeTrue()
+    ->and(InputManager::wasButtonHeldAtPress('right'))->toBeTrue()
+    ->and(Input::isButtonHeld('right'))->toBeFalse();
+  InputManager::consumeCurrentInput();
+  expect(Input::isButtonPressed('confirm'))->toBeFalse()
+    ->and(InputManager::wasButtonHeldAtPress('right'))->toBeFalse();
+
+  heldUpdate($transport, heldKey('enter'), heldKey('right'));
+  expect(Input::isButtonPressed('confirm'))->toBeTrue()
+    ->and(InputManager::wasButtonHeldAtPress('right'))->toBeFalse()
+    ->and(Input::isButtonHeld('right'))->toBeTrue();
+  heldUpdate($transport, heldKey('enter', repeat: true));
+  heldUpdate($transport);
+  expect(Input::isButtonPressed('confirm'))->toBeFalse()
+    ->and(InputManager::wasButtonHeldAtPress('right'))->toBeFalse()
+    ->and(Input::isButtonHeld('right'))->toBeTrue();
+
+  heldUpdate($transport, heldRelease('enter'), heldKey('left'), heldKey('enter'), heldReset());
+  heldUpdate($transport);
+  expect(InputManager::wasButtonHeldAtPress('right'))->toBeFalse()
+    ->and(Input::isButtonHeld('right'))->toBeFalse();
+});
+
+it('invalidates queued discrete actions at a focus reset while preserving newer actions', function (bool $separatePoll): void {
+  [$transport, $client] = heldInputSession();
+  $transport->batches[] = [heldKey('right'), heldKey('enter'), heldKey('enter', repeat: true)];
+  if ($separatePoll) {
+    $client->pump();
+    InputManager::handleInput(); // Right was read, while Confirm remains queued.
+    expect(Input::isKeyPressed(KeyCode::RIGHT))->toBeTrue();
+    $transport->batches[] = [heldReset(), heldKey('right'), heldKey('enter')];
+  } else {
+    array_push($transport->batches[0], heldReset(), heldKey('right'), heldKey('enter'));
+  }
+  $client->pump();
+
+  if (!$separatePoll) {
+    InputManager::handleInput();
+    expect(Input::isKeyPressed(KeyCode::RIGHT))->toBeTrue()
+      ->and(Input::isButtonPressed('right'))->toBeFalse();
+  }
+  for ($queued = 0; $queued < 2; $queued++) {
+    InputManager::handleInput();
+    expect(Input::isKeyPressed(KeyCode::ENTER))->toBeTrue()
+      ->and(Input::isButtonPressed('confirm'))->toBeFalse()
+      ->and(InputManager::wasButtonHeldAtPress('right'))->toBeFalse();
+  }
+
+  InputManager::handleInput();
+  expect(Input::isButtonPressed('right'))->toBeTrue();
+  InputManager::handleInput();
+  expect(Input::isButtonPressed('confirm'))->toBeTrue()
+    ->and(InputManager::wasButtonHeldAtPress('right'))->toBeTrue();
+})->with(['same batch' => false, 'earlier key queue' => true]);
+
+it('invalidates a sampled action when a focus reset reaches the shared client before the action is consumed', function (): void {
+  [$transport, $client] = heldInputSession();
+  heldUpdate($transport, heldKey('right'), heldKey('enter'));
+  InputManager::handleInput();
+  expect(Input::isButtonPressed('confirm'))->toBeTrue()
+    ->and(InputManager::wasButtonHeldAtPress('right'))->toBeTrue();
+
+  $transport->batches[] = [heldReset()];
+  $client->pump();
+  expect(Input::isKeyPressed(KeyCode::ENTER))->toBeTrue()
+    ->and(Input::isButtonPressed('confirm'))->toBeFalse()
+    ->and(InputManager::wasButtonHeldAtPress('right'))->toBeFalse();
 });

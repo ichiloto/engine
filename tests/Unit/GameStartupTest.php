@@ -177,7 +177,6 @@ beforeEach(function () {
     }
     new ReflectionProperty(QuestManager::class, 'current')->setValue(null, null);
     new ReflectionProperty(MapManager::class, 'instance')->setValue(null, null);
-    new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, null);
     $this->manager = new StartupScenesProbe();
     $this->game = new StartupGameProbe($this->manager);
     new ReflectionProperty(SceneManager::class, 'game')->setValue($this->manager, $this->game);
@@ -186,7 +185,6 @@ beforeEach(function () {
     $this->items = new ItemStore();
     $this->loader = createTestGameLoader($this->game, $this->actors, $this->items, $this->root . '/assets');
     $this->game->bindGameLoader($this->loader);
-    new ReflectionProperty(SceneManager::class, 'instance')->setValue(null, $this->manager);
 });
 
 afterEach(function () {

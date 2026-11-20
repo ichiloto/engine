@@ -7,7 +7,7 @@ namespace Ichiloto\Engine\Scenes\Arena;
 use InvalidArgumentException;
 
 /**
- * The HP or MP a battle test member starts a fight with: a percentage of
+ * The HP, MP or AP a battle test member starts a fight with: a percentage of
  * its maximum or exact points. Project data writes it as `['percent' => 9]`
  * or `['points' => 29]`; typed, as on the command line and in the arena's
  * choices, it is `9%` or `29`.
@@ -37,7 +37,7 @@ final class BattleTestVital
     $unit = count($data) === 1 ? BattleTestVitalUnit::tryFrom(strval(array_key_first($data))) : null;
     $amount = $unit === null ? null : $data[$unit->value];
     if ($unit === null || !is_int($amount)) {
-      throw new InvalidArgumentException('A starting HP or MP is written as percent or points, a whole number.');
+      throw new InvalidArgumentException('A starting resource is written as percent or points, a whole number.');
     }
 
     return new self($amount, $unit);

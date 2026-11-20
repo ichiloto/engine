@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Scenes\Arena;
 
 use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\ActionHintProvider;
+use Ichiloto\Engine\UI\Navigation\ToolNavigationBindings;
 use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\UI\Presentation\MenuRowColumn;
 use Ichiloto\Engine\UI\Presentation\MenuTableText;
@@ -41,15 +43,25 @@ final readonly class BattleTestMenuList
     public ?int $anchor = null,
     public array $requiredHintActions = [],
     public bool $requiresEveryHint = false,
+    public ActionHintProvider $hintProvider = new ToolNavigationBindings(),
   ) {}
+
+  /** Preserve a panel's content/cursor while a different visible pane owns input. */
+  public function withPanelFocus(bool $focused, array $hints, array $requiredHintActions): self
+  {
+    return new self($this->title, $this->rows, $focused ? $this->selected : null, $hints, $this->columns,
+      $this->note, $this->namesArena, $this->anchor ?? $this->selected, $requiredHintActions,
+      $this->requiresEveryHint, $this->hintProvider);
+  }
 
   /** @return list<ActionHint> The hints, resolved through the active display profile. */
   public function resolveHints(bool $includeOptional = true): array
   {
     $hints = $includeOptional || $this->requiresEveryHint ? $this->hints : array_values(array_filter($this->hints,
       fn(array $hint): bool => in_array($hint[0], $this->requiredHintActions, true)));
-    return array_map(static fn(array $hint): ActionHint => isset($hint[2])
-      ? ActionHints::resolvePair($hint[0], $hint[2], $hint[1]) : ActionHints::resolve($hint[0], $hint[1]), $hints);
+    return array_map(fn(array $hint): ActionHint => new ActionHint($hint[0], $hint[1],
+      $this->hintProvider->controlForAction($hint[0]), isset($hint[2]) ? $this->hintProvider->controlForAction($hint[2]) : null,
+      $hint[2] ?? null), $hints);
   }
 
   /** @return list<string> The rows as the terminal lists them in a width. */

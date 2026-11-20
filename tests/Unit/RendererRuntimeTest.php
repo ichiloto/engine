@@ -19,16 +19,20 @@ use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\IO\InputSources\TerminalInputSource;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
+use Ichiloto\Engine\Rendering\Assets\AssetHoldResource;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
+use Ichiloto\Engine\Rendering\Presentation\RetainedPresentation;
+use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Runtime\RendererWindowClosed;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
@@ -41,10 +45,12 @@ use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\ManualRuntimeClock;
 use Tests\Support\Rendering\RetainedFrameState;
 use function Tests\Support\Rendering\characterSheetData;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
@@ -143,6 +149,138 @@ it('pumps input while a scene holds its frame and sends the retained changes onc
   $ready = true;
   expect($this->runtime->present($scene))->toBeTrue()
     ->and($this->transport->sent)->toHaveCount(2);
+});
+
+it('services asset preloads and input while scene drawing readiness is held', function () {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities: [\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS]), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["asset_holds"]}')];
+  $this->runtime->start('Asset readiness', 12, 4);
+  Console::write('ORIGIN', 0, 0);
+  $this->runtime->present(null);
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
+  $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['canPresentSceneFrame', 'getPresentationWorld', 'getGraphicalSpriteProviders'])->getStub();
+  $scene->method('canPresentSceneFrame')->willReturn(false);
+  $owner = new stdClass();
+  $request = $this->runtime->assetHolds->replaceResources($owner,
+    ['return' => new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('fixtures/return.png')])[0];
+  Console::write('INCOMING', 0, 0);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"key","key":"right"}')];
+  expect($this->runtime->present($scene))->toBeTrue()
+    ->and(InputManager::getInputSource()->poll())->toBe(KeyCode::RIGHT)
+    ->and(end($this->transport->sent)->payload['operations'])->toBe([$request->createPutOperation()]);
+  acknowledgeRuntimePresentation($this->runtime, $this->transport);
+  expect($this->runtime->present($scene))->toBeFalse()
+    ->and($this->runtime->assetHolds->getReadiness($owner))
+    ->toBe(\Ichiloto\Engine\Rendering\Assets\AssetHoldReadiness::WAITING);
+});
+
+it('retains frozen asset owners through covered replacement and releases them on shutdown', function () {
+  require_once __DIR__ . '/../Fixtures/Rendering/ScreenTransitions.php';
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities: [\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS]), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["asset_holds","graphical_canvas","canvas_overlay","canvas_compositing"]}')];
+  $this->transport->acknowledgeFrames = true;
+  $this->runtime->start('Asset handoff', 12, 4);
+  $owner = new stdClass();
+  $request = $this->runtime->assetHolds->replaceResources($owner,
+    ['return' => new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('fixtures/return.png')])[0];
+  $speculative = new stdClass();
+  $next = $this->runtime->assetHolds->replaceResources($speculative,
+    ['next' => new AssetHoldResource('fixtures/next.png')])[0];
+  $canvas = new PresentationCanvas(320, 180, [
+    new CanvasImage('outgoing', 'fixtures/return.png', new CanvasRectangle(0, 0, 64, 32)),
+  ]);
+  $scene = $this->getStubBuilder(\Ichiloto\Engine\Scenes\Battle\BattleScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['getPresentationCanvas', 'canPresentSceneFrame'])->getStub();
+  $scene->method('getPresentationCanvas')->willReturn($canvas);
+  $scene->method('canPresentSceneFrame')->willReturn(true);
+  $this->runtime->present($scene);
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([$request, $next]);
+  $this->runtime->beginScreenHandoff(new \Ichiloto\Engine\Rendering\ScreenTransitionTreatment(getScreenTransitionFixture()));
+  $this->runtime->assetHolds->releaseOwner($owner);
+  $this->runtime->assetHolds->releaseOwner($speculative);
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([$request]);
+  $this->runtime->setScreenHandoffPhase(\Ichiloto\Engine\Rendering\ScreenTransitionPhase::HOLD, 1.0);
+  $this->runtime->present(null);
+  $this->runtime->replaceScreenHandoff();
+  Console::recomposeFrame(fn() => Console::write('ARRIVAL', 0, 0));
+  $this->runtime->present(null);
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([]);
+  $this->runtime->endScreenHandoff();
+  $this->runtime->shutdown();
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([]);
+});
+
+it('retains an exclusive canvas and shares its leases only for its source scene', function () {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities: [\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS]), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson(
+    '{"protocol":2,"type":"ready","capabilities":["graphical_canvas","asset_holds"]}')];
+  $this->transport->acknowledgeFrames = true;
+  $this->runtime->start('Retain scene canvas', 12, 4);
+  $frame = new PresentationCanvas(320, 180, [
+    new CanvasImage('surface', 'fixtures/return.png', new CanvasRectangle(0, 0, 64, 32)),
+  ]);
+  $scene = $this->getStubBuilder(\Ichiloto\Engine\Scenes\Battle\BattleScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['getPresentationCanvas', 'canPresentSceneFrame'])->getStub();
+  $ready = true;
+  $scene->method('getPresentationCanvas')->willReturn($frame);
+  $scene->method('canPresentSceneFrame')->willReturnCallback(static function () use (&$ready): bool { return $ready; });
+  $source = new stdClass();
+  $overlay = new stdClass();
+  $request = $this->runtime->assetHolds->replaceResources($source,
+    ['surface' => new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('fixtures/return.png')])[0];
+  $this->runtime->present($scene);
+  $readyCanvas = new PresentationCanvas(320, 180);
+  expect($this->runtime->retainSceneFrame($scene, $overlay, $readyCanvas)?->canvas)->toBe($readyCanvas)
+    ->and($this->runtime->assetHolds->getOwnedRequests($overlay))->toBe([]);
+  $this->runtime->assetHolds->releaseOwner($overlay);
+  $ready = false;
+  $this->runtime->present($scene);
+  expect($this->runtime->retainSceneFrame(clone $scene, $overlay))->toBeNull()
+    ->and($this->runtime->assetHolds->getOwnedRequests($overlay))->toBe([])
+    ->and($this->runtime->retainSceneFrame($scene, $overlay)?->canvas)->toBe($frame)
+    ->and($this->runtime->assetHolds->getOwnedRequests($overlay))->toBe([$request]);
+  $this->runtime->assetHolds->releaseOwner($source);
+  $this->runtime->present(null);
+  expect($this->runtime->retainSceneFrame($scene, new stdClass()))->toBeNull()
+    ->and($this->runtime->assetHolds->getDesiredRequests())->toBe([$request]);
+  $this->runtime->assetHolds->releaseOwner($overlay);
+  $this->runtime->present(null);
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([]);
+});
+
+it('borrows only the referenced image cells from a prepared frame and releases them after replacement', function () {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities: [\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS]), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson(
+    '{"protocol":2,"type":"ready","capabilities":["graphical_canvas","asset_holds","sprite_source_rect"]}')];
+  $this->transport->acknowledgeFrames = true;
+  $this->runtime->start('Retained image cells', 12, 4);
+
+  $outgoing = new stdClass();
+  $visibleRegion = new SpriteSourceRect(0, 0, 32, 32);
+  $futureRegion = new SpriteSourceRect(32, 0, 32, 32);
+  [$visible, $future] = $this->runtime->assetHolds->replaceResources($outgoing, [
+    new AssetHoldResource('fixtures/strip.png', $visibleRegion),
+    new AssetHoldResource('fixtures/strip.png', $futureRegion),
+  ]);
+  $canvas = new PresentationCanvas(320, 180, [
+    new CanvasImage('summon-cel', 'fixtures/strip.png', new CanvasRectangle(0, 0, 64, 32), sourceRect: $visibleRegion),
+  ]);
+  $scene = $this->getStubBuilder(\Ichiloto\Engine\Scenes\Battle\BattleScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['getPresentationCanvas', 'canPresentSceneFrame'])->getStub();
+  $scene->method('getPresentationCanvas')->willReturn($canvas);
+  $scene->method('canPresentSceneFrame')->willReturn(true);
+  $this->runtime->present($scene);
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([$visible, $future]);
+  $this->runtime->assetHolds->releaseOwner($outgoing);
+  $this->runtime->present($scene);
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([$visible]);
+  $this->runtime->present(null);
+  expect($this->runtime->assetHolds->getDesiredRequests())->toBe([]);
 });
 
 it('opts in exactly once and shares input and presentation on one session', function () {
@@ -342,8 +480,9 @@ describe('repeated retained-frame rejection diagnostics', function () {
     Console::write('RETAINED', 0, 0);
     $this->runtime->present(null);
     $this->rejectFrame = function (string $message): void {
+      $generation = end($this->transport->sent)->payload['generation'];
       $this->transport->batches[] = [RendererEvent::fromJson(json_encode([
-        'protocol' => 2, 'type' => 'frame_rejected', 'generation' => count($this->transport->sent),
+        'protocol' => 2, 'type' => 'frame_rejected', 'generation' => $generation,
         'expectedGeneration' => 0, 'message' => $message, 'resyncRequired' => true,
       ], JSON_THROW_ON_ERROR))];
       $this->runtime->present(null);
@@ -388,10 +527,13 @@ describe('repeated retained-frame rejection diagnostics', function () {
     acknowledgeRuntimePresentation($this->runtime, $this->transport);
     expect(($this->readWarnings)())->toContain('repeated 1 additional times: missing base')
       ->and(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(4);
+    Console::write('NEW FRAME', 0, 1);
+    expect($this->runtime->present(null))->toBeTrue();
     ($this->rejectFrame)('missing base');
     expect(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(5)
-      ->and($this->transport->sent)->toHaveCount(8);
-    foreach (array_slice($this->transport->sent, 1) as $message) {
+      ->and($this->transport->sent)->toHaveCount(9)
+      ->and($this->transport->sent[7]->payload['reset'])->toBeFalse();
+    foreach ([...array_slice($this->transport->sent, 1, 6), end($this->transport->sent)] as $message) {
       expect($message->payload['reset'])->toBeTrue();
     }
     $rejections = array_values(array_filter($this->feedbackTrace,
@@ -411,12 +553,63 @@ describe('repeated retained-frame rejection diagnostics', function () {
     expect(($this->readWarnings)())->toContain('repeated 1 additional times: unrecovered rejection')
       ->and(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(2);
     if ($restart) {
+      $this->runtime->present(null);
       ($this->rejectFrame)('unrecovered rejection');
       expect(substr_count(($this->readWarnings)(), '[WARN]'))->toBe(3);
     }
     $this->runtime->shutdown();
     expect(substr_count(($this->readWarnings)(), '[WARN]'))->toBe($restart ? 3 : 2);
   })->with(['shutdown' => [false], 'restart' => [true]]);
+
+  it('stops retrying when delivery keeps failing without a presented frame', function () {
+    $clock = new ManualRuntimeClock();
+    $lease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
+    try {
+      ($this->rejectFrame)('frame cannot fit');
+      expect(end($this->transport->sent)->payload['reset'])->toBeTrue();
+
+      $this->transport->batches[] = [
+        RendererEvent::fromJson('{"protocol":2,"type":"frame_ack","generation":1,"frame":1,"presented":true}'),
+        RendererEvent::fromJson('{"protocol":2,"type":"frame_ack","generation":2,"frame":2,"presented":false}'),
+      ];
+      $this->runtime->pump();
+      $clock->seconds += RetainedPresentation::ACK_TIMEOUT_SECONDS + 0.1;
+
+      expect(fn() => ($this->rejectFrame)('frame cannot fit'))
+        ->toThrow(RendererProtocolException::class, 'Renderer presentation could not recover: frame cannot fit');
+      expect($this->transport->sent)->toHaveCount(2);
+      $this->runtime->shutdown();
+      expect($this->transport->shutdowns)->toBe(1)->and(InputManager::getInputSource())->toBe($this->previous);
+    } finally {
+      $lease->close();
+    }
+  });
+
+  it('ignores stale rejections and allows a later recovery after a displayed frame', function () {
+    $clock = new ManualRuntimeClock();
+    $lease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
+    try {
+      ($this->rejectFrame)('frame cannot fit');
+      $this->transport->batches[] = [
+        RendererEvent::fromJson('{"protocol":2,"type":"frame_rejected","generation":1,"expectedGeneration":1,"message":"stale","resyncRequired":true}'),
+      ];
+      expect($this->runtime->present(null))->toBeFalse()->and($this->transport->sent)->toHaveCount(2);
+      acknowledgeRuntimePresentation($this->runtime, $this->transport);
+      $this->transport->batches[] = [
+        RendererEvent::fromJson('{"protocol":2,"type":"frame_rejected","generation":2,"expectedGeneration":2,"message":"stale","resyncRequired":true}'),
+      ];
+      expect($this->runtime->present(null))->toBeFalse()->and($this->transport->sent)->toHaveCount(2);
+
+      $clock->seconds += RetainedPresentation::ACK_TIMEOUT_SECONDS + 0.1;
+      Console::write('NEXT', 0, 1);
+      expect($this->runtime->present(null))->toBeTrue();
+      ($this->rejectFrame)('frame cannot fit');
+      expect($this->transport->sent)->toHaveCount(4)->and(end($this->transport->sent)->payload['reset'])->toBeTrue();
+      acknowledgeRuntimePresentation($this->runtime, $this->transport);
+    } finally {
+      $lease->close();
+    }
+  });
 });
 
 it('continues real gameplay and semantic input after a rejected update instead of stopping the game', function () {

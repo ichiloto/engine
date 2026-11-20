@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasGroup, CanvasColorTransform, CanvasFrameBudget, CanvasImage,
+use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasGroup, CanvasGroupScale, CanvasColorTransform, CanvasFrameBudget, CanvasImage,
   CanvasImagePreflight, CanvasRectangle, CanvasViewportFit, PresentationCanvas};
-use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
+use Ichiloto\Engine\Rendering\Presentation\{RendererPresentation, PresentationSpritePivot};
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\{RendererEvent, RendererGridConfig, RendererSessionConfig};
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
@@ -210,4 +210,131 @@ it('refuses missing group colour or preparation budget before sending any partia
       requiredCapabilities: [...$requirements, RendererSessionConfig::CANVAS_GROUP_COLOR]))
       ->toThrow(InvalidArgumentException::class, 'Group colour');
   }
+});
+
+
+it('projects fractional scale geometry and protection before the fixed parent clip', function () {
+  $area = new CanvasRectangle(2, 3, 4, 5);
+  $child = new PresentationCanvas(20, 20, protectedAreas: [$area]);
+  $scale = new CanvasGroupScale(1.5, new PresentationSpritePivot(.25, .5));
+  $group = new CanvasGroup('scaled', 1.25, -2.5, $child, clipRect: new CanvasRectangle(2, 0, 5, 4), scale: $scale);
+  expect($group->projectRectangle($area)->toArray())->toBe(['x' => 1.75, 'y' => -3.0, 'width' => 6.0, 'height' => 7.5])
+    ->and($group->getOverlayProtection(20, 20)[0]->toArray())->toBe(['x' => 2.0, 'y' => 0.0, 'width' => 5.0, 'height' => 4.0])
+    ->and($group->toArray()['scale'])->toBe(['factor' => 1.5, 'origin' => ['x' => .25, 'y' => .5]])
+    ->and($group->toArray()['clipRect'])->toBe(['x' => 2.0, 'y' => 0.0, 'width' => 5.0, 'height' => 4.0])
+    ->and($child->protectedAreas[0])->toBe($area);
+  $outer = new CanvasGroup('outer', 3, 5, new PresentationCanvas(20, 20, groups: [$group]),
+    scale: new CanvasGroupScale(2, new PresentationSpritePivot(.5, .5)));
+  expect($outer->getOverlayProtection(20, 20)[0]->toArray())->toBe(['x' => 0.0, 'y' => 0.0, 'width' => 7.0, 'height' => 3.0]);
+});
+
+it('keeps identity scale wire-compatible and rejects malformed or unbounded scale', function () {
+  $leaf = createGroupDrawing();
+  expect((new CanvasGroup('field', 0, 0, $leaf, scale: new CanvasGroupScale(1, new PresentationSpritePivot(0, 1))))->toArray())
+    ->toBe((new CanvasGroup('field', 0, 0, $leaf))->toArray());
+  foreach ([0.0, -1.0, NAN, INF, 8.00001] as $factor) {
+    expect(fn() => new CanvasGroupScale($factor, new PresentationSpritePivot(.5, .5)))->toThrow(InvalidArgumentException::class);
+  }
+  foreach ([[], ['factor' => 2], ['factor' => true, 'origin' => ['x' => .5, 'y' => .5]],
+    ['factor' => '2', 'origin' => ['x' => .5, 'y' => .5]], ['factor' => 0, 'origin' => ['x' => .5, 'y' => .5]],
+    ['factor' => 2, 'origin' => ['x' => -.1, 'y' => .5]], ['factor' => 2, 'origin' => null],
+    ['factor' => 2, 'origin' => ['x' => .5, 'y' => .5], 'stretchY' => 3]] as $data) {
+    expect(fn() => CanvasGroupScale::fromArray($data))->toThrow(InvalidArgumentException::class);
+  }
+  expect(fn() => new CanvasGroup('outside-origin', -17000, 0, new PresentationCanvas(1000, 20),
+    scale: new CanvasGroupScale(.1, new PresentationSpritePivot(1, 0))))->toThrow(InvalidArgumentException::class);
+  $scale = CanvasGroupScale::fromArray(['factor' => 8, 'origin' => ['x' => 0, 'y' => 0]]);
+  expect($scale->factor)->toBe(8.0)
+    ->and(fn() => new CanvasGroup('too-wide', 16300, 0, $leaf, scale: $scale))->toThrow(InvalidArgumentException::class);
+});
+
+it('retains paint-time scale without changing child preparation or replaying the HUD', function () {
+  $caps = [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_GROUPS,
+    RendererSessionConfig::CANVAS_GROUP_SCALE, RendererSessionConfig::CANVAS_REGION_BUDGET];
+  [$presenter, $transport] = createGroupPresenter($caps);
+  $leaf = createGroupDrawing(); $hud = new CanvasImage('hud', 'hud.png', new CanvasRectangle(0, 0, 1, 1));
+  $baseline = CanvasImagePreflight::inspectCanvases([$leaf], __DIR__ . '/../Fixtures/Renderer');
+  foreach ([1.25, 1.5, 1.0] as $factor) {
+    $group = new CanvasGroup('field', 0, 0, $leaf, scale: new CanvasGroupScale($factor, new PresentationSpritePivot(.5, .5)));
+    $canvas = new PresentationCanvas(20, 20, [$hud], groups: [$group]);
+    expect($group->canvas)->toBe($leaf)
+      ->and(CanvasImagePreflight::inspectCanvases([new PresentationCanvas(20, 20, groups: [$group])], __DIR__ . '/../Fixtures/Renderer'))->toBe($baseline)
+      ->and($presenter->presentCanvas($canvas))->toBeTrue();
+    $transport->acknowledgeLatestFrame($presenter);
+  }
+  $frames = RetainedFrameState::replay($transport->sent);
+  expect($frames[0]['canvas']['groups'][0]['scale']['factor'])->toBe(1.25)
+    ->and($frames[1]['canvas']['groups'][0]['scale']['factor'])->toBe(1.5)
+    ->and($frames[2]['canvas']['groups'][0])->not->toHaveKey('scale')
+    ->and($frames[0]['canvas']['groups'][0]['canvas'])->toBe($frames[1]['canvas']['groups'][0]['canvas']);
+  $packets = array_values(array_filter($transport->sent, fn($message) => isset($message->payload['operations'])));
+  expect(array_column($packets[1]->payload['operations'], 'kind'))->toBe(['canvas_group'])
+    ->and(array_column($packets[2]->payload['operations'], 'kind'))->toBe(['canvas_group']);
+});
+
+it('negotiates scale and its preparation budget atomically through nested groups', function () {
+  $leaf = createGroupDrawing();
+  $scaled = new PresentationCanvas(20, 20, groups: [new CanvasGroup('scale', 0, 0, $leaf,
+    scale: new CanvasGroupScale(2, new PresentationSpritePivot(0, 0)))]);
+  $nested = new PresentationCanvas(20, 20, groups: [new CanvasGroup('outer', 0, 0, $scaled)]);
+  foreach ([[], [RendererSessionConfig::GRAPHICAL_CANVAS],
+    [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_GROUPS],
+    [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_REGION_BUDGET]] as $requirements) {
+    expect(fn() => new RendererSessionConfig('Scale', getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
+      requiredCapabilities: [...$requirements, RendererSessionConfig::CANVAS_GROUP_SCALE]))->toThrow(InvalidArgumentException::class, 'Group scale');
+  }
+  expect((new RendererSessionConfig('Scale', getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2))->getNegotiableCapabilities())
+    ->toContain(RendererSessionConfig::CANVAS_GROUP_SCALE);
+  [$presenter, $transport] = createGroupPresenter([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_GROUPS]);
+  $before = $transport->sent;
+  expect(fn() => $presenter->prepareCanvas($nested))->toThrow(RendererProtocolException::class, 'canvas_group_scale')
+    ->and($transport->sent)->toBe($before);
+  $badTransport = new FakeRendererTransport(); $client = new RendererClient($badTransport);
+  $client->start(new RendererSessionConfig('Optional scale', getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2,
+    requiredCapabilities: [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_GROUPS]));
+  $badTransport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
+    'capabilities' => [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_GROUPS, RendererSessionConfig::CANVAS_GROUP_SCALE]], JSON_THROW_ON_ERROR))];
+  $client->pump(); $unbudgeted = new RendererPresentation($client, new RendererGridConfig(2, 1)); $badBefore = $badTransport->sent;
+  expect(fn() => $unbudgeted->prepareCanvas($nested))->toThrow(RendererProtocolException::class, 'canvas_region_budget')
+    ->and($badTransport->sent)->toBe($badBefore);
+  $identity = new PresentationCanvas(20, 20, groups: [new CanvasGroup('identity', 0, 0, $leaf,
+    scale: new CanvasGroupScale(1, new PresentationSpritePivot(.5, .5)))]);
+  expect($presenter->presentCanvas($identity))->toBeTrue();
+});
+
+it('preserves scaled geometry through overlay path rewriting and whole-root placement', function () {
+  $leaf = new CanvasImage('body', 'test-sprite.png', new CanvasRectangle(2, 3, 4, 5));
+  $scale = new CanvasGroupScale(1.5, new PresentationSpritePivot(.25, .5));
+  $color = new CanvasColorTransform([[.5, 0, 0], [0, .5, 0], [0, 0, .5]], [0, 0, 0]);
+  $child = new PresentationCanvas(20, 20, [$leaf]);
+  $marker = new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicator('mark', 'body',
+    \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicatorKind::OUTLINE, new CanvasRectangle(2, 3, 4, 5), 1,
+    \Ichiloto\Engine\Rendering\Presentation\PresentationColor::rgb(255, 255, 255), imagePath: ['body-group', 'body']);
+  $source = new PresentationCanvas(20, 20, groups: [new CanvasGroup('body-group', 1.25, -2.5, $child, colorTransform: $color, scale: $scale),
+    new CanvasGroup('marker-group', 0, 0, new PresentationCanvas(20, 20, indicators: [$marker]), scale: $scale)]);
+  $overlay = PresentationCanvas::composeOverlay(new PresentationCanvas(20, 20), $source, 'modal-');
+  $placed = CanvasGroup::wrapRoot('field', 0, 0, $overlay, scale: $scale);
+  $group = $placed->canvas->groups[0];
+  expect($group->scale)->toBe($scale)->and($group->colorTransform)->toBe($color)
+    ->and($group->projectRectangle($leaf->destination)->toArray())->toBe(['x' => 1.75, 'y' => -3.0, 'width' => 6.0, 'height' => 7.5])
+    ->and($placed->canvas->groups[1]->scale)->toBe($scale)
+    ->and($placed->canvas->groups[1]->canvas->indicators[0]->imagePath)->toBe(['field', 'modal-body-group', 'body']);
+});
+
+
+it('charges scaled reused content in child pixels and retains the aggregate instance limits', function () {
+  $leaf = createGroupDrawing(); $color = new CanvasColorTransform([[.5, 0, 0], [0, .5, 0], [0, 0, .5]], [0, 0, 0]);
+  $result = [];
+  foreach ([1.0, 1.25, 2.0, 1.5] as $factor) {
+    $root = new PresentationCanvas(20, 20, groups: [new CanvasGroup('field', 0, 0, $leaf, colorTransform: $color,
+      scale: new CanvasGroupScale($factor, new PresentationSpritePivot(.5, .5)))]);
+    $result[] = CanvasImagePreflight::inspectCanvases([$root], __DIR__ . '/../Fixtures/Renderer');
+  }
+  expect($result[1])->toBe($result[0])->and($result[2])->toBe($result[0])->and($result[3])->toBe($result[0]);
+  $many = createGroupDrawing(512);
+  $first = new CanvasGroup('a', 0, 0, $many, scale: new CanvasGroupScale(2, new PresentationSpritePivot(.5, .5)));
+  $second = new CanvasGroup('b', 0, 0, $many, scale: new CanvasGroupScale(3, new PresentationSpritePivot(.5, .5)));
+  new PresentationCanvas(20, 20, groups: [$first, $second]);
+  expect(fn() => new PresentationCanvas(20, 20, groups: [$first, $second, new CanvasGroup('c', 0, 0, $many)]))
+    ->toThrow(InvalidArgumentException::class, 'Aggregate');
 });

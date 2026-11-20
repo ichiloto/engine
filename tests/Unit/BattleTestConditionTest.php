@@ -9,6 +9,9 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
+use Ichiloto\Engine\Scenes\Arena\BattleTestPartySetting;
+use Ichiloto\Engine\UI\Navigation\ToolNavigationAction;
+require_once __DIR__ . "/../Support/BattleTestPartyFixtures.php";
 use Ichiloto\Engine\Scenes\Arena\ArenaSetupEditor;
 use Ichiloto\Engine\Scenes\Arena\BattleTestChoices;
 use Ichiloto\Engine\Scenes\Arena\BattleTestInventoryFocus;
@@ -34,11 +37,12 @@ use Ichiloto\Engine\Util\Stores\ItemStore;
  * of 100 HP and 20 MP, one with a crisis ability active below 10% HP or
  * while it holds the `presence` state.
  */
-function battleConditionActor(string $id, ?string $crisis = null): ActorDefinition
+function battleConditionActor(string $id, ?string $crisis = null, int $maximumHp = 100, int $maximumMp = 20): ActorDefinition
 {
   return ActorDefinition::fromArray(['id' => $id, 'name' => ucfirst($id), 'currentExp' => 0,
     ...($crisis === null ? [] : ['crisisAbility' => $crisis]), 'stats' => [
-    'currentHp' => 100, 'currentMp' => 20, 'currentAp' => 3, 'totalHp' => 100, 'totalMp' => 20, 'totalAp' => 3,
+    'currentHp' => $maximumHp, 'currentMp' => $maximumMp, 'currentAp' => 3,
+    'totalHp' => $maximumHp, 'totalMp' => $maximumMp, 'totalAp' => 3,
     'attack' => 8, 'defence' => 7, 'magicAttack' => 6, 'magicDefence' => 5, 'speed' => 4, 'grace' => 3, 'evasion' => 2,
   ]]);
 }
@@ -161,6 +165,77 @@ it('writes starting HP, MP, states and party items as project data and reads the
     ->toEqual([new BattleTestItem('item.potion', 2)]);
 });
 
+it('round trips and bounds test-only AP using the current opted-in actor cap', function () {
+  $authored = battleConditionActor('hero')->data();
+  $authored['stats']['currentAp'] = 5;
+  $authored['stats']['totalAp'] = 60;
+  $actors = new ActorStore(definitions: [ActorDefinition::fromArray($authored)],
+    actionPointPolicy: new \Ichiloto\Engine\Battle\ActionPointPolicy(10));
+  $choices = new BattleTestChoices($actors, $this->items, BattleTestLoadoutCatalog::getProjectCatalog());
+  $entry = ['members' => [['actor' => 'hero', 'level' => 1, 'ap' => ['points' => 30]]]];
+  $setup = ProjectBattleTest::fromArray($entry)->createSetup($actors);
+  $member = $setup->members[0];
+  expect(ProjectBattleTest::fromArray($entry)->toArray())->toBe($entry)
+    ->and($member->withLevel(2)->withEquipment('Weapon', null)->toArray()['ap'])->toBe(['points' => 30])
+    ->and($member->withActor('another')->toArray())->not->toHaveKey('ap')
+    ->and($choices->describeStartingVitals($setup, 0)['ap'])->toBe([
+      'maximum' => 60,
+      'default' => ['points' => 5],
+      'choices' => [
+        ['name' => 'Authored balance (5)', 'value' => null],
+        ['name' => 'Full', 'value' => ['percent' => 100]],
+        ['name' => 'Empty', 'value' => ['percent' => 0]],
+        ['name' => 'In percent: 50%', 'value' => ['percent' => 50]],
+      ],
+    ])
+    ->and($setup->getProblems($this->actors, $this->items))->toContain(
+      'Member 1 (hero): starting AP requires the project to enable battle action points.')
+    ->and($this->choices->describeStartingVitals($setup, 0))->not->toHaveKey('ap');
+  foreach ([[null, 5], [['points' => 30], 30], [['percent' => 100], 60], [['percent' => 0], 0]] as [$override, $expected]) {
+    $fixture = BattleTestSetup::fromArray(['members' => [['actor' => 'hero', 'level' => 1,
+      ...($override === null ? [] : ['ap' => $override])]]]);
+    expect($fixture->createParty($actors, $this->items)->members->toArray()[0]->stats->currentAp)->toBe($expected);
+  }
+  $beyondCap = BattleTestSetup::fromArray(['members' => [['actor' => 'hero', 'level' => 1, 'ap' => ['points' => 61]]]]);
+  expect(fn () => $beyondCap->createParty($actors, $this->items))->toThrow(InvalidArgumentException::class, '61 AP is beyond its maximum, 60.')
+    ->and($actors->require('hero', 'the original actor')->createCharacter()->stats->currentAp)->toBe(5);
+});
+
+it('sets opted-in AP from the Arena setup row and rebuilds it on each battle entry', function () {
+  $authored = battleConditionActor('hero')->data();
+  $authored['stats']['currentAp'] = 5;
+  $authored['stats']['totalAp'] = 60;
+  $actors = new ActorStore(definitions: [ActorDefinition::fromArray($authored)],
+    actionPointPolicy: new \Ichiloto\Engine\Battle\ActionPointPolicy(10));
+  ConfigStore::put(ActorStore::class, $actors);
+  $parties = [];
+  $scene = battleConditionScene($this, new BattleTestSetup([new BattleTestMember('hero', 1)]), $parties);
+  $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
+  $editor->movePane(1);
+  $editor->confirm();
+  expect(array_slice($editor->fields, 0, 6))->toBe(['actor', 'level', 'hp', 'mp', 'ap', 'states'])
+    ->and($scene->listPartyStats()[0][1]['AP'])->toBe('5/60');
+
+  $editor->moveVertical(4);
+  $editor->movePage(1, 16);
+  expect($editor->setup->members[0]->toArray()['ap'])->toBe(['points' => 15])
+    ->and($scene->describeList()->rows[4])->toBe(['AP', ['< 15 >']]);
+  $editor->confirm();
+  $editor->moveVertical(-10);
+  $editor->moveVertical(1);
+  $editor->confirm();
+  expect($editor->setup->members[0]->toArray()['ap'])->toBe(['percent' => 100]);
+  new ReflectionMethod(ArenaScene::class, 'refreshPreview')->invoke($scene);
+  expect($scene->listPartyStats()[0][1]['AP'])->toBe('60/60');
+
+  $fight = new ReflectionMethod(ArenaScene::class, 'fight');
+  $fight->invoke($scene, 0);
+  $parties[0]->members->toArray()[0]->stats->currentAp = 13;
+  $fight->invoke($scene, 0);
+  expect($parties[1]->members->toArray()[0]->stats->currentAp)->toBe(60)
+    ->and($actors->require('hero', 'the original actor')->createCharacter()->stats->currentAp)->toBe(5);
+});
+
 it('refuses malformed starting conditions and items instead of ignoring them', function (array $data, string $message) {
   expect(fn() => isset($data['members']) ? BattleTestSetup::fromArray($data) : BattleTestMember::fromArray($data))
     ->toThrow(InvalidArgumentException::class, $message);
@@ -250,6 +325,62 @@ it('offers the states, starting amounts and items the setup would accept, from t
     ->and($this->choices->getDefaultStock())->toEqual([new BattleTestItem('item.potion', 99), new BattleTestItem('item.ether', 99)]);
 });
 
+it('offers a below-threshold HP preset even when only exact points can activate the technique', function () {
+  $catalogue = $this->root . '/assets/Data/crisis-abilities.php';
+  $entries = require $catalogue;
+  $entries[] = ['id' => 'surge.fraction', 'name' => 'Surge', 'hpBelowPercent' => 0.5,
+    'states' => ['presence'], 'variants' => [['skill' => 'Test finisher']]];
+  file_put_contents($catalogue, '<?php return ' . var_export($entries, true) . ';');
+  $actors = new ActorStore(definitions: [
+    battleConditionActor('ordinary', 'surge.hero', 376),
+    battleConditionActor('fraction', 'surge.fraction', 600),
+    battleConditionActor('floor', 'surge.fraction', 200),
+  ]);
+  $choices = new BattleTestChoices($actors, $this->items, BattleTestLoadoutCatalog::getProjectCatalog());
+
+  foreach (['ordinary' => '9%', 'fraction' => '1', 'floor' => null] as $actor => $expected) {
+    $member = new BattleTestMember($actor, 1, mp: new BattleTestVital(0));
+    $setup = new BattleTestSetup([$member]);
+    $preset = array_find($choices->getConditionChoices($setup, 0, 'hp'),
+      static fn(array $choice): bool => str_starts_with($choice['name'], 'Below Surge:'));
+    expect($preset['id'] ?? null)->toBe($expected);
+    $vitals = $choices->describeStartingVitals($setup, 0);
+    if ($expected !== null) {
+      $amount = BattleTestVital::parse($expected);
+      expect($vitals['hp']['choices'])->toContain(['name' => $preset['name'], 'value' => $amount->toArray()]);
+      $party = $setup->withMember(0, $member->withHp($amount))->createParty($actors, $this->items);
+      expect($party->leader->crisisAbility->isActive($party->leader))->toBeTrue()
+        ->and($party->leader->stats->currentMp)->toBe(0);
+    }
+    $withPresence = $setup->withMember(0, $member->withStates(['presence']))->createParty($actors, $this->items);
+    expect($withPresence->leader->crisisAbility->isActive($withPresence->leader))->toBeTrue()
+      ->and($withPresence->leader->stats->currentHp)->toBe($vitals['hp']['maximum']);
+  }
+});
+
+it('preserves nonzero starting vitals in unit alternatives', function () {
+  $actors = new ActorStore(definitions: [battleConditionActor('hero', 'surge.hero', 600, 300)]);
+  $choices = new BattleTestChoices($actors, $this->items, BattleTestLoadoutCatalog::getProjectCatalog());
+  $firstPoint = new BattleTestVital(1, BattleTestVitalUnit::POINTS);
+  $member = new BattleTestMember('hero', 1, hp: $firstPoint, mp: $firstPoint);
+  $setup = new BattleTestSetup([$member]);
+  $vitals = $choices->describeStartingVitals($setup, 0);
+
+  foreach (['hp' => 'Knocked out', 'mp' => 'Empty'] as $field => $zeroLabel) {
+    $arenaChoices = $choices->getConditionChoices($setup, 0, $field);
+    expect(array_column($arenaChoices, 'name'))->not->toContain('In percent: 0%')
+      ->and($arenaChoices)->toContain(['id' => '0%', 'name' => $zeroLabel])
+      ->and($vitals[$field]['choices'])->toContain(['name' => $zeroLabel, 'value' => ['percent' => 0]])
+      ->and(array_column($vitals[$field]['choices'], 'name'))->not->toContain('In percent: 0%');
+  }
+
+  $sixPoints = new BattleTestVital(6, BattleTestVitalUnit::POINTS);
+  $representable = $setup->withMember(0, $member->withHp($sixPoints));
+  expect($choices->getConditionChoices($representable, 0, 'hp'))->toContain(['id' => '1%', 'name' => 'In percent: 1%'])
+    ->and($choices->describeStartingVitals($representable, 0)['hp']['choices'])
+    ->toContain(['name' => 'In percent: 1%', 'value' => ['percent' => 1]]);
+});
+
 it('makes Overflow available in the battle for a member set below its threshold or given Presence', function () {
   $setup = new BattleTestSetup([new BattleTestMember('hero', 1), new BattleTestMember('mage', 1)]);
   $threshold = $this->choices->getConditionChoices($setup, 0, 'hp')[1];
@@ -313,20 +444,20 @@ it('rebuilds the starting items and conditions for every fight, a listed troop o
   expect(count($parties))->toBe(3)->and($fresh->stats->currentHp)->toBe(50)->and($fresh->hasState('poison'))->toBeTrue();
 });
 
-it('changes the battle test frontline from one to eight through the party pane', function () {
+it('changes the battle test frontline from one to eight through party management', function () {
   $members = array_fill(0, Party::MAX_BATTLE_SIZE, new BattleTestMember('hero', 1));
   $setup = new BattleTestSetup($members, inventory: [new BattleTestItem('item.potion', 3)]);
   $parties = [];
   $scene = battleConditionScene($this, $setup, $parties);
   $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
 
-  $editor->movePane(1);
+  selectBattleTestPartySetting($editor, BattleTestPartySetting::FRONTLINE);
   $editor->moveHorizontal(-1);
   $editor->moveHorizontal(-1);
   $editor->moveHorizontal(-1);
   $fight = new ReflectionMethod(ArenaScene::class, 'fight');
   foreach (range(1, Party::MAX_BATTLE_SIZE) as $count) {
-    expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)->and($editor->setup->battleSize)->toBe($count);
+    expect($editor->focus)->toBe(ArenaSetupEditor::MANAGEMENT)->and($editor->setup->battleSize)->toBe($count);
     $fight->invoke($scene, 0);
     $party = $parties[array_key_last($parties)];
     expect(count($party->battlers))->toBe($count)->and(count($party->members))->toBe(Party::MAX_BATTLE_SIZE)
@@ -336,7 +467,7 @@ it('changes the battle test frontline from one to eight through the party pane',
   expect($editor->setup->battleSize)->toBe(Party::MAX_BATTLE_SIZE)->and($setup->battleSize)->toBe(Party::BATTLE_SIZE);
 
   $list = $scene->describeList();
-  expect($list->hints)->toContain(['cancel', 'Quit']);
+  expect($list->hints)->toContain([ToolNavigationAction::QUIT->value, 'Quit']);
   $title = new ReflectionMethod(ArenaScene::class, 'getPartyTitle')->invoke($scene);
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);
   $canvas = BattleTestMenuPresentation::compose($theme, $list, false, $scene->listPartyStats(), Party::MAX_BATTLE_SIZE - 1,
@@ -355,7 +486,7 @@ it('changes the battle test frontline from one to eight through the party pane',
     ->and(array_column($unfocused->images, 'id'))->not->toContain('battle-test-members-battle-test-member-7-selected');
 });
 
-it('folds the items into the staged menu: page to them from the party, choose a quantity as a shop does, add, remove and reset', function () {
+it('removes Items from the Tab cycle and edits quantities, additions, removal and reset through party management', function () {
   $setup = new BattleTestSetup([new BattleTestMember('hero', 1)]);
   $parties = [];
   $scene = battleConditionScene($this, $setup, $parties);
@@ -363,15 +494,18 @@ it('folds the items into the staged menu: page to them from the party, choose a 
   $items = $editor->inventoryEditor;
 
   $editor->movePane(1);
-  expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)
-    ->and($scene->describeList()->hints)->toContain([ArenaScene::PANE_NEXT_ACTION, 'Items']);
+  expect($editor->focus)->toBe(ArenaSetupEditor::PARTY);
   $editor->movePane(1);
+  expect($editor->focus)->toBe(ArenaSetupEditor::TROOPS);
+  selectBattleTestPartySetting($editor, BattleTestPartySetting::ITEMS);
+  $editor->confirm();
   $list = $scene->describeList();
   expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS)
     ->and($list->title)->toBe('Items (default stock)')
     ->and($list->rows)->toBe([['Start with no items', ['']], ['Potion', ['x99']], ['Ether', ['x99']]])
-    ->and($list->hints)->toContain(['confirm', 'Start'], [ArenaScene::PANE_PREVIOUS_ACTION, 'Party'], ['cancel', 'Quit'])
-    ->and($list->requiredHintActions)->toBe([ArenaScene::PANE_PREVIOUS_ACTION]);
+    ->and($list->hints)->toContain(['confirm', 'Start'], [ArenaScene::PANE_PREVIOUS_ACTION, 'Cycle panels', ArenaScene::PANE_NEXT_ACTION], [ToolNavigationAction::QUIT->value, 'Quit'])
+    ->and($list->requiredHintActions)->toBe([ArenaScene::PANE_PREVIOUS_ACTION, ArenaScene::PANE_NEXT_ACTION,
+      ToolNavigationAction::CANCEL->value, ToolNavigationAction::QUIT->value]);
 
   // Ether: down to its row, confirm, down one, left ten.
   $editor->moveVertical(2);
@@ -381,11 +515,14 @@ it('folds the items into the staged menu: page to them from the party, choose a 
   expect($items->focus)->toBe(BattleTestInventoryFocus::QUANTITY)
     ->and($scene->describeList()->rows)->toBe([['Quantity', ['x88']]])
     ->and($scene->describeList()->hints)->toContain(['up', 'Quantity', 'down'], ['left', 'By 10', 'right'], ['confirm', 'Set']);
-  // Shift+Tab chooses nothing while a quantity is open.
+  // Shift+Tab cycles the visible panels even during quantity editing, preserving the unconfirmed quantity.
   $editor->movePane(-1);
+  expect($editor->focus)->toBe(ArenaSetupEditor::PARTY)
+    ->and($editor->listFocus)->toBe(ArenaSetupEditor::ITEMS)
+    ->and($items->focus)->toBe(BattleTestInventoryFocus::QUANTITY);
+  $editor->movePane(1);
   expect($editor->focus)->toBe(ArenaSetupEditor::ITEMS)
-    ->and($items->focus)->toBe(BattleTestInventoryFocus::QUANTITY)
-    ->and($scene->describeList()->hints)->toContain(['cancel', 'Back']);
+    ->and($scene->describeList()->hints)->toContain([ToolNavigationAction::CANCEL->value, 'Back']);
   $editor->confirm();
   expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.potion', 99), new BattleTestItem('item.ether', 88)]);
 
@@ -421,13 +558,15 @@ it('folds the items into the staged menu: page to them from the party, choose a 
   $editor->moveHorizontal(1);
   expect($editor->setup->inventory)->toEqual([new BattleTestItem('item.ether', 88), new BattleTestItem('item.potion', 2)]);
   $editor->cancel();
-  $editor->movePane(1);
+  selectBattleTestPartySetting($editor, BattleTestPartySetting::ITEMS);
+  $editor->confirm();
   $editor->moveVertical(10);
   expect($scene->describeList()->hints)->toContain(['confirm', 'Use']);
   $editor->confirm();
   expect($editor->setup->inventory)->toBeNull()->and($scene->describeList()->title)->toBe('Items (default stock)');
-  $editor->movePane(-1);
-  $editor->movePane(-1);
+  $editor->cancel();
+  expect($editor->focus)->toBe(ArenaSetupEditor::MANAGEMENT);
+  $editor->cancel();
   expect($editor->focus)->toBe(ArenaSetupEditor::TROOPS);
 });
 
@@ -449,7 +588,7 @@ it('sets a member\'s starting HP, MP and states in the member editor, near the t
     ->and($editor->member->level)->toBe(1)
     ->and($scene->describeList()->rows[2])->toBe(['HP', ['< 89% >']])
     ->and($scene->describeList()->hints)->toContain(['left', 'Change', 'right'],
-      [MenuPager::PREVIOUS_ACTION, 'HP by 10', MenuPager::NEXT_ACTION], ['confirm', 'Choose'], ['cancel', 'Done']);
+      [MenuPager::PREVIOUS_ACTION, 'HP by 10', MenuPager::NEXT_ACTION], ['confirm', 'Choose'], [ToolNavigationAction::CANCEL->value, 'Done']);
   $editor->moveVertical(-1);
   $editor->movePage(1, 16);
   expect($editor->member->level)->toBe(11)
@@ -539,8 +678,8 @@ it('starts a custom stock empty in one action and adds only the selected quantit
   $parties = [];
   $scene = battleConditionScene($this, $setup, $parties);
   $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
-  $editor->movePane(1);
-  $editor->movePane(1);
+  selectBattleTestPartySetting($editor, BattleTestPartySetting::ITEMS);
+  $editor->confirm();
 
   $editor->confirm();
   expect($editor->setup->inventory)->toBe([])
@@ -619,6 +758,8 @@ it('sets the form in the member editor and the note reads the chosen form\'s rea
 
   // The form belongs to the actor: another actor has none, and members without forms show no row.
   $editor->cancel();
+  selectBattleTestPartySetting($editor, BattleTestPartySetting::MEMBERS);
+  $editor->confirm();
   $editor->moveVertical(1);
   $editor->confirm();
   expect($editor->fields)->not->toContain('form');
@@ -672,6 +813,7 @@ it('draws Engine tool chrome without evaluating a project menu theme and keeps T
   try {
     $runtime->start('Synthetic tool', 80, 30);
     $canvas = $scene->getPresentationCanvas();
+    expect(new ReflectionProperty(\Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'presentationError')->getValue($scene))->toBeNull();
     expect($canvas)->toBeInstanceOf(\Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas::class);
     $theme = \Ichiloto\Engine\UI\Presentation\ToolTheme::load();
     $background = array_find($canvas->textLayers, fn($layer) => $layer->id === 'menu-background');
@@ -683,3 +825,30 @@ it('draws Engine tool chrome without evaluating a project menu theme and keeps T
       ->and($panel->getBackgroundColor())->toBe($theme->getTerminalColor(\Ichiloto\Engine\UI\Presentation\ToolColor::BACKGROUND));
   } finally { $runtime->shutdown(); }
 })->with([false, true]);
+
+
+it('configures normal, preemptive and ambush openings in the shared party setup and preserves their round trips and runtime ownership', function () {
+  $setup = new BattleTestSetup([new BattleTestMember('hero', 1)], inventory: [new BattleTestItem('item.potion', 3)]);
+  $parties = $settings = [];
+  $scene = battleConditionScene($this, $setup, $parties, $settings);
+  $editor = new ReflectionProperty(ArenaScene::class, 'editor')->getValue($scene);
+  selectBattleTestPartySetting($editor, BattleTestPartySetting::OPENING);
+  $fight = new ReflectionMethod(ArenaScene::class, 'fight');
+  foreach ([null, ...\Ichiloto\Engine\Battle\EncounterAdvantage::cases()] as $opening) {
+    expect($editor->setup->firstStrike)->toBe($opening);
+    $serialized = (new ProjectBattleTest('Rat', $editor->setup))->toArray();
+    expect(ProjectBattleTest::fromArray($serialized)->setup)->toEqual($editor->setup);
+    $fight->invoke($scene, 0);
+    $recorded = $settings[array_key_last($settings)];
+    expect($recorded['firstStrike'] ?? null)->toBe($opening?->value)
+      ->and(array_key_exists('firstStrike', $recorded))->toBe($opening !== null);
+    $copy = $editor->setup->withMember(0, $editor->setup->members[0]->withLevel(2))->withArena('other')->withInventory([])->withBattleSize(1);
+    expect($copy->firstStrike)->toBe($opening)->and($editor->setup->inventory)->toEqual($setup->inventory);
+    $editor->moveHorizontal(1);
+  }
+  expect($editor->setup->firstStrike)->toBeNull()->and($setup->firstStrike)->toBeNull()
+    ->and(ProjectBattleTest::fromArray(['firstStrike' => 'party'])->createSetup($this->actors)->firstStrike)
+    ->toBe(\Ichiloto\Engine\Battle\EncounterAdvantage::PARTY);
+  expect(fn() => BattleTestSetup::fromArray(['members' => [['actor' => 'hero', 'level' => 1]], 'firstStrike' => 'unknown']))
+    ->toThrow(InvalidArgumentException::class, 'firstStrike');
+});

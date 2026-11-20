@@ -727,8 +727,8 @@ Collision is read through `MapCollisionResolver::resolveMap`, so declared
 occupancy and glyph-keyed compatibility are judged alike; graphics stay
 independent of it, and nothing here changes either. It warns about:
 
-- a solid cell that shows only walkable ground: no obstacle tile, no art drawn
-  over the player and no world object art standing in its middle;
+- a solid cell that shows only walkable ground. It has no obstacle tile, art
+  drawn over the player or visible world-object barrier;
 - a walkable cell whose topmost ground-claiming tile is water or a barrier, or
   that a world object's opaque art covers by at least 60% on the object's
   ground rows;
@@ -737,12 +737,13 @@ independent of it, and nothing here changes either. It warns about:
   resource's `occupancyStamp`, where collision blocks movement, without its
   painted doorway. A slender post standing in its cell leaves nothing bare.
 
-Art covers a cell when it stands in the cell's middle, where the player stops
-(opaque pixels in the central quarter of its columns on a quarter of its
-rows), so a sliver of a building along a cell's edge is not taken for the
-building. Coverage is read from the current PNG each time, placed as the field
-draws the object; nothing about the image is stored, so replacing it needs no
-update. A tile's class comes from its tileset's `appearance`. A cell is not
+An upright shows in the cell when opaque art crosses its central quarter of
+columns in at least a quarter of its rows. A low crossbar also shows a solid
+barrier when it spans the central three quarters of the cell across consecutive
+rows in the lower half. That face must cover at least an eighth of the cell's
+height. The ground and walk-through checks retain their own coverage rules.
+Coverage is read from the current PNG as the field draws the object. Replacing
+an image needs no separate metadata update. A tile's class comes from its tileset's `appearance`. A cell is not
 judged when what it shows is unknown: an unclassified tile, a terminal glyph
 still showing, an NPC, or art that cannot be read (`passage.unjudged`).
 Entrances and painted doorways belong to the doorway rule above, art above an

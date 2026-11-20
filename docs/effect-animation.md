@@ -661,8 +661,11 @@ at release, using the renderer’s whole-degree headings. If the projected
 formation has no shared drawable ray, the presentation reports that geometry
 and the action still uses its existing combat cue. To give the flight a
 horizontal exit instead, set `flight.fallback => 'horizontal-exit'`. The
-ray then leaves the arena in the caster's opponent-facing direction at the
-release height. `BattleStraightShot::planRoute()` reports the selected path,
+ray then leaves the arena toward the selected recipients' captured physical
+ground extent, at the release height. Self-only or tied columns retain the
+subject's formation facing. Party identity and artwork bounds do not choose
+the exit. `BattleStraightShot::planRoute()` takes an explicit horizontal
+facing and reports the selected path,
 whether it used the exit and the order of the supplied recipients.
 
 For a fixed, once-playing graphical target effect, set the optional
@@ -739,7 +742,44 @@ existing lane key. `getCapturedTargetGroup()` retains its selected-group API.
 New host providers use `bindAnchorSnapshotCapture()`; existing target-only
 providers retain `bindTargetGroupCapture()` and expose their available group.
 The source point adds no recipient identity or outcome. Ground-lane endpoint
-selection and rendering consume this data in a separate binding.
+selection is available through `getGroundSpanEndpoint()`.
+
+A captured graphical ground image can span that source ground to the farthest
+selected ground X, at the group's ground-origin depth. One selected target uses
+its actual ground point. Opposite equally far endpoints are ambiguous and
+produce a presentation diagnostic. Author a measured rear `pivot` and a distinct
+normalized source tip:
+
+```php
+'anchor' => 'target-group', 'attachment' => 'ground',
+'anchorLifetime' => 'target-capture', 'fit' => 'contain',
+'pivot' => ['x' => .9, 'y' => .5],
+'groundSpan' => ['tip' => ['x' => .1, 'y' => .5]],
+```
+
+The enclosing battle timeline requires fixed once playback and an explicit
+`targetCaptureFrame`. Keys begin at or after capture and own visibility and
+explicit image flips. Their positions must remain zero. Do not author `cells`,
+`span`, `flight`, `detachFrame`, `contactRail`, `attachmentPoint`, `facing` or
+`toward` on this track: the two measured endpoints own its projection. The
+binding must use scale 1; another scale reports a diagnostic because a uniform
+image cannot retain both captured endpoints under an additional size change.
+
+The complete current source cell uses one uniform scale and a rigid rotation,
+including its padding and thickness. Two straight, zero-offset texture-strip
+knots express the floating-point axis through the existing canvas primitive.
+The arena clips the complete image without shrinking it to fit. Generic texture
+geometry and composite work limits apply; invalid geometry, missing captured
+caster placement, or missing compositing/texture-strip capability produce a
+presentation diagnostic. Legacy target-only capture cannot invent a caster
+point. These failures preserve the command's single combat resolution. Pause,
+reduced-motion sampling, cancellation and completion retain their existing
+clocks and cleanup. The Terminal presentation owns its independent glyph lane.
+
+Compilation and compiled array export retain `groundSpan.tip`; the original
+source descriptor remains unchanged. Editor open/save and graphical controls
+must preserve this field through their shared source-preserving services before
+claiming authoring support.
 
 For example, `targetCaptureFrame => 19` with equal first/last contact frames20
 captures under the film, then contacts every selected identity simultaneously
@@ -990,11 +1030,23 @@ battle only, with `facing`; `EffectFacingTarget::cases()` lists it for authoring
 `recipient`, the default, is the turn described above. `opponents` turns the track
 toward the anchored battler's opponents whatever side its caster stands on: a ward
 raised in front of its recipient faces that recipient's enemies when an ally casts
-it from either side or the battler casts it on itself. `BattleEffectDirection::getOpponentsSign`
-owns the side convention (the party faces west, the troop east) for command advance
-and these tracks alike. GPUI passes each combatant's side from its formation; Terminal
-reads it from the battler's party or troop membership. A subject with neither keeps the
-authored facing. Last Legend's Barrier ward (`battle-barrier`) is the first consumer.
+it from either side or the battler casts it on itself. Graphical playback resolves
+the direction from that subject's ground to the opposing formation's ground extent.
+A target group uses its whole ground origin. A detached effect retains the direction
+captured at release. Membership selects the opposing participants; it never determines
+which side of the canvas they occupy. Terminal retains its established fixed lanes
+through `BattleEffectDirection::getOpponentsSign`. A subject without known formation
+geometry keeps the authored track orientation.
+
+Battler source drawings retain their existing party-west/troop-east convention.
+Their displayed orientation is resolved separately: a stationary active actor faces
+the selected ground extent, excluding itself; duplicate selections and selection
+order do not change it. Empty, self-only and equal-column selections retain the
+opponents-facing direction. Other participants face the opposing ground extent.
+A planned route retains its own facing during advance, action and return, including
+reduced motion, which suppresses displacement. Mirroring reflects the source around
+its physical foot and projects named pose points from that same image. A host without
+required image-flip support reports the unsupported formation explicitly.
 
 Battle image keyframes additionally accept boolean `flipX` and `flipY`. These
 mirror the selected source cell, not the entire sheet or its destination. The
@@ -1445,11 +1497,40 @@ field/side containment, pairwise overlap and cursor clearance, and never moves,
 clamps or resizes artwork. Runtime preparation logs the same diagnostics once
 when regions are authored; authoring/validation can expose them before play.
 `PngAssetBounds` uses optional GD PNG inspection with a bounded cache invalidated
-by current content, not an import-integrity identity gate. Missing/corrupt art
+by current content, not an import-integrity identity gate. Multi-crop consumers use
+`getVisibleBoundsForImages()` to group drawings by source asset under one content
+snapshot. Uncached cells share one decoded PNG for that asset; it is released
+before the next asset, and only compact crop facts remain cached. Travel-envelope
+inspection uses this batch path, so a new sheet is decoded once for its cells.
+Visible bounds, solid lower-edge facts and replacement checks retain their exact
+pixel rules. Missing/corrupt art
 and unavailable inspection support are explicit diagnostics, not a falsely
 successful pixel check. GD is not a new required runtime dependency; native
 decoding remains rendering authority. Regions and warnings are graphical only
 and never change terminal geometry, collision, gameplay or saves.
+
+Ordinary target travel uses the standing body and its existing ground footing
+for the continuous ground route. Movement-art validation replaces the former
+flat union of every Move and Return drawing: `BattleTravelPoseBounds` checks
+only the playback entry selected at each displayed 120 Hz route position.
+Move uses its authored cadence; a non-looping Return without an impact entry
+uses the command's rounded return duration. Repeated holds remain distinct
+playback entries, and short fitted trips check the entries actually displayed.
+Move entry and Return exit stand at home; Move exit and Return entry stand at
+contact. Each transition retains its own visible pixel extent. A later hop
+peak therefore does not become the actor's height before take-off.
+
+The adapter reads the current pose's crops, placement, facing and existing
+surface/elevation treatment. No artwork size, authored ground coordinate,
+strike point, arena, speed or combat outcome changes to make a route pass.
+The pure bounds check finds unsafe tick intervals along each straight route
+segment and matches them to the pose clock; its work does not grow once per
+elapsed command tick on a long trip. A real visibility failure keeps the
+structured `outside-arena` result. The current planner chooses its ground
+route before this visual guard; it does not search alternative time-dependent
+routes after a guard failure. Flash-step's bound-action entry/exit transit
+contract remains separate from the ordinary Move/Return roles. Runtime and
+Editor inspection share `GraphicalBattlePresentation::planActionTravel`.
 
 `GraphicalBattleEffects` presents current image/glyph/text segments through
 retained canvas layers, follows combatant-instance bounds and draws a screen
@@ -1497,6 +1578,17 @@ does not expose a blank battlefield or resend unchanged frames. Sparse graphical
 text composition keeps the same partial-update ownership. Action cleanup owns
 feedback, message, focus, flash, shake and temporarily hidden graphical controls,
 not combat state.
+
+Graphical battle entry's initial resource barrier waits without a deadline behind
+the covered outgoing transition. The arena, participant/reserve/action bindings,
+contact-effect layers and skin/control owners declare their resources before first
+battle composition. Slow preparation does not start combat or consume any command
+frames. An explicit resource refusal uses the existing renderer-session error path;
+there is no foreground-on-failure entry path or added retry/cancel UI. The shared
+command readiness timeout remains a separate policy. Exact master-pixel bounds and
+lower-edge facts persist in a disposable user cache; native display-size copies and
+device scaling belong to the renderer. The isolated candidate's native integration
+and timing qualification remain open.
 
 Terminal battle entry also imports the existing frame-file art into the shared
 `EffectPlaybackSession`, retaining its normal 0.2-second duration. The blocking
@@ -2798,8 +2890,8 @@ slots, actor dimensions and terminal cells:
   'type' => 'field-motion',
   'presentation' => 'graphical',
   'keyframes' => [
-    ['frame' => 151, 'duration' => 1, 'payload' => ['x' => -10.25, 'y' => 3.5]],
-    ['frame' => 152, 'duration' => 1, 'payload' => ['x' => 7.0, 'y' => -2.0]],
+    ['frame' => 151, 'duration' => 1, 'payload' => ['x' => -10.25, 'y' => 3.5, 'scale' => 1.025]],
+    ['frame' => 152, 'duration' => 1, 'payload' => ['x' => 7.0, 'y' => -2.0, 'scale' => 1.02]],
     ['frame' => 153, 'duration' => 1, 'payload' => ['x' => 0.0, 'y' => 0.0]],
   ],
 ]
@@ -2808,8 +2900,10 @@ slots, actor dimensions and terminal cells:
 Samples are ordered and nonoverlapping. `duration` defaults to one frame;
 `visible: false` disables a sample. Gaps and completion release this track's
 transform. Zero is an explicit active sample. Multiple active motion tracks add
-their offsets. Values must be finite within the existing canvas coordinate
-limit. The translated surface must also fit that coordinate contract; an
+their offsets; explicit scale factors multiply about the neutral battlefield
+centre. An omitted scale means1at that sample, with no previous-value carry.
+Scale is finite, positive and at most8; the combined transform obeys that same
+bound. Offsets must be finite within the existing canvas coordinate limit. The translated surface must also fit that coordinate contract; an
 unrepresentable transform is diagnosed and leaves a static field. Normal source
 track round trips may include the neutral `zIndex: 0`; motion has no visual
 z-order of its own.
@@ -2822,13 +2916,92 @@ shadows, attached effects and field feedback share one rigid canvas group;
 command/HUD controls remain in screen space. Reduced motion suppresses this
 track. Existing legacy per-battler `shake` behaviour is preserved.
 
+An optional `payload.scale` explicitly authors uniform scale about the logical
+battlefield centre; translation follows it. It changes the camera drawing,
+never a battler's source-art proportions or physical placement. Background,
+battlers, shadows, effects and field colour share the transform. This adds
+`CanvasGroup.scale` through the shared contract in `rendering/integration-roadmap.md`.
+
+Before admitting the transform, the host checks actual backdrop and child
+coverage for every viewport corner. An uncovered offset/scale is refused with
+a presentation diagnostic and the neutral field. The host no longer displays
+uncovered field translations. It does not compute an implicit cover scale or
+clamp motion. An author can choose a scale that covers the declared offsets;
+full precision must cover, including subpixel edges. Existing drawing/region
+limits stay in force. No artwork crop or repaint is implied.
+
 The graphical host needs `canvas_groups`; without it the command reports a
-presentation diagnostic and retains the static battlefield. Terminal compilation
+presentation diagnostic and retains the static battlefield. Nonidentity scale
+additionally requires `canvas_group_scale` and `canvas_region_budget`; missing
+support is diagnosed. Scale changes alone preserve prepared child regions and
+retained HUD state. Terminal compilation
 excludes this graphical track and keeps its own presentation. Native/Editor
 canvas-group painting and visual authoring remain separately qualified work;
 PHP source/runtime checks do not establish those ports. Authored per-battler
-recoil uses the mechanism below; live field colour treatment remains pending.
+recoil uses the mechanism below; field-colour source/clock and the remaining
+shared rendering dependency are described next.
 
+
+### Authored field colour
+
+The PHP host composes one complete palette state per active frame through
+shared canvas groups. Editor and native consumer qualification is separate
+from this Engine implementation.
+
+A `field-color` track belongs to a fixed once-playing battle target timeline.
+It is graphical and can use the existing `motion` selection (`all`, `normal`,
+`reduced`). Each held key has the same strict ordered frame/duration/visibility
+contract as motion. Payloads explicitly supply `field`, `battlers` and `effects`.
+Each field/battler value is an admitted `CanvasColorTransform` descriptor or
+`null`, which means original colour. `effects` is a bounded list of
+`['track' => <stable image/glyph/text/trail/tether ID>, 'transform' => <descriptor
+or null>]`. The ID selects a drawing track in this same graphical sequence;
+list entries preserve numeric-looking IDs without PHP array-key coercion.
+Unknown, duplicate or non-drawing references are refused. Gameplay targets,
+world positions, HUD and author text remain separate data.
+
+The state is complete: effects not selected retain their existing colour.
+Explicit neutral states remain distinguishable from a gap. No overlapping
+visible state may own the same frame in the same accessibility mode, including
+across separate control tracks. Source-effect lanes cannot take this ownership.
+The command prefixes selected drawing IDs with the same lane identity as their
+image commands, without inventing a battler anchor for field controls.
+
+`BattleFieldColor::getState()` derives the state from the actual paused command
+clock before visual clears. Gaps, completion, cancellation and results-only
+commands release it. Reduced motion uses the track's explicit motion selection
+on that same clock. Sampling has no drawing, damage, cue or save side effect.
+Flat and paired summon source round trips retain these structured frames before
+legacy keyframe coercion; malformed source remains available to strict shared
+validation. No game-specific palette values are built into the Engine.
+
+The arena owns `field`; battler bodies, echoes, shadows, contact surfaces and
+selection artwork own `battlers`. Authored effect producers report their logical
+track identity explicitly. `BattleCommandTimeline::getCinematicTrackIdAtFrame()`
+maps an original stage track to the same command-lane identity used by palette
+selections, preserving the stage image's existing render ID. Names, HP, condition
+badges, queued markers and command/HUD UI retain their original colours.
+Unselected authored effects and generated transition/title/tint effects retain
+their original colours too. The stage cover and background are separate from
+the battlefield arena and retain their own paint.
+
+Consecutive equal treatments share groups in the original global paint order.
+A body/effect/outline sequence keeps that order and uses the original body once;
+qualified indicator paths associate its later stroke across groups. Clips,
+geometry, opacity and child colour remain owned by the original drawings.
+Whole-field movement wraps this composition once and relocates qualified paths.
+Ordinary screen UI layers retain their original root objects through palette
+changes and release. UI sharing a paint layer with the field joins a neutral
+group to preserve exact equal-layer order. Text batching preserves every source
+owner and combines only matching treatments and field/screen placement.
+
+Applied treatment needs `canvas_groups`, `canvas_group_color` and
+`canvas_region_budget`; a split marker association additionally needs
+`canvas_indicator_image_path`. Explicit neutral states require no new drawing
+capability. The complete tree shares existing group, depth and resource budgets;
+unsupported capabilities or excessive composition report a presentation failure
+and preserve the existing base-battle fallback. The host adds no palette-specific
+native operation, artwork identity, hidden body copy or gameplay outcome.
 
 ### Authored battler motion
 
@@ -2849,8 +3022,9 @@ in exact logical pixels:
 ```
 
 `anchor` is required: `caster` or `target`. `space` defaults to `canvas`;
-`opponents` makes positive X point towards the opposing side, with Y still
-pointing down. Every selected target moves once by instance identity. Several
+`opponents` makes positive X point towards the actual opposing formation's ground
+extent, including reversed formations, with Y still pointing down. This direction is
+independent of the actor's selected-ally facing and the source-art convention. Every selected target moves once by instance identity. Several
 active tracks add. Presentation is graphical; when supplied it must be
 `graphical`. The field-motion interval, finite-coordinate, visibility and
 neutral `zIndex: 0` rules also apply.
@@ -2972,3 +3146,34 @@ Contiguous visible cells share draw runs, and a clipped/occluded wide glyph is
 omitted whole. The same pure renderer serves the live field and windowless
 presentation. A project supplies replaceable stencils and its final reviewed
 Terminal source; this capability does not install a Last Legend timeline.
+
+
+### Ground-span authoring contract and direction
+
+EffectGroundSpan::exportContract owns field names, required track values, conflicting fields, source orientation options and the selected-placement inspection API. Authoring tools read this export. Ownership failures identify the exact conflicting or required field before generic image validation.
+
+An omitted orientation retains the qualified rigid rotation. Explicit groundSpan.orientation = upright permits a horizontal source reflection and chooses the rigid projection whose source-cell top points upward. Source rear and tip still land exactly on the two captured anchors under one uniform scale. Authored vertical flips remain explicit. The complete source image is never deformed. If neither allowed rigid orientation can put the source top above its bottom, inspection reports the incompatible geometry; no fallback changes the art or endpoints. createProjection returns geometry and effective flips together; compose consumes both.
+
+BattleCommandPreview::getGroundSpanDiagnostics inspects the selected actor/troop/targets at the actual authored capture through the production pose/ground provider, without painting or applying game/audio outcomes. It reports opposite tied endpoints before raster preview. Re-run it for changed selections or sources; it does not claim to validate every future target subset. Both time and index preview methods now accept compositing independently of textureStrip and forward it to the shared graphical host.
+
+
+### Authored body tint ownership and flash strength
+
+A `flash` keyframe accepts `payload.strength`, a finite number in 0..1. Omission retains the existing graphical 0.22 strength. Zero draws no flash. Graphical caster/target flashes retain image-alpha masks; screen flashes remain deliberate washes. Terminal zero suppresses the pulse, while positive strengths retain its foreground-colour pulse. Reduced motion suppresses flashes.
+
+For a held, selected-body treatment, use a graphical `battler-tint` track in a fixed once battle timeline. Its required `anchor` is `caster` or `target`. Each strict held keyframe requires `payload.color` as a shared typed PresentationColor descriptor and `payload.strength` in 0..1. For example, white is `['kind' => 'rgb', 'r' => 255, 'g' => 255, 'b' => 255]`. The track owns only those combatant identities for that visible interval. It replaces their automatic DAMAGE/HEAL colour contribution, including an explicit zero-strength hold. It preserves reaction poses, HP, numbers, outcomes, other battlers and separately authored flash pulses. Outside the interval, automatic reaction colour resumes. Hidden keys, cancellation and completion release the owner; rendering and reverse preview do not mutate it. Overlapping owners are refused. Reduced motion omits this treatment and retains ordinary colour. This track removes automatic reaction tint only during its authored ownership interval; legacy flashes continue to add to ordinary feedback.
+
+
+### Owned effect image preparation
+
+`EffectImageSource` owns an image track's asset path, sheet grid and cell. Both battle and cinematic drawing resolve its rectangle from current PNG dimensions; compiled `frameWidth` and `frameHeight` never become replacement-art requirements. `CompiledEffectTimeline::getImageSources()` enumerates all visible selected graphical keyframes without seeking playback or firing cues. Identical descriptors share a preparation.
+
+`BattleEffectResources` uses `ActionAnimationResolver` and the linked summon library for one concrete action. Scene entry retains inherent attacks/hits and configured condition/stat/interception bindings. This removes eager scene preparation of every learned spell, item, dormant crisis variant and enemy pattern. Battler pose cells and UI remain independently declared by their existing owners. Future action effects enter the working set through current semantic focus or required command preparation.
+
+`PlayerActionState` drives focus preparation for both traditional and active-time battles. It selects the actual Attack or held crisis alternative, or the highlighted submenu/target action. A category does not load its whole book. Unaffordable, blocked, targetless and waiting selections release optional intent. No rendering path discovers future actions. `AssetHoldPrefetch` collects once per semantic choice and shares exact live scene requests. Refused or unsupported speculation releases its slots and is not automatically retried until selection changes or is explicitly cleared. On confirmation, command preparation drops competing speculation before admission and promotes matching requests without duplicate IDs or a second wait. Selection changes, cancellation, pause, events, roster changes, reconfiguration and stop retire optional ownership; scene and command scopes remain independent.
+
+Variable target and cinematic placements retain their selected source cells at original resolution. Battler and arena return preparation uses the same display-size/canvas descriptors as drawing, including future cells of the selected pose. It reuses scene residency rather than requesting a second full-size master. Native budget and atlas qualification for complete action working sets remains required.
+
+Battle entry holds its scene-owned declarations before combat starts. Each selected command also declares its actual compiled image cells, covering a newly granted action or a summon whose own cutscene route supplied the timeline. Required image preparation waits for readiness without a deadline and fails explicitly before entry cues or combat if refused, cancelled or unsupported. This removes foreground-decoding fallback after failed required-image preparation. The existing finite policy remains for optional return-only retention with no image effect. Command resources release on disposal; the scene keeps its independent entry leases until battle end. A wait update contributes no elapsed time to the command's first frame.
+
+This candidate is uninstalled. Complete native resource and budget qualification still includes these additional effect cells and command lifetimes; earlier cohort sizes and recordings cover the earlier source checkpoint.

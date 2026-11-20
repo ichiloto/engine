@@ -133,7 +133,7 @@ final class WorldObject implements GraphicalSpriteProviderInterface
             if ($base === null || $cover === null) { return null; }
             $occupant = $this->scene->npcManager?->findBedOccupant($this->definition->id);
             $actor = $occupant === null ? null : $this->scene->cinematicStage?->findSubjectVisual($occupant);
-            $hidden = $actor !== null ? !$actor->isVisible : ($occupant !== null && ($this->scene->cinematicStage?->suppresses($occupant) ?? false));
+            $hidden = $actor !== null ? !$actor->isGraphicallyVisible : ($occupant !== null && ($this->scene->cinematicStage?->suppresses($occupant) ?? false));
             $body = $hidden || $occupant === null ? null : ($actor !== null
                 ? $actor->getGraphicalSpriteDefinition() : $occupant->bed->getFrame());
             // An unavailable occupant role keeps its visible Terminal fallback.

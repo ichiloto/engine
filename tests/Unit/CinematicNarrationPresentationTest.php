@@ -192,3 +192,31 @@ it('requires the isolated host asset root and its graphical capabilities before 
     expect($this->scene->getPresentationOverlay(1350, 720))->toBeNull()
         ->and($this->scene->getExcludedOverlayLayers())->toBe([]);
 })->with(['graphical_canvas', 'canvas_overlay', 'canvas_clip_opacity', 'sprite_source_rect']);
+
+
+it('protects every drawn timed-text layer using its current themed page geometry', function (string $kind): void {
+    $this->presentation->showOverlay($kind, "One\nTwo\nThree\nFour", 'Synthetic title');
+    $operation = new TimedPresentationOperation($this->presentation, 4.0);
+    $dialogue = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation($this->root);
+    foreach ([0.0, 3.0] as $delta) {
+        $operation->update($delta);
+        $canvas = $this->scene->getPresentationOverlay(1350, 720);
+        $protected = $this->presentation->overlayPresentation->getProtectedBounds($dialogue, 1350, 720);
+        expect($protected)->not->toBeNull()->not->toBe([]);
+        foreach ($canvas->textLayers as $layer) {
+            expect(array_any($protected, static fn($rect): bool => $rect->x <= $layer->x
+                && $rect->y <= $layer->y && $rect->x + $rect->width >= $layer->x + $layer->bounds->width
+                && $rect->y + $rect->height >= $layer->y + $layer->bounds->height))->toBeTrue();
+        }
+    }
+})->with(['narration', 'title_card']);
+
+it('reports Terminal protection from the actual timed window independent of graphical themes', function (): void {
+    $this->presentation->showOverlay('narration', 'A synthetic Terminal cue.');
+    $cue = $this->presentation->overlayPresentation;
+    $before = $cue->getTerminalBounds(40, 15);
+    ($this->writeTheme)(array_replace($this->theme, ['schema' => 'unsupported']));
+    $after = $cue->getTerminalBounds(40, 15);
+    expect($after)->toEqual($before)->and($after->height)->toBeGreaterThan(0)
+        ->and($after->y)->toBe(0.0);
+});

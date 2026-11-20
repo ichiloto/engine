@@ -43,6 +43,7 @@ use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeRendererTransport;
 use Tests\Support\Rendering\RetainedFrameState;
 
+require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
@@ -511,3 +512,47 @@ it('uses shared menu-only Config over the frozen battle with honest optional fal
     rmdir($root);
   }
 })->with(['valid', 'absent', 'unsupported', 'invalid']);
+
+
+it('retires only focused speculation before pause and clears it again on scene stop', function () {
+  $leases = new \Ichiloto\Engine\Rendering\Assets\AssetHoldLeases(); $leases->startSession(true);
+  $sceneOwner = new stdClass();
+  $sceneRequests = $leases->replaceResources($sceneOwner, [new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('scene.png')]);
+  $focus = new \Ichiloto\Engine\Rendering\Assets\AssetHoldPrefetch($leases);
+  $collect = static fn() => [new \Ichiloto\Engine\Rendering\Assets\AssetHoldResource('selected.png')];
+  $focus->selectResources('before-pause', $collect);
+  new ReflectionProperty(BattleScreen::class, 'actionPrefetch')->setValue($this->scene->ui, $focus);
+  expect($leases->getDesiredRequests())->toHaveCount(2);
+  $this->scene->pauseBattle();
+  expect($this->scene->state)->toBeInstanceOf(BattlePauseState::class)
+    ->and($leases->getDesiredRequests())->toBe($sceneRequests);
+  $focus->selectResources('before-stop', $collect);
+  new ReflectionProperty(BattleScreen::class, 'actionPrefetch')->setValue($this->scene->ui, $focus);
+  $this->scene->stop();
+  expect($leases->getDesiredRequests())->toBe($sceneRequests);
+  $leases->releaseOwner($sceneOwner);
+});
+
+it('keeps a seconds-based state through a real Pause and resumes its exact remaining time', function () {
+  $clock = new \Tests\Support\ManualRuntimeClock();
+  $lease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
+  try {
+    $actor = $this->scene->partyBattlers[0];
+    $state = new \Ichiloto\Engine\Entities\States\State('synthetic-seconds', 'Synthetic duration', durationSeconds: 8);
+    expect($actor->addState($state, guaranteed: true))->toBeTrue();
+    $clock->seconds += 3;
+    pauseKey($this->scene, $this->source, KeyCode::P);
+    expect($this->scene->state)->toBe($this->scene->pauseState);
+    $clock->seconds += 90;
+    pauseKey($this->scene, $this->source, null, 90);
+    expect($actor->hasState($state->id))->toBeTrue();
+    $this->scene->resumeBattle();
+    expect($this->scene->state)->toBe($this->scene->runState);
+    $clock->seconds += 4.99;
+    expect($actor->hasState($state->id))->toBeTrue();
+    $clock->seconds += 0.02;
+    expect($actor->hasState($state->id))->toBeFalse();
+  } finally {
+    $lease->close();
+  }
+});

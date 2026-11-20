@@ -318,3 +318,40 @@ it('injects a fresh formation owner into command group effects on each simulatio
     ['partyFormation' => [['row' => 'back', 'lane' => 0]]]);
   expect($observer->rows)->toBe(['front', 'front', 'front'])->and($party->battlers[0]->stats->currentHp)->toBe(100);
 });
+
+it('skips the surprised side for only the opening round of a configured simulation', function () {
+  $party = makeSimulationParty('Hero', new Stats(currentHp: 10, attack: 90, speed: 10, grace: 100));
+  $troop = new Troop('Faster enemy', [makeSimulationEnemy('Threat',
+    new Stats(currentHp: 10, attack: 90, speed: 20, grace: 100))]);
+  $simulator = new BattleSimulator(turnLimit: 1);
+  $default = $simulator->simulate($party, $troop, 4);
+  $normal = $simulator->simulate($party, $troop, 4, ['firstStrike' => 'normal']);
+  $preempt = $simulator->simulate($party, $troop, 4, ['firstStrike' => 'party']);
+
+  expect($default->defeats)->toBe(4)
+    ->and($normal)->toEqual($default)
+    ->and($preempt->victories)->toBe(4)
+    ->and($preempt->hpLost)->not->toHaveKey('Hero');
+
+  $slower = new Troop('Slower enemy', [makeSimulationEnemy('Slower threat',
+    new Stats(currentHp: 10, attack: 90, speed: 1, grace: 100))]);
+  expect($simulator->simulate($party, $slower, 4)->victories)->toBe(4)
+    ->and($simulator->simulate($party, $slower, 4, ['firstStrike' => 'troop'])->defeats)->toBe(4);
+
+  $lastingParty = makeSimulationParty('Guard', new Stats(currentHp: 100, attack: 15, speed: 10, grace: 100));
+  $lastingTroop = new Troop('Guarded enemy', [makeSimulationEnemy('Guarded threat',
+    new Stats(currentHp: 100, attack: 15, speed: 1, grace: 100))]);
+  $twoRounds = new BattleSimulator(turnLimit: 2)->simulate($lastingParty, $lastingTroop, 4, ['firstStrike' => 'party']);
+  expect($twoRounds->averageTurns)->toBe(2.0)
+    ->and($twoRounds->hpLost['Guard'])->toBeGreaterThan(0)
+    ->and($lastingParty->leader->stats->currentHp)->toBe(100);
+});
+
+it('reports when a turn-only simulation cannot represent an elapsed battle state', function (): void {
+  $party = makeSimulationParty('Synthetic member', new Stats(currentHp: 100));
+  $party->members->toArray()[0]->addState(new State('elapsed', 'Elapsed', durationSeconds: 8), guaranteed: true);
+  $troop = new Troop('Synthetic troop', [makeSimulationEnemy('Synthetic foe', new Stats(currentHp: 100))]);
+
+  expect(fn () => new BattleSimulator()->simulate($party, $troop, 1))
+    ->toThrow(InvalidArgumentException::class, 'cannot measure elapsed duration for state "elapsed"');
+});

@@ -39,6 +39,9 @@ use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Throwable;
+use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\UI\Navigation\{ToolNavigationAction, ToolNavigationBindings};
+use Ichiloto\Engine\Battle\EncounterAdvantage;
 
 /**
  * The battle test, as RPG Maker's Battle Test: pick a troop, set up the
@@ -47,9 +50,11 @@ use Throwable;
  * a fresh party and a fresh troop, so nothing one battle does (experience,
  * levels, gold, items, states, defeated enemies) carries into the next.
  *
- * The next and previous pane actions move between Troops, Party and Items.
- * In Party, left and right change the frontline size and confirm edits the
- * selected member. Within member setup, left and right change the focused
+ * The shared next and previous pane actions cycle between the visible list
+ * and party panels, preserving the current edit. Confirm edits a member or
+ * opens Manage party, whose settings own members, frontline capacity, opening
+ * advantage and inventory. Escape cancels; only the dedicated quit action
+ * leaves the tool. Within member setup, left and right change the focused
  * field and page steps adjust level, HP or MP by ten. In Items, confirm
  * chooses the quantity to carry. In a graphical renderer, left and right
  * on the troop list choose the arena.
@@ -66,10 +71,10 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
   /** Wide enough for a member's whole help line: changing, stepping by ten, choosing and leaving its HP. */
   protected const int PANEL_WIDTH = 72;
   protected const int LIST_HEIGHT = 18;
-  /** The panes switch on the menus' shared next and previous actions (Tab and Shift+Tab), as the Journal's tabs do. */
-  public const string PANE_NEXT_ACTION = 'character_next';
-  public const string PANE_PREVIOUS_ACTION = 'character_previous';
-  protected const int INFO_HEIGHT = BattleTestSetup::MAX_MEMBERS + 2;
+  /** Tool actions move focus through visible panes, independently of gameplay character/page bindings. */
+  public const string PANE_NEXT_ACTION = ToolNavigationAction::NEXT_PANE->value;
+  public const string PANE_PREVIOUS_ACTION = ToolNavigationAction::PREVIOUS_PANE->value;
+  protected const int INFO_HEIGHT = BattleTestSetup::MAX_MEMBERS + 3;
   /** The setup option a caller may start the arena with, a {@see BattleTestSetup}. */
   public const string SETUP_OPTION = 'arena_setup';
   /** The option naming who keeps a composed test troop, a {@see BattleTestTroopKeeper}. */
@@ -188,14 +193,10 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     parent::update();
 
     $editor = $this->editor;
-
-    if ($this->troops === [] || $editor === null) {
-      if (Input::isButtonDown('quit') || Input::isButtonDown('cancel')) {
-        $this->getGame()->quit();
-      }
-
-      return;
-    }
+    $key = InputManager::getPressedKeyCode();
+    $toolAction = $key !== null && Input::isDiscreteKeyPressed($key) ? (new ToolNavigationBindings())->findAction($key) : null;
+    if ($toolAction === ToolNavigationAction::QUIT) { $this->getGame()->quit(); return; }
+    if ($editor === null) { return; }
 
     $setup = $editor->setup;
     $vertical = Input::getAxis(AxisName::VERTICAL);
@@ -206,9 +207,9 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       $editor->moveVertical($vertical > 0 ? 1 : -1);
     } elseif (abs($horizontal) > 0.1) {
       $editor->moveHorizontal($horizontal > 0 ? 1 : -1);
-    } elseif (Input::isButtonDown(self::PANE_NEXT_ACTION)) {
+    } elseif ($toolAction === ToolNavigationAction::NEXT_PANE) {
       $editor->movePane(1);
-    } elseif (Input::isButtonDown(self::PANE_PREVIOUS_ACTION)) {
+    } elseif ($toolAction === ToolNavigationAction::PREVIOUS_PANE) {
       $editor->movePane(-1);
     } elseif (Input::isButtonDown(MenuPager::NEXT_ACTION)) {
       $editor->movePage(1, self::LIST_HEIGHT - 2);
@@ -216,18 +217,12 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       $editor->movePage(-1, self::LIST_HEIGHT - 2);
     } elseif (Input::isButtonDown('confirm') || Input::isButtonDown('action')) {
       $request = $editor->confirm();
-    } elseif (Input::isButtonDown('cancel')
-      || ($editor->focus === ArenaSetupEditor::TROOPS && Input::isAnyKeyPressed([KeyCode::Q, KeyCode::q]))) {
+    } elseif ($toolAction === ToolNavigationAction::CANCEL) {
       $request = $editor->cancel();
     } else {
       return;
     }
 
-    if ($request === ArenaSetupEditor::QUIT) {
-      $this->getGame()->quit();
-
-      return;
-    }
     if ($request === ArenaSetupEditor::FIGHT) {
       $this->fight($editor->troopIndex);
 
@@ -427,6 +422,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         fn(BattleTestMember $member, string $field): array => $choices->getConditionChoices($placed($member), $this->editor->memberIndex, $field),
         fn(BattleTestMember $member, string $field): int => $choices->getVitalMaximum($placed($member), $this->editor->memberIndex, $field),
         new BattleTestInventoryEditor($choices->getItemChoices(...), $choices->getDefaultStock(...)),
+        actorStartingApFor: $choices->offersActionPoints() ? $choices->getActorStartingAp(...) : null,
       );
     } catch (Throwable $exception) {
       Debug::error(sprintf('The arena could not set up a party: %s', $exception->getMessage()));
@@ -531,7 +527,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $note = $list->getTerminalNote($innerWidth - 2);
     $note = $note === [] ? [] : ['', ...array_map(static fn(string $line): string => ' ' . $line, $note)];
     $this->listPanel?->setContent([...$this->formatList($list->getTerminalRows($innerWidth - 3), $list->selected, $innerWidth,
-      max(1, self::LIST_HEIGHT - 2 - count($note)), $this->editor?->listFocus ?? $focus), ...$note]);
+      max(1, self::LIST_HEIGHT - 2 - count($note)), ($this->editor?->listFocus ?? $focus)->value), ...$note]);
     $this->listPanel?->render();
 
     $this->infoPanel?->setTitle($this->getPartyTitle());
@@ -547,10 +543,30 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
    */
   public function describeList(): BattleTestMenuList
   {
+    $list = $this->describeEditingList();
+    $focused = $this->editor?->focus !== ArenaSetupEditor::PARTY;
+    $hints = $focused ? $list->hints : $this->describePartyHints('List');
+    $hints = array_values(array_filter($hints, static fn(array $hint): bool =>
+      !in_array($hint[0], [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION], true)));
+    $hints[] = [self::PANE_PREVIOUS_ACTION, 'Cycle panels', self::PANE_NEXT_ACTION];
+    if (!array_any($hints, static fn(array $hint): bool => $hint[0] === ToolNavigationAction::CANCEL->value)) {
+      $hints[] = [ToolNavigationAction::CANCEL->value, 'Back'];
+    }
+    if (!array_any($hints, static fn(array $hint): bool => $hint[0] === ToolNavigationAction::QUIT->value)) {
+      $hints[] = [ToolNavigationAction::QUIT->value, 'Quit'];
+    }
+    $required = array_values(array_unique([...$list->requiredHintActions, self::PANE_PREVIOUS_ACTION, self::PANE_NEXT_ACTION,
+      ToolNavigationAction::CANCEL->value, ToolNavigationAction::QUIT->value]));
+    return $list->withPanelFocus($focused, $hints, $required);
+  }
+
+  private function describeEditingList(): BattleTestMenuList
+  {
     $editor = $this->editor;
     $focus = $editor?->focus ?? ArenaSetupEditor::TROOPS;
 
     return match ($editor?->listFocus ?? $focus) {
+      ArenaSetupEditor::MANAGEMENT => $this->describePartyManagement(),
       ArenaSetupEditor::MEMBER => $this->describeMember(),
       ArenaSetupEditor::CHOOSER => $this->describeChoices(),
       ArenaSetupEditor::ITEMS => $this->describeItems(),
@@ -559,7 +575,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         selected: $focus === ArenaSetupEditor::TROOPS ? ($editor?->troopIndex ?? 0) : null,
         hints: $focus === ArenaSetupEditor::PARTY ? $this->describePartyHints('Troops')
           : [['confirm', ($editor?->onComposeRow ?? false) ? 'Compose' : 'Fight'], ...(($editor?->offersArenas ?? false) ? [['left', 'Arena', 'right']] : []),
-            [self::PANE_NEXT_ACTION, 'Party'], ['cancel', 'Quit']],
+            [self::PANE_NEXT_ACTION, 'Party'], [ToolNavigationAction::CANCEL->value, 'Cancel'], [ToolNavigationAction::QUIT->value, 'Quit']],
         namesArena: true, anchor: $editor?->troopIndex,
         requiredHintActions: [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION], requiresEveryHint: $focus === ArenaSetupEditor::PARTY),
     };
@@ -594,9 +610,31 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
 
   private function describePartyHints(string $list): array
   {
-    return [['confirm', 'Edit'], ['left', 'Frontline', 'right'], [self::PANE_PREVIOUS_ACTION, $list],
-      ...($this->editor?->inventoryEditor === null ? [] : [[self::PANE_NEXT_ACTION, 'Items']]),
-      ['cancel', $this->editor?->isInTroopComposer ? 'Back' : 'Quit']];
+    return [['confirm', $this->editor?->memberIndex === BattleTestSetup::MAX_MEMBERS ? 'Manage party' : 'Edit member'],
+      [self::PANE_PREVIOUS_ACTION, 'Cycle panels', self::PANE_NEXT_ACTION],
+      [ToolNavigationAction::CANCEL->value, 'Back'], [ToolNavigationAction::QUIT->value, 'Quit']];
+  }
+
+  protected function describePartyManagement(): BattleTestMenuList
+  {
+    $editor = $this->editor;
+    if ($editor === null) { return new BattleTestMenuList('Party management', [], null); }
+    $rows = array_map(fn(BattleTestPartySetting $setting): array => match ($setting) {
+      BattleTestPartySetting::MEMBERS => ['Members', [(string) count($editor->setup->members)]],
+      BattleTestPartySetting::FRONTLINE => ['Frontline limit', [(string) $editor->setup->battleSize]],
+      BattleTestPartySetting::OPENING => ['Opening', [match ($editor->setup->firstStrike) {
+        EncounterAdvantage::NORMAL => 'Normal', EncounterAdvantage::PARTY => 'Preemptive strike',
+        EncounterAdvantage::TROOP => 'Ambush', null => 'Project opening',
+      }]],
+      BattleTestPartySetting::ITEMS => ['Items', [$editor->setup->inventory === null ? 'Default stock'
+        : (string) count($editor->setup->inventory)]],
+    }, $editor->partySettings);
+    $opens = in_array($editor->partySetting, [BattleTestPartySetting::MEMBERS, BattleTestPartySetting::ITEMS], true);
+    return new BattleTestMenuList('Party management', $rows, $editor->managementIndex,
+      [...($opens ? [['confirm', 'Open']] : [['left', $editor->partySetting === BattleTestPartySetting::FRONTLINE ? 'Frontline' : 'Opening', 'right']]),
+        [self::PANE_PREVIOUS_ACTION, 'Cycle panels', self::PANE_NEXT_ACTION],
+        [ToolNavigationAction::CANCEL->value, 'Back'], [ToolNavigationAction::QUIT->value, 'Quit']],
+      [MenuRowColumn::fit(array_column(array_column($rows, 1), 0))], requiresEveryHint: true);
   }
 
   /** The test troop composer: its rows, the enemies to add, or what can be done to a member. */
@@ -612,17 +650,17 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
 
     return match ($composer->focus) {
       TestTroopComposer::ENEMIES => new BattleTestMenuList('Add an enemy', array_map(static fn(string $enemy): array => [$enemy, []], $composer->enemies),
-        $composer->enemyIndex, [['confirm', 'Add'], ['cancel', 'Back']]),
+        $composer->enemyIndex, [['confirm', 'Add'], [ToolNavigationAction::CANCEL->value, 'Back']]),
       TestTroopComposer::MEMBER => new BattleTestMenuList(sprintf('%d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''),
         array_map(static fn(string $action): array => [$action === 'move' ? 'Move on the stage' : 'Remove from the troop', []], $composer->actions),
-        $composer->actionIndex, [['confirm', 'Choose'], ['cancel', 'Back']]),
+        $composer->actionIndex, [['confirm', 'Choose'], [ToolNavigationAction::CANCEL->value, 'Back']]),
       TestTroopComposer::PLACING => $this->describePlacing($composer, $member),
       default => new BattleTestMenuList('Test Troop',
         array_map(fn(string $row): array => [$this->describeComposerRow($composer, $row), []], $composer->rows),
         $partyFocused ? null : $composer->rowIndex,
         $partyFocused ? $this->describePartyHints('Test Troop')
           : [['confirm', 'Choose'], ...($arenas ? [['left', 'Arena', 'right']] : []),
-            [self::PANE_NEXT_ACTION, 'Party'], ['cancel', 'Back']],
+            [self::PANE_NEXT_ACTION, 'Party'], [ToolNavigationAction::CANCEL->value, 'Back']],
         note: $this->keepStatus, namesArena: true, anchor: $composer->rowIndex,
         requiredHintActions: $partyFocused ? [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION, 'left']
           : [self::PANE_NEXT_ACTION, self::PANE_PREVIOUS_ACTION]),
@@ -641,7 +679,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       ['Back from the front', [sprintf('%d', round($member['place']->depth))]]];
 
     return new BattleTestMenuList(sprintf('Moving %d %s', $composer->memberIndex + 1, $member['enemy'] ?? ''), $rows, null,
-      [['left', 'Across', 'right'], ['up', 'Back and forward', 'down'], ['confirm', 'Done'], ['cancel', 'Put back']],
+      [['left', 'Across', 'right'], ['up', 'Back and forward', 'down'], ['confirm', 'Done'], [ToolNavigationAction::CANCEL->value, 'Put back']],
       $rows === [] ? [] : [MenuRowColumn::fit(array_column(array_column($rows, 1), 0))]);
   }
 
@@ -687,7 +725,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         $runtime->getAssetRoot(), $composing);
 
       return BattleTestMenuPresentation::compose($this->toolMenuTheme, $this->describeList(),
-        $focus !== ArenaSetupEditor::PARTY, $this->listPartyStats(),
+        $focus !== ArenaSetupEditor::PARTY, $this->listPartyPanelRows(),
         in_array($focus, [ArenaSetupEditor::PARTY, ArenaSetupEditor::MEMBER, ArenaSetupEditor::CHOOSER], true) ? $editor->memberIndex : null,
         $this->getArenaName(), $stage, $outlined, $composer?->focus === TestTroopComposer::PLACING, $issue,
         compositing: $runtime->supports(RendererSessionConfig::CANVAS_COMPOSITING), partyTitle: $this->getPartyTitle(),
@@ -834,8 +872,10 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       $rows[] = match (true) {
         $field === 'actor' => ['Actor', [sprintf('< %s >', $this->getActorName($member->actorId))]],
         $field === 'level' => [Vocabulary::getTerm('stats.level_short'), [sprintf('< %d >', $member->level)]],
-        $field === 'hp' => [Vocabulary::getTerm('stats.hp', 'HP'), [sprintf('< %s >', $member->hp?->format() ?? 'Full')]],
-        $field === 'mp' => [Vocabulary::getTerm('stats.mp', 'MP'), [sprintf('< %s >', $member->mp?->format() ?? 'Full')]],
+        in_array($field, ArenaSetupEditor::VITAL_FIELDS, true) => [
+          BattleTestResource::from($field)->getLabel(), [sprintf('< %s >',
+            $member->getVital(BattleTestResource::from($field))?->format() ?? ($field === 'ap' ? 'Authored' : 'Full'))],
+        ],
         $field === 'form' => ['Form', [sprintf('< %s >', array_find($this->battleTestChoices?->getFormChoices($member->actorId) ?? [],
           fn(array $choice): bool => $editor->isChoiceSelected($choice['id']))['technique'] ?? 'None')]],
         $field === 'states' => ['States', [$member->states === [] ? '(None)'
@@ -852,8 +892,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     // HP or MP by ten on their rows and the level by ten elsewhere; confirm chooses on every row but the actor and level.
     $field = $editor->field;
     $stepped = match ($field) {
-      'hp' => Vocabulary::getTerm('stats.hp', 'HP'),
-      'mp' => Vocabulary::getTerm('stats.mp', 'MP'),
+      'hp', 'mp', 'ap' => BattleTestResource::from($field)->getLabel(),
       default => Vocabulary::getTerm('stats.level_short'),
     };
     $changes = in_array($field, ['actor', 'level', 'form', ...ArenaSetupEditor::VITAL_FIELDS], true);
@@ -861,7 +900,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     return new BattleTestMenuList($this->getActorName($member->actorId), $rows, $editor->fieldIndex,
       [...($changes ? [['left', 'Change', 'right']] : []), [MenuPager::PREVIOUS_ACTION, $stepped . ' by 10', MenuPager::NEXT_ACTION],
         ...(in_array($field, ['actor', 'level'], true) ? [] : [['confirm', $field === 'remove' ? 'Remove' : 'Choose']]),
-        ['cancel', 'Done']],
+        [ToolNavigationAction::CANCEL->value, 'Done']],
       [MenuRowColumn::fit(array_column(array_column($rows, 1), 0), HorizontalAlignment::LEFT)],
       note: $this->describeCrisisReadiness($editor->memberIndex), requiresEveryHint: true);
   }
@@ -912,13 +951,12 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       : (($editor?->isChoiceSelected($choice['id']) ? '[x] ' : '[ ] ') . $choice['name']), []], $choices);
     $title = match (true) {
       $equipment => substr($field, 5),
-      $field === 'hp' => Vocabulary::getTerm('stats.hp', 'HP'),
-      $field === 'mp' => Vocabulary::getTerm('stats.mp', 'MP'),
+      in_array($field, ArenaSetupEditor::VITAL_FIELDS, true) => BattleTestResource::from($field)->getLabel(),
       default => ucfirst($field),
     };
 
     return new BattleTestMenuList(sprintf('%s for %s', $title, $this->getActorName($editor?->member?->actorId ?? '')),
-      $rows, $editor?->choiceIndex, $several ? [['confirm', 'Toggle'], ['cancel', 'Done']] : [['confirm', $equipment ? 'Equip' : 'Set'], ['cancel', 'Back']],
+      $rows, $editor?->choiceIndex, $several ? [['confirm', 'Toggle'], [ToolNavigationAction::CANCEL->value, 'Done']] : [['confirm', $equipment ? 'Equip' : 'Set'], [ToolNavigationAction::CANCEL->value, 'Back']],
       note: in_array($field, ['commands', 'skills', 'magic', 'summons'], true) ? 'Test grants only.' : null, requiresEveryHint: true);
   }
 
@@ -931,7 +969,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     }
     if ($items->focus === BattleTestInventoryFocus::CATALOGUE) {
       return new BattleTestMenuList('Add an item', array_map(static fn(array $choice): array => [$choice['name'], []], $items->addable),
-        $items->catalogueIndex, [['confirm', 'Choose'], ['cancel', 'Back']], requiresEveryHint: true);
+        $items->catalogueIndex, [['confirm', 'Choose'], [ToolNavigationAction::CANCEL->value, 'Back']], requiresEveryHint: true);
     }
     if ($items->focus === BattleTestInventoryFocus::QUANTITY) {
       $quantity = $items->quantity?->quantity ?? 0;
@@ -939,7 +977,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       return new BattleTestMenuList($items->getItemName($items->itemId ?? ''),
         [[$quantity === 0 ? 'Remove from the items' : 'Quantity', ['x' . $quantity]]], 0,
         [['up', 'Quantity', 'down'], ['left', 'By 10', 'right'],
-          ['confirm', $items->adding ? 'Add' : ($quantity === 0 ? 'Remove' : 'Set')], ['cancel', 'Back']],
+          ['confirm', $items->adding ? 'Add' : ($quantity === 0 ? 'Remove' : 'Set')], [ToolNavigationAction::CANCEL->value, 'Back']],
         [MenuRowColumn::fit(['x' . $quantity])], requiresEveryHint: true);
     }
     $entries = $items->entries;
@@ -955,7 +993,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     return new BattleTestMenuList($items->items === null ? 'Items (default stock)' : 'Items',
       $rows === [] ? [['The party holds no items.', []]] : $rows, $rows === [] ? null : $items->rowIndex,
       [...($rows === [] ? [] : [['confirm', match (true) { str_starts_with($row, 'item:') => 'Quantity', $row === 'add' => 'Add', $row === 'empty' => 'Start', default => 'Use' }]]),
-        [self::PANE_PREVIOUS_ACTION, 'Party'], ['cancel', $this->editor->isInTroopComposer ? 'Back' : 'Quit']],
+        [self::PANE_PREVIOUS_ACTION, 'Cycle panels', self::PANE_NEXT_ACTION], [ToolNavigationAction::CANCEL->value, 'Back'], [ToolNavigationAction::QUIT->value, 'Quit']],
       $rows === [] ? [] : [MenuRowColumn::fit(array_column(array_column($rows, 1), 0))],
       requiredHintActions: [self::PANE_PREVIOUS_ACTION], requiresEveryHint: true);
   }
@@ -974,7 +1012,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
    */
   protected function describeParty(int $width): array
   {
-    $members = $this->listPartyStats();
+    $members = $this->listPartyPanelRows();
 
     if ($members === []) {
       return [' No party could be built from this project.'];
@@ -991,6 +1029,17 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     return $rows;
   }
 
+  /** Selectable pane rows include an explicit management entry, outside the actor slots. */
+  protected function listPartyPanelRows(): array
+  {
+    $rows = $this->listPartyStats();
+    if ($this->editor === null) { return $rows; }
+    $emptyStats = array_fill_keys(array_keys($rows[0][1] ?? []), '');
+    while (count($rows) < BattleTestSetup::MAX_MEMBERS) { $rows[] = ['(empty)', $emptyStats]; }
+    $rows[] = ['Manage party', $emptyStats];
+    return $rows;
+  }
+
   /**
    * The party the setup describes, as every presentation shows it: each
    * member's name and its level, HP and MP, figures by their label.
@@ -999,13 +1048,16 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
    */
   public function listPartyStats(): array
   {
+    $resources = $this->battleTestChoices?->offersActionPoints() === true
+      ? BattleTestResource::cases() : [BattleTestResource::HP, BattleTestResource::MP];
     $members = [];
     foreach ($this->previewParty?->members?->toArray() ?? [] as $character) {
-      $members[] = [$character->name, [
-        Vocabulary::getTerm('stats.level_short') => (string) $character->level,
-        Vocabulary::getTerm('stats.hp', 'HP') => "{$character->stats->currentHp}/{$character->stats->totalHp}",
-        Vocabulary::getTerm('stats.mp', 'MP') => "{$character->stats->currentMp}/{$character->stats->totalMp}",
-      ]];
+      $stats = [Vocabulary::getTerm('stats.level_short') => (string) $character->level];
+      foreach ($resources as $resource) {
+        $stats[$resource->getLabel()] = sprintf('%d/%d', $resource->getCurrent($character->stats),
+          $resource->getMaximum($character->stats));
+      }
+      $members[] = [$character->name, $stats];
     }
 
     return $members;

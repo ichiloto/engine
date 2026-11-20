@@ -17,6 +17,7 @@ use Ichiloto\Engine\Events\Interpreter\EventExecutionScope;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 
 beforeEach(function () {
@@ -75,6 +76,8 @@ it('declares a required actor picker for field scripts and excludes battle-page 
     ->and($definition->runsIn(EventExecutionScope::FIELD))->toBeTrue()
     ->and($definition->runsIn(EventExecutionScope::BATTLE))->toBeFalse()
     ->and($catalog->createHandler('recruit_actor'))->toBeInstanceOf(RecruitActorCommand::class);
+  $points = $definition->fields[2];
+  expect($points->key)->toBe('spPolicy')->and($points->label)->toBe('Starting Mastery Points');
 });
 
 
@@ -227,4 +230,20 @@ it('rejects empty averages and invalid point policies without partially recruiti
   expect($this->party->members->count())->toBe(0)
     ->and(ScriptCommandCatalog::createEngineCatalog()->findDefinition('recruit_actor')->fields[2]->options)
     ->toBe(['authored', 'partyAverageEarned', 'partyAverageEstimatedEarned']);
+});
+
+it('uses the current project vocabulary when recruitment reports a Mastery point problem', function () {
+  $original = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['vocab' => ['mastery' => ['points' => 'JP']]]));
+  try {
+    expect(fn() => RecruitmentPointCatchUp::prepare([], RecruitmentPointPolicy::PARTY_AVERAGE_EARNED))
+      ->toThrow(InvalidArgumentException::class, 'Party-average JP');
+    $member = new Character('Legacy member', 0, new Stats());
+    $member->mastery = MasteryProgress::fromArray(['points' => 70, 'learned' => ['learned']]);
+    expect(fn() => RecruitmentPointCatchUp::prepare([$member], RecruitmentPointPolicy::PARTY_AVERAGE_EARNED))
+      ->toThrow(InvalidArgumentException::class, 'historical JP spending');
+    expect($member->mastery->spentPoints)->toBeNull();
+  } finally {
+    $original === null ? ConfigStore::remove(ProjectConfig::class) : ConfigStore::put(ProjectConfig::class, $original);
+  }
 });

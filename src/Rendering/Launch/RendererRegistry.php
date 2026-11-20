@@ -29,9 +29,13 @@ final class RendererRegistry
           // Merely installing a theme must not tighten the game's transport requirements.
           // Key transitions are an event subscription: requiring it is how the Game asks for
           // key presses and releases, which held field walking needs; modifier controls report Shift
-          // held alone, which dashing holds.
+          // held alone, which dashing holds, and chords report Ctrl+Q for the shared tool quit action.
+          // Asset holds subscribe this graphical session to
+          // readiness feedback before any scene asks for resources. A renderer without an
+          // eligible worker refuses startup through the shared capability handshake.
           requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES,
-            RendererSessionConfig::KEY_TRANSITIONS, RendererSessionConfig::MODIFIER_CONTROLS]),
+            RendererSessionConfig::KEY_TRANSITIONS, RendererSessionConfig::MODIFIER_CONTROLS,
+            RendererSessionConfig::KEYBOARD_CHORDS, RendererSessionConfig::ASSET_HOLDS]),
       ), 'GPUI', static function () use ($resolver): RendererAvailability {
         $resolver->resolve('gpui');
         return new RendererAvailability(true);

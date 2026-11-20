@@ -11,7 +11,6 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Field\PlayerSpriteSet;
 use Ichiloto\Engine\Field\PlayerPresentationConfig;
-use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use RuntimeException;
@@ -110,7 +109,7 @@ class GameLoader
    */
   public function loadSavedGame(string $saveFilePath): GameConfig
   {
-    $savedGame = SaveManager::getInstance($this->game)->loadSaveFile($saveFilePath);
+    $savedGame = $this->game->getSaveManager()->loadSaveFile($saveFilePath);
 
     $savedGame->config->party->inventory->bindItemStore($this->itemStore);
     return $savedGame->config;

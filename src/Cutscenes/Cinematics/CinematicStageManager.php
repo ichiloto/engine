@@ -141,7 +141,7 @@ final class CinematicStageManager
       subject: $subject !== null ? $leases[spl_object_id($subject)] : null,
       suppressedSubjects: array_values($leases),
       assetRoot: $subject !== null || $graphicalSprites instanceof CharacterSheet || $graphicalSprites instanceof FieldPoseAnimation
-        ? $this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() : null,
+        ? $this->gameScene->getFieldAssetRoot() : null,
       attachment: $attachment,
       hasAuthoredFacing: CinematicFacing::isDeclared($entry) || ($independentActor?->hasAuthoredFacing ?? false),
       sharesPresentNpcCell: $isNpcSnapshot
@@ -149,6 +149,7 @@ final class CinematicStageManager
           && ($this->gameScene->npcManager?->canStageNpc($appearance) ?? false)
         : null,
       plane: CinematicFieldPlane::getFromCommand($entry),
+      graphicalVisible: $entry['graphicalVisible'] ?? $previous?->graphicalVisible ?? true,
     );
     if ($this->animationPaused) { $actor->pauseGraphicalAnimation(); }
     ($this->actors[$id] ?? null)?->releaseVisual();
@@ -163,8 +164,10 @@ final class CinematicStageManager
   {
     if (array_key_exists('at', $entry) || array_key_exists('offset', $entry)) { CinematicRelativePosition::validate($entry, true); }
     CinematicFacing::validate($entry);
-    if (array_key_exists('replace', $entry) && !is_bool($entry['replace'])) {
-      throw new \InvalidArgumentException('Staged actor replace must be boolean.');
+    foreach (['replace', 'graphicalVisible'] as $booleanField) {
+      if (array_key_exists($booleanField, $entry) && !is_bool($entry[$booleanField])) {
+        throw new \InvalidArgumentException(sprintf('Staged actor %s must be boolean.', $booleanField));
+      }
     }
     if (array_key_exists('appearance', $entry)) {
       self::validateAppearance($entry);
@@ -260,7 +263,7 @@ final class CinematicStageManager
       if (!$actor->ownsPresentation()) { continue; }
       foreach ($actor->suppressedSubjects as $lease) {
         if ($lease->subject === $subject) {
-          return !$actor->isVisible || $actor->getGraphicalSpriteDefinition() !== null || $actor->getPresentationWorldCanvas() !== null;
+          return !$actor->isGraphicallyVisible || $actor->getGraphicalSpriteDefinition() !== null || $actor->getPresentationWorldCanvas() !== null;
         }
       }
     }

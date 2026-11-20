@@ -617,3 +617,56 @@ it('crosses exact high-rate clock boundaries without delaying frame cues', funct
   $session->update(.2);
   expect($session->isCompleted)->toBeTrue();
 });
+
+
+it('aligns entered cue frames with elapsed result time despite binary64 update subtraction', function () {
+  $effect = new CompiledEffectTimeline('resolution-clock', '', fps: 12,
+    cueSchedule: [['type' => 'applyEffect', 'frame' => 3]], defaults: ['lengthFrames' => 4]);
+  $result = new CompiledEffectTimeline('resolved-picture', '', fps: 12,
+    playbackSegments: [['layer' => 'image', 'startFrame' => 0, 'endFrame' => 0,
+      'drawCommands' => [['trackId' => 'first', 'assetId' => 'synthetic/result.png', 'payload' => []]]]],
+    defaults: ['lengthFrames' => 1]);
+  $playback = null; $resolved = 0;
+  $playback = commandPlaybackFixture(target: $effect, resolve: function () use (&$playback, &$resolved, $result): void {
+    $resolved++;
+    expect($playback->elapsedSeconds)->toBeGreaterThanOrEqual($playback->getElapsedSecondsAtFrame($playback->plan->impactFrame));
+    $playback->startResultEffect($playback->actor, $playback->plan->impactFrame, $result, \Ichiloto\Engine\Animations\Timelines\EffectPresentation::GRAPHICAL);
+  });
+  $playback->begin();
+  for ($tick = 0; $tick < 100 && $resolved === 0; $tick++) { $playback->update(1 / 60); }
+  $pictures = array_merge(...array_column($playback->getActiveSegments(), 'drawCommands'));
+  expect($resolved)->toBe(1)->and(array_column($pictures, 'assetId'))->toContain('synthetic/result.png');
+});
+
+it('inspects command frames with the authored defeat timing without advancing or sharing live callbacks', function () {
+  $actor = new Character('Actor', 1, new Stats(currentHp: 100, totalHp: 100));
+  $style = new \Ichiloto\Engine\Battle\Presentation\EnemyDefeatStyle(pulses: 5, pulseSeconds: .3, fadeSeconds: .75, audio: false);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1));
+  $effects = new ArrayObject(['resolve' => 0, 'present' => 0, 'capture' => 0]);
+  $playback = new BattleCommandPlayback($plan, $actor, [$actor], BattlePoseRole::ATTACK,
+    function () use ($effects): void { $effects['resolve']++; },
+    function (array $cue) use ($effects): void { $effects['present']++; }, $style);
+  $playback->bindPosePointCapture(function () use ($effects): array { $effects['capture']++; return []; });
+  $playback->pause();
+
+  $position = $plan->phases['target']['start'];
+  $sample = $playback->createPresentationSample($position);
+  expect($sample->defeatStyle)->toBe($style)
+    ->and($sample->session)->not->toBe($playback->session)
+    ->and($sample->session->timing)->toBe($playback->session->timing)
+    ->and($sample->session->currentFrame)->toBe($position)
+    ->and($sample->phase)->toBe('target')
+    ->and($sample->session->takeCurrentFrameCues())->toBe([])
+    ->and($sample->isPaused)->toBeFalse();
+
+  $sample->update($sample->getDurationSeconds());
+  expect($effects->getArrayCopy())->toBe(['resolve' => 0, 'present' => 0, 'capture' => 0])
+    ->and($playback->isPaused)->toBeTrue()
+    ->and($playback->elapsedSeconds)->toBe(0.0)
+    ->and($playback->session->currentFrame)->toBe(0)
+    ->and($playback->isCompleted)->toBeFalse();
+  $playback->resume();
+  $playback->begin();
+  $playback->update($playback->getDurationSeconds());
+  expect($effects['resolve'])->toBe(1)->and($effects['present'])->toBeGreaterThan(0);
+});

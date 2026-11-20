@@ -88,8 +88,10 @@ final class SceneFrameComposer
     }
     $collection = LatencyTrace::getTimeNow();
     $unpresented = [];
+    $excludedTerminalLayers = [];
     if ($scene instanceof SceneInterface || $scene === null) {
-      ['sprites' => $sprites, 'unpresented' => $unpresented] = $this->collector->collectPresentation($scene);
+      ['sprites' => $sprites, 'unpresented' => $unpresented, 'excludedTerminalLayers' => $excludedTerminalLayers]
+        = $this->collector->collectPresentation($scene);
     } else {
       $sprites = PresentationSprite::orderedList($scene->getPresentationSprites());
     }
@@ -105,7 +107,7 @@ final class SceneFrameComposer
     // A sprite is its subject's graphical presentation wherever it stands: off-grid sprites stay for renderer
     // clipping, and their subject's terminal layer never shows in its place. A wide terminal glyph whose subject
     // stands just past the left edge would otherwise leave its tail on screen as a glyph.
-    $excluded = array_map(static fn($sprite) => $sprite->id, $sprites);
+    $excluded = [...array_map(static fn($sprite) => $sprite->id, $sprites), ...$excludedTerminalLayers];
     // A world canvas presents its owners just as a sprite presents its subject.
     // Exclude those terminal layers before collecting text, including cinematic takeovers.
     $groups = $scene instanceof WorldCanvasProviderInterface ? $scene->getPresentationWorldCanvases() : [];

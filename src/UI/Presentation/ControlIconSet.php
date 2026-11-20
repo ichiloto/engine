@@ -70,4 +70,10 @@ final readonly class ControlIconSet
     if (!is_int($lip)) { throw new InvalidArgumentException('A keycap lip must be 0..8 pixels.'); }
     return new self($keycap, $data['glyphs'] ?? [], $data['colors'] ?? [], $lip);
   }
+  /** @return list<string> The family's own keycap and all registered glyphs, independent of the current hint. */
+  public function getAssetPaths(): array
+  {
+    return array_values(array_unique([...($this->keycap === null ? [] : [$this->keycap->asset]), ...array_values($this->glyphs)]));
+  }
+
 }

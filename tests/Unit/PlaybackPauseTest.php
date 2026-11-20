@@ -187,7 +187,7 @@ it('excludes a host-driven pause from the existing music handle without changing
     require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
     $saved = new ReflectionClass(\Ichiloto\Engine\Core\Clocks\RuntimeClock::class)->getStaticProperties();
     $source = new \Tests\Support\ManualRuntimeClock();
-    $clock = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($source);
+    $clock = \Tests\Support\DeclaredRuntimeClock::lease($source);
     try {
         $audio = $this->pauseAudio;
         $audio->playBackgroundMusic($this->sound);

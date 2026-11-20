@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
-use Ichiloto\Engine\Animations\Timelines\{BattleMotionAnchor, BattleMotionSpace, EffectPresentation};
+use Ichiloto\Engine\Animations\Timelines\{BattleMotionAnchor, BattleMotionSpace, EffectPresentation, EffectHorizontalFacing};
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 
@@ -12,7 +12,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 final class BattleBattlerMotion
 {
   public static function getOffset(?BattleCommandPlayback $playback, CharacterInterface $battler,
-    bool $partySide, bool $reducedMotion): ?Vector2
+    EffectHorizontalFacing $opponentsFacing, bool $reducedMotion): ?Vector2
   {
     if ($playback === null || $reducedMotion || $playback->isCompleted || $playback->plan->resultsOnly) { return null; }
     $offset = null;
@@ -24,7 +24,7 @@ final class BattleBattlerMotion
         $matches = $data['anchor'] === BattleMotionAnchor::CASTER->value ? $battler === $playback->actor
           : in_array($battler, $playback->targets, true);
         if (!$matches) { continue; }
-        $sign = $data['space'] === BattleMotionSpace::OPPONENTS->value ? BattleEffectDirection::getOpponentsSign($partySide) : 1;
+        $sign = $data['space'] === BattleMotionSpace::OPPONENTS->value ? $opponentsFacing->getSign() : 1;
         $offset ??= new Vector2();
         $offset->x += $data['x'] * $sign;
         $offset->y += $data['y'];

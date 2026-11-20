@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Entities;
 
 use Ichiloto\Engine\Progression\Mastery\MasteryCatalog;
 use Ichiloto\Engine\Progression\Mastery\MasteryProgress;
+use Ichiloto\Engine\Progression\Mastery\MasteryVocabulary;
 use InvalidArgumentException;
 
 /** A prepared recruitment award and explicitly authorized legacy history initialization. */
@@ -18,23 +19,26 @@ final readonly class RecruitmentPointCatchUp
     public static function prepare(array $members, RecruitmentPointPolicy $policy, ?MasteryCatalog $catalog = null): ?self
     {
         if ($policy === RecruitmentPointPolicy::AUTHORED) { return null; }
-        if ($members === []) { throw new InvalidArgumentException('Party-average SP recruitment requires an existing party.'); }
+        $pointsLabel = MasteryVocabulary::getPointsLabel();
+        if ($members === []) {
+            throw new InvalidArgumentException("Party-average {$pointsLabel} recruitment requires an existing party.");
+        }
         $totals = $histories = [];
         foreach ($members as $member) {
             $progress = $member->mastery;
             $earned = $progress->earnedPoints;
             if ($earned === null) {
                 if ($policy !== RecruitmentPointPolicy::PARTY_AVERAGE_ESTIMATED_EARNED) {
-                    throw new InvalidArgumentException("{$member->name} has unknown historical SP spending; select an explicit legacy estimate policy or migrate that history.");
+                    throw new InvalidArgumentException("{$member->name} has unknown historical {$pointsLabel} spending; select an explicit legacy estimate policy or migrate that history.");
                 }
                 $catalog ??= MasteryCatalog::getProjectCatalog();
                 $map = $catalog->findMap($member->actorId)
-                    ?? throw new InvalidArgumentException("{$member->name} needs a current Mastery map to estimate historical SP spending.");
+                    ?? throw new InvalidArgumentException("{$member->name} needs a current Mastery map to estimate historical {$pointsLabel} spending.");
                 $spent = $progress->pendingSpentPoints;
                 foreach ($progress->unrecordedNodes as $id) {
                     $node = $map->findNode($id);
                     if ($node === null || $node->cost === null) {
-                        throw new InvalidArgumentException("{$member->name} cannot estimate learned node '{$id}' without a current SP price; migrate that historical node explicitly.");
+                        throw new InvalidArgumentException("{$member->name} cannot estimate learned node '{$id}' without a current {$pointsLabel} price; migrate that historical node explicitly.");
                     }
                     if ($node->cost > PHP_INT_MAX - $spent) {
                         throw new InvalidArgumentException('Estimated Mastery spending exceeds the supported integer range.');
@@ -61,7 +65,8 @@ final readonly class RecruitmentPointCatchUp
         foreach ($this->histories as $history) {
             if ($history['progress']->points !== $history['points'] || $history['progress']->learned !== $history['learned']
                 || $history['progress']->pendingSpentPoints !== $history['pending'] || $history['progress']->spentPoints !== null) {
-                throw new InvalidArgumentException('Recruitment SP history changed after preparation; prepare the award again.');
+                throw new InvalidArgumentException(sprintf('Recruitment %s history changed after preparation. Prepare the award again.',
+                    MasteryVocabulary::getPointsLabel()));
             }
         }
         foreach ($this->histories as $history) { $history['progress']->initializeSpentPoints($history['spent']); }

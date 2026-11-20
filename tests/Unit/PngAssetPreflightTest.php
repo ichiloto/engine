@@ -132,7 +132,7 @@ it('keeps cached header facts and entries bounded independently of encoded image
   file_put_contents($path, $bytes);
   PngAssetPreflight::inspect($this->root, 'asset.png');
   $cache = $this->cache->getValue();
-  expect($cache[$path]['version'][7])->toBe(substr($bytes, 0, 24));
+  expect($cache[$path]['version']['header'])->toBe(substr($bytes, 0, 24));
   for ($probe = 0; $probe < 20; $probe++) { PngAssetPreflight::inspect($this->root, 'asset.png'); }
   expect($this->cache->getValue())->toBe($cache);
   $limit = new ReflectionClass(PngAssetPreflight::class)->getConstant('MAX_CACHE_ENTRIES');
@@ -220,4 +220,39 @@ it('releases a failed frame snapshot so repaired artwork is immediately availabl
     throw new LogicException('Composition failed');
   }))->toThrow(LogicException::class, 'Composition failed');
   expect(PngAssetPreflight::getAvailableSize($this->root, 'asset.png'))->toBeNull();
+});
+
+
+it('owns content revisions for one nested frame and reads replaced bytes after its normal or failed exit', function (bool $fail) {
+  $path = $this->root . '/asset.png';
+  $first = createPaddedPngBytes(12, 8);
+  $next = createPaddedPngBytes(8, 12);
+  file_put_contents($path, $first);
+  $firstRevision = hash('xxh128', $first);
+  $nextRevision = hash('xxh128', $next);
+  $compose = function () use ($path, $next, $firstRevision, $fail): void {
+    expect(PngAssetPreflight::getContentRevision($this->root, 'asset.png'))->toBe($firstRevision);
+    file_put_contents($path, $next);
+    PngAssetPreflight::runWithSnapshot(function () use ($firstRevision): void {
+      expect(PngAssetPreflight::getContentRevision($this->root, 'asset.png'))->toBe($firstRevision);
+    });
+    if ($fail) { throw new LogicException('Frame failed after reading content.'); }
+  };
+  if ($fail) {
+    expect(fn() => PngAssetPreflight::runWithSnapshot($compose))->toThrow(LogicException::class);
+  } else { PngAssetPreflight::runWithSnapshot($compose); }
+  expect(PngAssetPreflight::getContentRevision($this->root, 'asset.png'))->toBe($nextRevision);
+  file_put_contents($path, $first);
+  expect(PngAssetPreflight::getContentRevision($this->root, 'asset.png'))->toBe($firstRevision);
+})->with([false, true]);
+
+it('detects colliding file facts in content revisions outside a frame', function () {
+  $path = $this->root . '/asset.png';
+  $first = createPaddedPngBytes(12, 8);
+  $next = createPaddedPngBytes(8, 12);
+  $collision = replacePngWithCollidingFileFacts($path, $first, $next,
+    fn() => PngAssetPreflight::getContentRevision($this->root, 'asset.png'));
+  expect($collision['before'])->toBe($collision['after'])
+    ->and($collision['primed'])->toBe(hash('xxh128', $first))
+    ->and(PngAssetPreflight::getContentRevision($this->root, 'asset.png'))->toBe(hash('xxh128', $next));
 });

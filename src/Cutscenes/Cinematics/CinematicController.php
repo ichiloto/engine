@@ -18,8 +18,10 @@ final class CinematicController implements EventSessionCompletionTargetInterface
   protected bool $terminalOutcomeHandled = false;
   private ?string $cameraMapBefore = null;
   private ?CinematicConversation $conversation = null;
+  private ?CinematicFramingDefinition $framingDefinition = null;
+  private ?CinematicFramingScope $framingScope = null;
   /** The active conversation phase, or the cinematic when no conversation is declared. */
-  public ?object $dialogueFramingScope { get => $this->conversation?->framingScope ?? $this->active; }
+  public ?object $dialogueFramingScope { get => $this->getCurrentFramingScope() ?? $this->conversation?->framingScope ?? $this->active; }
 
   public function __construct(protected GameScene $gameScene)
   {
@@ -48,6 +50,7 @@ final class CinematicController implements EventSessionCompletionTargetInterface
     try {
       $this->conversation = isset($cinematic->presentation['conversation'])
         ? new CinematicConversation($this->gameScene, $cinematic->presentation['conversation']) : null;
+      $this->framingDefinition = new CinematicFramingDefinition($cinematic->presentation['framing'] ?? []);
       $initialPresentation = strtolower(trim(strval($cinematic->presentation['initial'] ?? '')));
 
       if (in_array($initialPresentation, ['black', 'hidden'], true)) {
@@ -93,6 +96,9 @@ final class CinematicController implements EventSessionCompletionTargetInterface
   public function getFramingSubjects(): array
   {
     if ($this->active === null) { return []; }
+    if (($scope = $this->getCurrentFramingScope()) !== null) {
+      return $this->resolveFramingSubjects($scope->references);
+    }
     $subjects = $this->conversation?->getFramingSubjects() ?? [];
     if ($this->gameScene->player !== null && !($this->gameScene->cinematicStage?->suppresses($this->gameScene->player) ?? false)) {
       $subjects[] = $this->gameScene->player;
@@ -109,6 +115,61 @@ final class CinematicController implements EventSessionCompletionTargetInterface
       $unique[spl_object_id($real)] = $subject;
     }
     return array_values($unique);
+  }
+
+  /** Resolve every reference and reject conflicting lanes before changing the current phase. */
+  public function beginFramingPhase(array $requirements, string $lanePath): CinematicFramingScope
+  {
+    if ($this->active === null || $this->framingDefinition === null) {
+      throw new RuntimeException('A framing phase requires an active cinematic.');
+    }
+    $references = $this->framingDefinition->getSubjectReferences($requirements);
+    $this->resolveFramingSubjects($references);
+    $parent = $this->getCurrentFramingScope();
+    if ($parent !== null && $lanePath !== $parent->lanePath
+      && !str_starts_with($lanePath, $parent->lanePath . '/')) {
+      throw new RuntimeException('Concurrent sibling lanes cannot replace another lane framing phase.');
+    }
+    return $this->framingScope = new CinematicFramingScope($references, $lanePath,
+      $this->gameScene->currentMapId, $this->gameScene->cinematicStage?->generation, $parent);
+  }
+
+  public function endFramingPhase(CinematicFramingScope $scope): void
+  {
+    if ($this->getCurrentFramingScope() === $scope) { $this->framingScope = $scope->parent; }
+  }
+
+  public function getCurrentFramingScope(): ?CinematicFramingScope
+  {
+    if ($this->framingScope !== null && ($this->framingScope->mapId !== $this->gameScene->currentMapId
+      || $this->framingScope->stageGeneration !== $this->gameScene->cinematicStage?->generation)) {
+      $this->framingScope = null;
+    }
+    return $this->framingScope;
+  }
+
+  private function resolveFramingSubjects(array $references): array
+  {
+    $resolver = new CinematicSubjectResolver($this->gameScene);
+    $subjects = $identities = [];
+    foreach ($references as $reference) {
+      try { $subject = $resolver->getSpriteSubject($reference); }
+      catch (\RuntimeException $error) {
+        throw new \RuntimeException('Required framing subject: ' . $error->getMessage(), previous: $error);
+      }
+      if ($subject instanceof \Ichiloto\Engine\Field\Player || $subject instanceof \Ichiloto\Engine\Field\Npc) {
+        $visual = $this->gameScene->cinematicStage?->findSubjectVisual($subject);
+        if ($visual !== null) { $subject = $visual; }
+        elseif ($this->gameScene->cinematicStage?->suppresses($subject) ?? false) {
+          throw new RuntimeException('A required subject is suppressed without a visible field representation.');
+        }
+      }
+      $real = $subject instanceof StagedActor ? ($subject->subject?->subject ?? $subject) : $subject;
+      $id = spl_object_id($real);
+      if (isset($identities[$id])) { throw new RuntimeException('Required framing references select one real subject twice.'); }
+      $identities[$id] = true; $subjects[] = $subject;
+    }
+    return $subjects;
   }
 
   public function selectConversationGroup(string $id): void
@@ -185,6 +246,8 @@ final class CinematicController implements EventSessionCompletionTargetInterface
 
     $this->active = null;
     $this->conversation = null;
+    $this->framingDefinition = null;
+    $this->framingScope = null;
     $this->cameraBefore = null;
     $this->cameraMapBefore = null;
     $this->downstreamCompletionTarget = null;

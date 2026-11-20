@@ -1,0 +1,3409 @@
+{
+  "fixture": "ichiloto.asset_holds.wire",
+  "fixtureVersion": 5,
+  "contract": "docs/agents/reviews/asset-retention-contract-20261115/RENDERER-PROPOSAL.md revision 7 (17 November 2026 unified image ledger)",
+  "protocol": 2,
+  "capability": "asset_holds",
+  "conventions": {
+    "assetRoot": "Synthetic fixtures resolve assets against a temporary asset root. Files named here are synthetic PNGs created by each test.",
+    "rejectionMessage": "A whole-generation rejection is an ordinary frame_rejected whose message starts with the stable prefix \"asset_hold <code>\"; tests match that prefix.",
+    "refusal": "A per-resource refusal keeps the generation accepted and reports state \"refused\" with a reason code from refusalReasons.",
+    "omission": "sourceRect, base, drawSize and canvas may be omitted; explicit null is rejected. drawSize and canvas must appear together. Optional boolean reread defaults to false.",
+    "integers": "An integer field accepts only a JSON integer without fraction or exponent; booleans, strings, fractions and 1.0 are rejected.",
+    "numbers": "A number field rejects strings, booleans and nonfinite values. Strict JSON cannot spell NaN or Infinity; an overflowing literal such as 1e400 is rejected whether the parser yields infinity or an error. Such cases appear as rawValue text, never as fixture numbers. An overflowing literal rejects its generation as an ordinary recoverable frame_rejected with resyncRequired and the field's code; it is never an error event.",
+    "validators": "Ids use the shared retained-id validator (gpui-renderer retained_protocol.rs validate_id). Asset paths use the shared wire-path validator extracted from the tile asset check (protocol.rs:570-577), then AssetRoot::resolve for root and file facts.",
+    "transactionLimit": "A transaction over limits.transaction is rejected whole as an ordinary frame_rejected whose message starts \"asset_hold transaction_limit\"."
+  },
+  "negotiation": {
+    "hello": {
+      "protocol": 2,
+      "type": "hello",
+      "title": "fixture",
+      "assetRoot": "<absolute temporary root>",
+      "grid": {
+        "columns": 2,
+        "rows": 2,
+        "cellWidth": 10,
+        "cellHeight": 20
+      },
+      "requiredCapabilities": [
+        "asset_holds"
+      ]
+    },
+    "readyAdvertises": "asset_holds",
+    "withoutSubscription": "Any asset_hold operation rejects its generation with code capability_missing; frame_ack carries no holds or holdCapacity; no asset_holds event is emitted.",
+    "eligibleWorker": "ready advertises asset_holds only from a renderer that runs an eligible hold worker. A renderer without one answers a hello that requires asset_holds with an ordinary error event before any ready, so ready never lists asset_holds while cold requests would stay pending forever. A hello without asset_holds is unaffected."
+  },
+  "limits": {
+    "maxLeasesPerSession": 1024,
+    "idBytes": {
+      "min": 1,
+      "max": 256,
+      "controlCharacters": false,
+      "validator": "shared validate_id"
+    },
+    "assetBytes": {
+      "min": 1,
+      "max": 4096,
+      "relative": true,
+      "nul": false,
+      "validator": "shared wire-path validator, matching MAX_TILE_ASSET_BYTES"
+    },
+    "revision": {
+      "min": 1,
+      "max": 9007199254740991,
+      "type": "integer"
+    },
+    "sourceRect": {
+      "fields": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "type": "unsigned 32-bit integer",
+      "widthHeightMin": 1,
+      "extentMustNotOverflow": true
+    },
+    "base": {
+      "required": [
+        "brightness",
+        "flipX",
+        "flipY",
+        "rotation"
+      ],
+      "optional": [
+        "bottomFade"
+      ],
+      "brightness": {
+        "type": "number",
+        "min": 0,
+        "max": 1,
+        "finite": true,
+        "negativeZeroEquals": 0
+      },
+      "flipX": {
+        "type": "boolean"
+      },
+      "flipY": {
+        "type": "boolean"
+      },
+      "rotation": {
+        "type": "integer",
+        "min": 0,
+        "max": 359
+      },
+      "bottomFade": {
+        "line": {
+          "type": "array of number",
+          "minItems": 2,
+          "maxItems": 16,
+          "itemMin": 0,
+          "itemMax": 1
+        },
+        "depth": {
+          "type": "number",
+          "exclusiveMin": 0,
+          "max": 1
+        },
+        "requiresRotation": 0
+      },
+      "identity": "brightness 1, both flips false, rotation 0 and no bottomFade normalize to the same key as an omitted base"
+    },
+    "charges": {
+      "region": "(cropWidth + 4) * (cropHeight + 4) * 4, from the header before decoding",
+      "base": "the guarded bytes after rotation; zero for an identity base",
+      "displayCopy": "(ceil(deviceWidth) + 2) * (ceil(deviceHeight) + 2) * 4; one guard device pixel on each side. Source crops retain two source pixels on each side."
+    },
+    "leaseCeiling": "applies to the transaction's collapsed final desired set; at most 1024 new or changed final requests are processed once each",
+    "maxOperationsPerFrame": 4096,
+    "transaction": {
+      "maxOperations": 4096,
+      "maxSerializedBytes": 4194304,
+      "code": "transaction_limit",
+      "appliesTo": "every hold transaction: a whole reset from its reset:true chunk to its presenting chunk, and each accepted non-reset generation, whose count the per-frame limit already bounds",
+      "counts": "every validated asset_hold put and remove of the transaction, across all staged chunks before the final collapse, including operations later superseded or removed",
+      "serialization": "an operation's size is the byte length of its compact UTF-8 JSON after validation. Keys appear in this order: op, kind, id, value. value holds revision, reread (always written), asset, then sourceRect only when present, then base only when it is not the identity. sourceRect holds x, y, width, height. base holds brightness, flipX, flipY, rotation, then bottomFade (line, depth) only when present. Strings escape only quote, backslash and control characters. Number fields use the shortest decimal that round-trips binary64, always with a fraction or exponent; negative zero brightness is written 0.0 Optional drawSize follows base, with width then height as binary64 numbers. Optional canvas follows drawSize, with width then height as integers and viewportFit as a string. Both are part of immutable preparation identity and canonical operation bytes.",
+      "examples": [
+        {
+          "operation": {
+            "op": "put",
+            "kind": "asset_hold",
+            "id": "b",
+            "value": {
+              "revision": 1000,
+              "reread": false,
+              "asset": "fixtures/b.png"
+            }
+          },
+          "bytes": 107
+        },
+        {
+          "operation": {
+            "op": "remove",
+            "kind": "asset_hold",
+            "id": "b"
+          },
+          "bytes": 44
+        },
+        {
+          "operation": {
+            "op": "put",
+            "kind": "asset_hold",
+            "id": "display-copy",
+            "value": {
+              "revision": 1,
+              "asset": "fixtures/cells.png",
+              "sourceRect": {
+                "x": 32,
+                "y": 48,
+                "width": 32,
+                "height": 48
+              },
+              "drawSize": {
+                "width": 271.4,
+                "height": 352.9
+              },
+              "canvas": {
+                "width": 1350,
+                "height": 720,
+                "viewportFit": "contain"
+              }
+            }
+          },
+          "bytes": 274,
+          "meaning": "display geometry is counted before metadata admission"
+        }
+      ],
+      "exactness": "the threshold cases use only strings, integers and booleans, so both sides compute their sizes exactly",
+      "effect": "exceeding either total rejects the whole transaction; the staged buffer and its counts are discarded and the committed holds, their jobs and the visible scene stay as they were; the next reset counts from zero"
+    },
+    "events": {
+      "maxStatusesPerEvent": 1024,
+      "maxStatusMessageBytes": 1024,
+      "waiting": "at most one waiting status per current request, so waiting transitions never exceed maxLeasesPerSession however many attempts a closed reader gate or a slow receiver holds back",
+      "acknowledgements": "a frame_ack lists what its generation changed, unchanged by coalescing; its statuses carry the same message bound"
+    },
+    "drawSize": {
+      "required": [
+        "width",
+        "height"
+      ],
+      "type": "finite number",
+      "exclusiveMin": 0,
+      "max": 16384,
+      "units": "logical canvas units",
+      "requires": "canvas",
+      "code": "invalid_draw_size"
+    },
+    "canvas": {
+      "required": [
+        "width",
+        "height",
+        "viewportFit"
+      ],
+      "widthHeightType": "integer",
+      "widthHeightMin": 1,
+      "widthHeightMax": 16384,
+      "viewportFit": [
+        "native",
+        "contain"
+      ],
+      "requires": "drawSize",
+      "code": "invalid_canvas",
+      "meaning": "Logical incoming surface supplied before any frame. It is independent of the currently retained outgoing canvas."
+    },
+    "imageBudget": {
+      "policy": "Renderer-configured single complete image ledger; a production numeric ceiling is pending complete measured high-water. Synthetic example limits here are explicit test parameters, not production defaults.",
+      "syntheticExample": {
+        "limitBytes": 33554432,
+        "limitCount": 2560,
+        "stagingLimitBytes": 8388608
+      },
+      "scope": "Held, foreground, staging and evictable-cache allocations including scratch/decoder/conversion buffers; one representation is charged once at its strongest owner.",
+      "priority": [
+        "held",
+        "foreground",
+        "staging",
+        "cache"
+      ],
+      "admission": "Reclaim evictable cache before refusing new allocations. Never evict held or foreground images to admit a lease. Staging is charged inside the same total and also has a sublimit.",
+      "observation": "Usage may exceed a newly lowered limit. A truthful over-limit snapshot remains valid; new allocations are refused until admission fits."
+    }
+  },
+  "validOperations": [
+    {
+      "name": "whole image, identity base",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "battle-stage:background",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/background.png"
+        }
+      },
+      "key": {
+        "rect": "whole image",
+        "base": "identity"
+      }
+    },
+    {
+      "name": "crop with base",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "battle-stage:actor",
+        "value": {
+          "revision": 2,
+          "asset": "fixtures/sheet.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 64,
+            "height": 96
+          },
+          "base": {
+            "brightness": 0.8,
+            "flipX": true,
+            "flipY": false,
+            "rotation": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "rotated base",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "film:arrow",
+        "value": {
+          "revision": 3,
+          "asset": "fixtures/arrow.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 315
+          }
+        }
+      }
+    },
+    {
+      "name": "faded base",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "film:creature",
+        "value": {
+          "revision": 4,
+          "asset": "fixtures/creature.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0,
+            "bottomFade": {
+              "line": [
+                0.72,
+                0.71
+              ],
+              "depth": 0.08
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "explicit identity base",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "battle-stage:identity",
+        "value": {
+          "revision": 5,
+          "asset": "fixtures/background.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0
+          }
+        }
+      },
+      "key": {
+        "sameAs": "whole image, identity base"
+      }
+    },
+    {
+      "name": "explicit reread",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "battle-stage:background",
+        "value": {
+          "revision": 6,
+          "reread": true,
+          "asset": "fixtures/background.png"
+        }
+      },
+      "effect": "advances the path's refresh epoch; every lease naming the path reports ended changed, then a new attempt"
+    },
+    {
+      "name": "remove",
+      "operation": {
+        "op": "remove",
+        "kind": "asset_hold",
+        "id": "battle-stage:actor"
+      }
+    },
+    {
+      "name": "remove unknown id",
+      "operation": {
+        "op": "remove",
+        "kind": "asset_hold",
+        "id": "never-declared"
+      },
+      "effect": "no-op"
+    },
+    {
+      "name": "display-size cell before incoming frame",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "key": {
+        "rect": "selected master cell",
+        "drawSize": "logical extent",
+        "canvas": "incoming logical dimensions and fit"
+      }
+    },
+    {
+      "name": "display extent bounds and native fitting",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 16384,
+            "height": 1e-07
+          },
+          "canvas": {
+            "width": 16384,
+            "height": 1,
+            "viewportFit": "native"
+          }
+        }
+      }
+    }
+  ],
+  "invalidOperations": [
+    {
+      "name": "unknown value field",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "priority": 1
+        }
+      },
+      "code": "schema"
+    },
+    {
+      "name": "remove with value",
+      "operation": {
+        "op": "remove",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {}
+      },
+      "code": "schema"
+    },
+    {
+      "name": "empty id",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "code": "invalid_id"
+    },
+    {
+      "name": "control character in id",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a\u0007",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "code": "invalid_id"
+    },
+    {
+      "name": "missing revision",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "asset": "fixtures/a.png"
+        }
+      },
+      "code": "invalid_revision"
+    },
+    {
+      "name": "zero revision",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 0,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "code": "invalid_revision"
+    },
+    {
+      "name": "fractional revision",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1.5,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "code": "invalid_revision"
+    },
+    {
+      "name": "revision above max",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 9007199254740992,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "code": "invalid_revision"
+    },
+    {
+      "name": "string revision",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": "1",
+          "asset": "fixtures/a.png"
+        }
+      },
+      "code": "invalid_revision"
+    },
+    {
+      "name": "non-boolean reread",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "reread": 1,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "code": "schema"
+    },
+    {
+      "name": "missing asset",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1
+        }
+      },
+      "code": "invalid_asset"
+    },
+    {
+      "name": "empty asset",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": ""
+        }
+      },
+      "code": "invalid_asset"
+    },
+    {
+      "name": "absolute asset",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "/tmp/a.png"
+        }
+      },
+      "code": "invalid_asset"
+    },
+    {
+      "name": "non-string asset",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": 7
+        }
+      },
+      "code": "invalid_asset"
+    },
+    {
+      "name": "null sourceRect",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "sourceRect": null
+        }
+      },
+      "code": "invalid_rect"
+    },
+    {
+      "name": "zero width",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 4
+          }
+        }
+      },
+      "code": "invalid_rect"
+    },
+    {
+      "name": "negative x",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "sourceRect": {
+            "x": -1,
+            "y": 0,
+            "width": 4,
+            "height": 4
+          }
+        }
+      },
+      "code": "invalid_rect"
+    },
+    {
+      "name": "fractional height",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 4.5
+          }
+        }
+      },
+      "code": "invalid_rect"
+    },
+    {
+      "name": "extent overflow",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "sourceRect": {
+            "x": 4294967295,
+            "y": 0,
+            "width": 2,
+            "height": 4
+          }
+        }
+      },
+      "code": "invalid_rect"
+    },
+    {
+      "name": "missing rect field",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 4
+          }
+        }
+      },
+      "code": "invalid_rect"
+    },
+    {
+      "name": "null base",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": null
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "base missing rotation",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "brightness above 1",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1.01,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "negative brightness",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": -0.1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "string brightness",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": "1",
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "non-boolean flip",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": 0,
+            "flipY": false,
+            "rotation": 0
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "rotation 360",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 360
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "fractional rotation",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 1.5
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "fade with rotation",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 90,
+            "bottomFade": {
+              "line": [
+                0.5,
+                0.5
+              ],
+              "depth": 0.1
+            }
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "fade line too short",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0,
+            "bottomFade": {
+              "line": [
+                0.5
+              ],
+              "depth": 0.1
+            }
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "fade line point above 1",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0,
+            "bottomFade": {
+              "line": [
+                0.5,
+                1.2
+              ],
+              "depth": 0.1
+            }
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "fade depth zero",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0,
+            "bottomFade": {
+              "line": [
+                0.5,
+                0.5
+              ],
+              "depth": 0
+            }
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "null bottomFade",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0,
+            "bottomFade": null
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "boolean revision",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": true,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "code": "invalid_revision"
+    },
+    {
+      "name": "integral float revision",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1.0,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "code": "invalid_revision"
+    },
+    {
+      "name": "asset above 4096 bytes",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/ab.png"
+        }
+      },
+      "code": "invalid_asset"
+    },
+    {
+      "name": "string rect field",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "sourceRect": {
+            "x": "0",
+            "y": 0,
+            "width": 4,
+            "height": 4
+          }
+        }
+      },
+      "code": "invalid_rect"
+    },
+    {
+      "name": "boolean rect field",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "sourceRect": {
+            "x": 0,
+            "y": false,
+            "width": 4,
+            "height": 4
+          }
+        }
+      },
+      "code": "invalid_rect"
+    },
+    {
+      "name": "unknown rect field",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 4,
+            "z": 0
+          }
+        }
+      },
+      "code": "invalid_rect"
+    },
+    {
+      "name": "boolean rotation",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": true
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "string flip",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": "true",
+            "flipY": false,
+            "rotation": 0
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "boolean brightness",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": true,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "nonfinite brightness",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": "<rawValue>",
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0
+          }
+        }
+      },
+      "rawValue": "{\"revision\":1,\"asset\":\"fixtures/a.png\",\"base\":{\"brightness\":1e400,\"flipX\":false,\"flipY\":false,\"rotation\":0}}",
+      "code": "invalid_base",
+      "delivery": "recoverable frame_rejected with resyncRequired, never an error event"
+    },
+    {
+      "name": "nonfinite fade depth",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0,
+            "bottomFade": {
+              "line": [
+                0.5,
+                0.5
+              ],
+              "depth": "<rawValue>"
+            }
+          }
+        }
+      },
+      "rawValue": "{\"revision\":1,\"asset\":\"fixtures/a.png\",\"base\":{\"brightness\":1,\"flipX\":false,\"flipY\":false,\"rotation\":0,\"bottomFade\":{\"line\":[0.5,0.5],\"depth\":-1e400}}}",
+      "code": "invalid_base",
+      "delivery": "recoverable frame_rejected with resyncRequired, never an error event"
+    },
+    {
+      "name": "unknown base field",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "a",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/a.png",
+          "base": {
+            "brightness": 1,
+            "flipX": false,
+            "flipY": false,
+            "rotation": 0,
+            "color": [
+              1
+            ]
+          }
+        }
+      },
+      "code": "invalid_base"
+    },
+    {
+      "name": "drawSize null",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": null,
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_draw_size"
+    },
+    {
+      "name": "drawSize array",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": [],
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_draw_size"
+    },
+    {
+      "name": "drawSize unknown field",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9,
+            "extra": 1
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_draw_size"
+    },
+    {
+      "name": "drawSize missing field",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_draw_size"
+    },
+    {
+      "name": "missing paired drawSize",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_draw_size"
+    },
+    {
+      "name": "canvas null",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": null
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "canvas array",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": []
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "canvas unknown field",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain",
+            "extra": 1
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "canvas missing field",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "missing paired canvas",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "invalid draw width 0",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 0,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_draw_size"
+    },
+    {
+      "name": "invalid draw width -1",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": -1,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_draw_size"
+    },
+    {
+      "name": "invalid draw width 16385",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 16385,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_draw_size"
+    },
+    {
+      "name": "invalid draw width True",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": true,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_draw_size"
+    },
+    {
+      "name": "invalid draw width 32",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": "32",
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_draw_size"
+    },
+    {
+      "name": "invalid canvas width 0",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 0,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "invalid canvas width -1",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": -1,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "invalid canvas width 16385",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 16385,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "invalid canvas width True",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": true,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "invalid canvas width 32",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": "32",
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "invalid canvas width 32.0",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 32.0,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "invalid canvas fit stretch",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "stretch"
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "invalid canvas fit None",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": null
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "invalid canvas fit True",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": true
+          }
+        }
+      },
+      "code": "invalid_canvas"
+    },
+    {
+      "name": "drawSize overflowing width",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "rawValue": "{\"revision\":1,\"asset\":\"fixtures/cells.png\",\"sourceRect\":{\"x\":32,\"y\":48,\"width\":32,\"height\":48},\"drawSize\":{\"width\":1e400,\"height\":352.9},\"canvas\":{\"width\":1350,\"height\":720,\"viewportFit\":\"contain\"}}",
+      "code": "invalid_draw_size"
+    },
+    {
+      "name": "canvas overflowing width",
+      "operation": {
+        "op": "put",
+        "kind": "asset_hold",
+        "id": "display-copy",
+        "value": {
+          "revision": 1,
+          "asset": "fixtures/cells.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 48,
+            "width": 32,
+            "height": 48
+          },
+          "drawSize": {
+            "width": 271.4,
+            "height": 352.9
+          },
+          "canvas": {
+            "width": 1350,
+            "height": 720,
+            "viewportFit": "contain"
+          }
+        }
+      },
+      "rawValue": "{\"revision\":1,\"asset\":\"fixtures/cells.png\",\"sourceRect\":{\"x\":32,\"y\":48,\"width\":32,\"height\":48},\"drawSize\":{\"width\":271.4,\"height\":352.9},\"canvas\":{\"width\":1e400,\"height\":720,\"viewportFit\":\"contain\"}}",
+      "code": "invalid_canvas"
+    }
+  ],
+  "revisionCases": [
+    {
+      "name": "identical replay",
+      "accepted": {
+        "id": "a",
+        "revision": 5,
+        "value": {
+          "revision": 5,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "put": {
+        "revision": 5,
+        "asset": "fixtures/a.png"
+      },
+      "outcome": "accepted; request survives with its residency, state and running job; no status"
+    },
+    {
+      "name": "identical replay with reread",
+      "accepted": {
+        "id": "a",
+        "revision": 5,
+        "value": {
+          "revision": 5,
+          "reread": true,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "put": {
+        "revision": 5,
+        "reread": true,
+        "asset": "fixtures/a.png"
+      },
+      "outcome": "accepted; no second reread"
+    },
+    {
+      "name": "same revision, different value",
+      "accepted": {
+        "id": "a",
+        "revision": 5,
+        "value": {
+          "revision": 5,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "put": {
+        "revision": 5,
+        "asset": "fixtures/b.png"
+      },
+      "outcome": "generation rejected",
+      "code": "invalid_revision"
+    },
+    {
+      "name": "lower revision",
+      "accepted": {
+        "id": "a",
+        "revision": 5,
+        "value": {
+          "revision": 5,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "put": {
+        "revision": 4,
+        "asset": "fixtures/a.png"
+      },
+      "outcome": "generation rejected",
+      "code": "invalid_revision"
+    },
+    {
+      "name": "greater revision",
+      "accepted": {
+        "id": "a",
+        "revision": 5,
+        "value": {
+          "revision": 5,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "put": {
+        "revision": 9,
+        "asset": "fixtures/b.png"
+      },
+      "outcome": "accepted; request (a,5) ends without a status; (a,9,attempt 1) is admitted"
+    },
+    {
+      "name": "re-add after remove",
+      "accepted": {
+        "id": "a",
+        "revision": 5,
+        "value": {
+          "revision": 5,
+          "asset": "fixtures/a.png"
+        }
+      },
+      "sequence": [
+        "remove a",
+        "put a revision 6"
+      ],
+      "outcome": "a late completion for (a,5) is discarded; only (a,6) can become held"
+    }
+  ],
+  "generationRejections": [
+    {
+      "name": "capability missing",
+      "setup": "hello without asset_holds",
+      "generation": {
+        "operations": [
+          {
+            "op": "put",
+            "kind": "asset_hold",
+            "id": "a",
+            "value": {
+              "revision": 1,
+              "asset": "fixtures/a.png"
+            }
+          }
+        ]
+      },
+      "code": "capability_missing"
+    },
+    {
+      "name": "session lease limit",
+      "setup": "1024 committed leases",
+      "generation": {
+        "operations": [
+          "one put of a new id, with no remove"
+        ]
+      },
+      "code": "lease_limit",
+      "effect": "the collapsed final set would hold 1025 leases; nothing is admitted or released"
+    },
+    {
+      "name": "invalid operation anywhere",
+      "generation": {
+        "operations": [
+          "a valid put of id b",
+          "the zero revision put of id a"
+        ]
+      },
+      "code": "invalid_revision",
+      "effect": "id b is not admitted either"
+    },
+    {
+      "name": "later scene rejection",
+      "generation": {
+        "operations": [
+          "a valid put of id b",
+          "a canvas image that fails preparation"
+        ]
+      },
+      "code": "the existing preparation message, without the asset_hold prefix",
+      "effect": "id b is not admitted; reservations, queue and statuses unchanged"
+    },
+    {
+      "name": "stale base generation",
+      "generation": {
+        "baseGeneration": "not the accepted generation",
+        "operations": [
+          "a valid put"
+        ]
+      },
+      "code": "the existing retained message",
+      "effect": "reset required; holds unchanged"
+    },
+    {
+      "name": "final set over the ceiling despite removals elsewhere",
+      "setup": "200 committed leases",
+      "generation": {
+        "operations": [
+          "remove 10 committed ids",
+          "put 835 new ids"
+        ]
+      },
+      "code": "lease_limit",
+      "effect": "final set 1025; whole transaction rejected; committed holds unchanged"
+    }
+  ],
+  "states": {
+    "values": [
+      "pending",
+      "held",
+      "refused",
+      "ended"
+    ],
+    "transitions": [
+      [
+        "pending",
+        "held"
+      ],
+      [
+        "pending",
+        "refused"
+      ],
+      [
+        "pending",
+        "ended"
+      ],
+      [
+        "held",
+        "ended"
+      ]
+    ],
+    "endedReasons": [
+      "changed"
+    ],
+    "silentEnds": "remove and supersede end a request without a status",
+    "afterChanged": "the renderer opens attempt + 1 for the same id and revision, starting pending"
+  },
+  "refusalReasons": [
+    {
+      "reason": "over_budget",
+      "meaning": "the request does not fit the region or base ceiling after net releases"
+    },
+    {
+      "reason": "missing",
+      "meaning": "the asset does not resolve to an existing file"
+    },
+    {
+      "reason": "escapes_root",
+      "meaning": "the canonical path leaves assetRoot"
+    },
+    {
+      "reason": "not_regular_file",
+      "meaning": "the canonical path is a directory or special file"
+    },
+    {
+      "reason": "unreadable",
+      "meaning": "an operating system error opening or reading the file; message carries it"
+    },
+    {
+      "reason": "encoded_too_large",
+      "meaning": "the file exceeds the 16 MiB encoded limit"
+    },
+    {
+      "reason": "invalid_header",
+      "meaning": "the PNG signature or IHDR is missing or short"
+    },
+    {
+      "reason": "invalid_png",
+      "meaning": "decoding failed; message carries the decoder error"
+    },
+    {
+      "reason": "dimensions_exceed",
+      "meaning": "width or height exceeds 4096 or the decode allocation limit"
+    },
+    {
+      "reason": "rect_outside_image",
+      "meaning": "sourceRect exceeds the current image bounds"
+    },
+    {
+      "reason": "region_too_large",
+      "meaning": "the guarded region exceeds the 64 MiB prepared-region limit"
+    }
+  ],
+  "frameAck": {
+    "changedGeneration": {
+      "protocol": 2,
+      "type": "frame_ack",
+      "generation": 344,
+      "frame": 120,
+      "presented": true,
+      "holds": [
+        {
+          "id": "battle-stage:background",
+          "revision": 6,
+          "attempt": 1,
+          "state": "pending",
+          "regionBytes": 8342464,
+          "baseBytes": 0
+        },
+        {
+          "id": "film:huge",
+          "revision": 7,
+          "attempt": 1,
+          "state": "refused",
+          "reason": "over_budget",
+          "message": "region of 35615424 bytes exceeds the 33554432-byte hold ceiling",
+          "regionBytes": 35615424,
+          "baseBytes": 0
+        }
+      ],
+      "holdCapacity": {
+        "bytes": 8342464,
+        "limitBytes": 33554432,
+        "count": 1,
+        "limitCount": 2560,
+        "owners": {
+          "held": {
+            "bytes": 8342464,
+            "count": 1
+          },
+          "staging": {
+            "bytes": 0,
+            "count": 0,
+            "limitBytes": 8388608
+          },
+          "foreground": {
+            "bytes": 0,
+            "count": 0
+          },
+          "cache": {
+            "bytes": 0,
+            "count": 0
+          }
+        }
+      }
+    },
+    "unchangedGeneration": {
+      "protocol": 2,
+      "type": "frame_ack",
+      "generation": 345,
+      "frame": 121,
+      "presented": true
+    },
+    "rules": [
+      "holds lists only requests whose state the generation changed; holdCapacity accompanies holds",
+      "the presenting ack of a reset transaction lists every current request",
+      "staged acks (presented false) carry holds for the generation that committed them",
+      "a held key shared by several leases is counted once in holdCapacity and reported under each id",
+      "frame_rejected carries no hold fields and changes nothing"
+    ]
+  },
+  "event": {
+    "example": {
+      "protocol": 2,
+      "type": "asset_holds",
+      "holds": [
+        {
+          "id": "battle-stage:background",
+          "revision": 6,
+          "attempt": 1,
+          "state": "held",
+          "regionBytes": 8342464,
+          "baseBytes": 0
+        },
+        {
+          "id": "film:creature",
+          "revision": 4,
+          "attempt": 2,
+          "state": "pending",
+          "regionBytes": 2096704,
+          "baseBytes": 2096704
+        }
+      ],
+      "holdCapacity": {
+        "bytes": 12535872,
+        "limitBytes": 33554432,
+        "count": 3,
+        "limitCount": 2560,
+        "owners": {
+          "held": {
+            "bytes": 12535872,
+            "count": 3
+          },
+          "staging": {
+            "bytes": 0,
+            "count": 0,
+            "limitBytes": 8388608
+          },
+          "foreground": {
+            "bytes": 0,
+            "count": 0
+          },
+          "cache": {
+            "bytes": 0,
+            "count": 0
+          }
+        }
+      }
+    },
+    "rules": [
+      "events carry asynchronous transitions only",
+      "un-emitted transitions coalesce per lease id: an event carries at most one status per id, the newest, so a superseded attempt such as ended changed may never be emitted; the statuses of one event are in the order of each id's newest transition",
+      "a waiting status of a request that has since been removed or superseded is never emitted",
+      "an event carries at most limits.events.maxStatusesPerEvent statuses, and each message at most limits.events.maxStatusMessageBytes bytes",
+      "the Engine discards a status whose (id, revision) it no longer desires or whose attempt is older than one already seen, and accepts a newer attempt without the skipped ones",
+      "no event is emitted after shutdown, EOF, fatal or a closed receiver"
+    ]
+  },
+  "statusFields": {
+    "id": "string, the lease id",
+    "revision": "integer, echoed from the put",
+    "attempt": "integer >= 1, renderer-assigned",
+    "state": "one of states.values",
+    "reason": "present for refused and ended",
+    "message": "optional human-readable text for refused, at most limits.events.maxStatusMessageBytes bytes, cut at a character boundary",
+    "regionBytes": "integer charge of the region, present for pending, held and over_budget",
+    "baseBytes": "integer charge of the base, present for pending, held and over_budget"
+  },
+  "transactionCases": [
+    {
+      "name": "churn to an empty final set",
+      "setup": "committed leases k1 and k2, both held",
+      "generation": {
+        "reset": false,
+        "operations": [
+          "2000 alternating put and remove operations over ids c0..c99, each put with a fresh revision, ending with a remove of every c id",
+          "remove k1",
+          "remove k2"
+        ]
+      },
+      "finalDesiredSet": [],
+      "expect": {
+        "accepted": true,
+        "fileOpens": 0,
+        "workerJobs": 0,
+        "ended": [
+          "k1",
+          "k2"
+        ],
+        "holdsInAck": [],
+        "holdCapacity": "regions and bases at zero bytes and zero count"
+      },
+      "rule": "operations are validated, then collapsed; only the final desired set is processed"
+    },
+    {
+      "name": "churn ending in one surviving lease",
+      "setup": "no committed leases",
+      "generation": {
+        "reset": false,
+        "operations": [
+          "1000 puts of id s with increasing revisions over five assets",
+          "remove s",
+          "put s revision 2001 asset fixtures/final.png"
+        ]
+      },
+      "finalDesiredSet": [
+        {
+          "id": "s",
+          "revision": 2001,
+          "asset": "fixtures/final.png"
+        }
+      ],
+      "expect": {
+        "fileOpens": 1,
+        "workerJobs": 1,
+        "holdsInAck": [
+          {
+            "id": "s",
+            "revision": 2001,
+            "attempt": 1,
+            "state": "pending"
+          }
+        ]
+      }
+    },
+    {
+      "name": "multi-chunk reset with an intermediate failure, then a clean reset",
+      "setup": "committed leases old (revision 3, fixtures/old.png, held) and keep (revision 4, fixtures/keep.png, held), with no jobs running",
+      "chunks": [
+        {
+          "generation": 10,
+          "reset": true,
+          "present": false,
+          "operations": [
+            {
+              "op": "put",
+              "kind": "asset_hold",
+              "id": "keep",
+              "value": {
+                "revision": 4,
+                "asset": "fixtures/keep.png"
+              }
+            }
+          ],
+          "expect": "ack presented false with no hold fields; old and keep still held; no file opened for hold work"
+        },
+        {
+          "generation": 11,
+          "reset": false,
+          "present": false,
+          "operations": [
+            "a malformed asset_hold put (zero revision)"
+          ],
+          "expect": "frame_rejected with asset_hold invalid_revision and resyncRequired; old and keep still held with unchanged ImageIds; buffered reset operations discarded; no asset_holds event"
+        },
+        {
+          "generation": 12,
+          "reset": true,
+          "present": false,
+          "operations": [
+            {
+              "op": "put",
+              "kind": "asset_hold",
+              "id": "old",
+              "value": {
+                "revision": 3,
+                "asset": "fixtures/old.png"
+              }
+            },
+            {
+              "op": "put",
+              "kind": "asset_hold",
+              "id": "keep",
+              "value": {
+                "revision": 4,
+                "asset": "fixtures/keep.png"
+              }
+            }
+          ],
+          "expect": "ack with no hold fields; old source named again during staging stays held under its committed request"
+        },
+        {
+          "generation": 13,
+          "reset": false,
+          "present": true,
+          "operations": [
+            {
+              "op": "remove",
+              "kind": "asset_hold",
+              "id": "old"
+            },
+            {
+              "op": "put",
+              "kind": "asset_hold",
+              "id": "new",
+              "value": {
+                "revision": 5,
+                "asset": "fixtures/new.png"
+              }
+            }
+          ],
+          "expect": "presenting commit diffs the committed set {old,keep} against the final set {keep,new}: old ends and releases, keep survives with its ImageId, state held and no file work, new is admitted pending"
+        }
+      ],
+      "finalAck": {
+        "generation": 13,
+        "holds": [
+          {
+            "id": "keep",
+            "revision": 4,
+            "attempt": 1,
+            "state": "held"
+          },
+          {
+            "id": "new",
+            "revision": 5,
+            "attempt": 1,
+            "state": "pending"
+          }
+        ],
+        "rule": "the final reset ack lists every current request"
+      }
+    },
+    {
+      "name": "ordinary staged generation commits its holds",
+      "generation": {
+        "reset": false,
+        "present": false,
+        "operations": [
+          {
+            "op": "put",
+            "kind": "asset_hold",
+            "id": "early",
+            "value": {
+              "revision": 6,
+              "asset": "fixtures/early.png"
+            }
+          }
+        ]
+      },
+      "expect": "accepted; ack presented false lists early pending; a worker job starts before any presenting frame"
+    },
+    {
+      "name": "reset over the operation bound across chunks, then a clean reset",
+      "setup": "committed lease old (revision 3, fixtures/old.png, held) and a visible scene, with no jobs running",
+      "chunks": [
+        {
+          "generation": 20,
+          "reset": true,
+          "present": false,
+          "operations": [
+            "for i from 0 to 1023: put c<i> {revision 1, asset fixtures/c.png}, then remove c<i> (2048 operations)"
+          ],
+          "transactionOperations": 2048,
+          "expect": "ack presented false with no hold fields; old still held; no file opened for hold work"
+        },
+        {
+          "generation": 21,
+          "reset": false,
+          "present": false,
+          "operations": [
+            "for i from 0 to 1023: put d<i> {revision 1, asset fixtures/c.png}, then remove d<i> (2048 operations)"
+          ],
+          "transactionOperations": 4096,
+          "expect": "accepted at the bound: ack presented false with no hold fields"
+        },
+        {
+          "generation": 22,
+          "reset": false,
+          "present": true,
+          "operations": [
+            {
+              "op": "put",
+              "kind": "asset_hold",
+              "id": "old",
+              "value": {
+                "revision": 3,
+                "asset": "fixtures/old.png"
+              }
+            }
+          ],
+          "transactionOperations": 4097,
+          "expect": "frame_rejected with asset_hold transaction_limit and resyncRequired; old still held with its ImageId; queue, statuses and visible scene unchanged; buffered reset operations discarded; no asset_holds event"
+        },
+        {
+          "generation": 23,
+          "reset": true,
+          "present": true,
+          "operations": [
+            {
+              "op": "put",
+              "kind": "asset_hold",
+              "id": "old",
+              "value": {
+                "revision": 3,
+                "asset": "fixtures/old.png"
+              }
+            }
+          ],
+          "transactionOperations": 1,
+          "expect": "accepted; the new reset counts from zero; old survives with its ImageId, state held and no file work"
+        }
+      ],
+      "finalAck": {
+        "generation": 23,
+        "holds": [
+          {
+            "id": "old",
+            "revision": 3,
+            "attempt": 1,
+            "state": "held"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reset over the byte bound across chunks, then a clean reset",
+      "setup": "committed lease old (revision 3, fixtures/old.png, held) and a visible scene, with no jobs running",
+      "assets": {
+        "long": {
+          "bytes": 4096,
+          "spelling": "fixtures/, then 40 times (99 d characters and /), then 83 x characters and .png"
+        },
+        "short": {
+          "bytes": 1022,
+          "spelling": "fixtures/, then 10 times (99 d characters and /), then 9 x characters and .png"
+        }
+      },
+      "operationBytes": {
+        "put b, a four-digit revision, asset long": 4189,
+        "put b, a four-digit revision, asset short": 1115,
+        "remove b": 44
+      },
+      "chunks": [
+        {
+          "generation": 30,
+          "reset": true,
+          "present": false,
+          "operations": [
+            "501 puts of id b with revisions 1000 to 1500 and asset long"
+          ],
+          "transactionBytes": 2098689,
+          "expect": "ack presented false with no hold fields; old still held; no file opened for hold work"
+        },
+        {
+          "generation": 31,
+          "reset": false,
+          "present": false,
+          "operations": [
+            "500 puts of id b with revisions 1501 to 2000 and asset long",
+            "put of id b with revision 2001 and asset short"
+          ],
+          "transactionBytes": 4194304,
+          "expect": "accepted exactly at the bound of 4194304 bytes: ack presented false with no hold fields"
+        },
+        {
+          "generation": 32,
+          "reset": false,
+          "present": true,
+          "operations": [
+            {
+              "op": "remove",
+              "kind": "asset_hold",
+              "id": "b"
+            }
+          ],
+          "transactionBytes": 4194348,
+          "expect": "frame_rejected with asset_hold transaction_limit and resyncRequired; old still held with its ImageId; queue, statuses and visible scene unchanged; buffered reset operations discarded; no asset_holds event"
+        },
+        {
+          "generation": 33,
+          "reset": true,
+          "present": true,
+          "operations": [
+            {
+              "op": "put",
+              "kind": "asset_hold",
+              "id": "old",
+              "value": {
+                "revision": 3,
+                "asset": "fixtures/old.png"
+              }
+            }
+          ],
+          "expect": "accepted; the new reset counts from zero; old survives with its ImageId, state held and no file work"
+        }
+      ],
+      "finalAck": {
+        "generation": 33,
+        "holds": [
+          {
+            "id": "old",
+            "revision": 3,
+            "attempt": 1,
+            "state": "held"
+          }
+        ]
+      }
+    }
+  ],
+  "displayCopies": {
+    "withoutGeometry": "Omitting drawSize and canvas retains the full-size master crop meaning, including nine-slice/plain UI.",
+    "source": "Each request identifies one source crop; two draw sizes are two preparations. No fixed atlas grid or project scale is inferred.",
+    "target": "ceil(drawSize * deviceScale) per axis, where deviceScale is the renderer-owned current viewport fit for the declared canvas times backing scale. If either result is at least that master crop axis, hold the original-resolution crop instead. The GPU draws at the declared logical extent. No enlarged bitmap is allocated.",
+    "readiness": "held only when the current device-scale display copy exists; master residency alone is insufficient.",
+    "resize": "A changed window or backing scale supersedes the derived preparation and queues its current-scale copy; held is reported once ready.",
+    "budget": "All copies and decoded/master/foreground/GPU consumers remain under the existing shared renderer budget;1024metadata slots grant no extra memory.",
+    "entry": "Engine waits without deadline before the first incoming battle composition; real refusal follows the existing renderer-session error path, with no foreground fallback or new retry/cancel UI.",
+    "masters": "Decoded masters are staging only, one sheet at a time under the same unified budget. They are released once their cell copies exist."
+  },
+  "displayCopyCases": [
+    {
+      "name": "device scale 1",
+      "masterCrop": {
+        "width": 32,
+        "height": 48
+      },
+      "drawSize": {
+        "width": 16,
+        "height": 24
+      },
+      "deviceScale": 1,
+      "expectedPixels": {
+        "width": 16,
+        "height": 24
+      }
+    },
+    {
+      "name": "device scale 1.42",
+      "masterCrop": {
+        "width": 32,
+        "height": 48
+      },
+      "drawSize": {
+        "width": 16,
+        "height": 24
+      },
+      "deviceScale": 1.42,
+      "expectedPixels": {
+        "width": 23,
+        "height": 35
+      }
+    },
+    {
+      "name": "device scale 2",
+      "masterCrop": {
+        "width": 32,
+        "height": 48
+      },
+      "drawSize": {
+        "width": 16,
+        "height": 24
+      },
+      "deviceScale": 2,
+      "expectedPixels": {
+        "width": 32,
+        "height": 48
+      }
+    },
+    {
+      "name": "device scale 2.84",
+      "masterCrop": {
+        "width": 32,
+        "height": 48
+      },
+      "drawSize": {
+        "width": 16,
+        "height": 24
+      },
+      "deviceScale": 2.84,
+      "expectedPixels": {
+        "width": 32,
+        "height": 48
+      }
+    },
+    {
+      "name": "either axis reaches master",
+      "masterCrop": {
+        "width": 32,
+        "height": 48
+      },
+      "drawSize": {
+        "width": 20,
+        "height": 10
+      },
+      "deviceScale": 2,
+      "expectedPixels": {
+        "width": 32,
+        "height": 48
+      }
+    },
+    {
+      "name": "equal width keeps original aspect",
+      "masterCrop": {
+        "width": 32,
+        "height": 48
+      },
+      "drawSize": {
+        "width": 32,
+        "height": 47
+      },
+      "deviceScale": 1,
+      "expectedPixels": {
+        "width": 32,
+        "height": 48
+      }
+    },
+    {
+      "name": "rounding reaches master",
+      "masterCrop": {
+        "width": 32,
+        "height": 48
+      },
+      "drawSize": {
+        "width": 31.01,
+        "height": 10
+      },
+      "deviceScale": 1,
+      "expectedPixels": {
+        "width": 32,
+        "height": 48
+      }
+    }
+  ],
+  "capacity": {
+    "outerKey": "holdCapacity",
+    "fields": [
+      "bytes",
+      "limitBytes",
+      "count",
+      "limitCount",
+      "owners"
+    ],
+    "ownerFields": [
+      "held",
+      "staging",
+      "foreground",
+      "cache"
+    ],
+    "usageFields": [
+      "bytes",
+      "count"
+    ],
+    "stagingFields": [
+      "bytes",
+      "count",
+      "limitBytes"
+    ],
+    "integerRule": "JSON integers only; nonnegative usage, positive limits, within signed64bit range. Checked sums must not overflow.",
+    "sumRule": "bytes and count exactly equal their four-owner sums. Per-lease regionBytes/baseBytes are not summed as global usage because representations can be shared.",
+    "priority": [
+      "held",
+      "foreground",
+      "staging",
+      "cache"
+    ],
+    "subLimit": "staging.limitBytes is a sublimit, never added to current allocation bytes.",
+    "overLimit": "Truthful usage above current limits is valid; it does not authorize a new allocation."
+  },
+  "capacityCases": {
+    "valid": [
+      {
+        "name": "empty ledger",
+        "value": {
+          "bytes": 0,
+          "limitBytes": 33554432,
+          "count": 0,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 0,
+              "count": 0
+            },
+            "staging": {
+              "bytes": 0,
+              "count": 0,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 0,
+              "count": 0
+            },
+            "cache": {
+              "bytes": 0,
+              "count": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "four disjoint owners",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        }
+      },
+      {
+        "name": "truthful observed usage after limits shrink",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 1,
+          "count": 4,
+          "limitCount": 1,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 1
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "wrong byte sum",
+        "value": {
+          "bytes": 961,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "wrong count sum",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 5,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "missing cache owner",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "unknown owner",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            },
+            "other": {
+              "bytes": 0,
+              "count": 0
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "missing staging count",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "missing staging sublimit",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "unrecognized held sublimit",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1,
+              "limitBytes": 1024
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "invalid owner bytes negative",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": -1,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "invalid owner bytes boolean",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": true,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "invalid owner bytes fractional JSON type",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 1.0,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "invalid owner bytes string",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": "1",
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "zero byte limit",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 0,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "zero count limit",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 0,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "zero staging sublimit",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 0
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "null owner object",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": null
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "array instead of owners object",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": []
+        },
+        "code": "schema"
+      },
+      {
+        "name": "byte sum overflow",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 9223372036854775807,
+              "count": 1
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "count sum overflow",
+        "value": {
+          "bytes": 960,
+          "limitBytes": 33554432,
+          "count": 4,
+          "limitCount": 2560,
+          "owners": {
+            "held": {
+              "bytes": 512,
+              "count": 9223372036854775807
+            },
+            "staging": {
+              "bytes": 128,
+              "count": 1,
+              "limitBytes": 8388608
+            },
+            "foreground": {
+              "bytes": 256,
+              "count": 1
+            },
+            "cache": {
+              "bytes": 64,
+              "count": 1
+            }
+          }
+        },
+        "code": "schema"
+      },
+      {
+        "name": "legacy separate stores removed",
+        "value": {
+          "regions": {
+            "bytes": 0,
+            "count": 0,
+            "limitBytes": 33554432,
+            "limitCount": 2048
+          },
+          "bases": {
+            "bytes": 0,
+            "count": 0,
+            "limitBytes": 33554432,
+            "limitCount": 512
+          }
+        },
+        "code": "schema"
+      }
+    ]
+  }
+}

@@ -264,22 +264,25 @@ resynchronization. Non-reset packets require the current `baseGeneration`;
 reset packets ignore a mismatched base but still require a newer generation.
 See [atomic staging and limits](presentation.md#retained-operations-and-generations).
 
-`frame_rejected` is recoverable presentation feedback, not a gameplay failure:
-Runtime logs it and invalidates once per drained batch, taking the highest
-`expectedGeneration` from that batch. `invalidate(expectedGeneration: ...)`
-retains desired content and rebases the next reset above both the local and
-reported receiver generation. A receiver ahead of PHP therefore does not cause
-a succession of impossible resets. Resize and rejection in the same drain share
-that one invalidation.
+Runtime logs rejected packets from the current delivery window and requests one
+reset per drained batch, rebased above the local generation and the highest
+`expectedGeneration` reported for those packets. Resize and rejection in the
+same drain share one invalidation. Delayed rejections of abandoned or already
+presented generations do not trigger another reset.
 
 If pending delivery makes neither partial-write nor ACK progress for
 `RetainedPresentation::ACK_TIMEOUT_SECONDS` (2.0 seconds), the next present
-requests a reset even when content is unchanged. This uses a monotonic clock and
-also detects a dropped final packet with no successor to trigger rejection.
-Repeated old ACKs do not extend the deadline. Recovery still obeys queue capacity;
-it neither discards a partially written line nor keeps appending full resets
-behind a blocked reader. An actual send failure invalidates future delivery but
-still propagates as a transport error; temporary `trySend(false)` does not.
+requests a reset even when content is unchanged or the pipe cannot accept the
+first packet. Recovery still obeys queue capacity and leaves partially written
+lines intact. An actual send failure propagates as a transport error.
+
+Removed indefinite reset retries. The first rejection or delivery timeout starts
+a recovery period on the monotonic clock. A displayed frame from the current
+window clears it. If another rejection or timeout arrives after one full
+acknowledgement interval without a displayed frame, the sender reports a
+protocol error and the game uses its existing failure cleanup. A staging ACK
+or an old ACK cannot clear the recovery period. A replacement that is making
+write or acknowledgement progress can finish, including a multi-packet world.
 
 A native `resized` event requests one resend on the next present, not a logical
 grid resize. Explicit `RendererRuntime::restart()` cleans up the old peer and
@@ -290,6 +293,72 @@ events as failures rather than confusing them with recoverable frame rejection.
 Wire size and successful pipe delivery do not establish native resource
 acceptance. See the separate [internal world source budget](presentation.md#internal-world-source-budget)
 and its retained-text fallback.
+
+## Asset hold feedback
+
+Battle entry declares resources before its first incoming frame and services hold
+feedback through the same shared client. `SceneFrameReadinessInterface` gates frame
+composition while resource-only transactions preserve the last complete scene.
+The entry barrier has no deadline; an explicit refusal raises the existing
+renderer-session error with asset/reason detail, without advancing combat or adding
+another error UI. Scene stop/reconfigure releases its own leases. This differs from
+the command consumer's separately documented finite preparation policy.
+
+`asset_holds` is a protocol 2 event subscription. A host must explicitly include
+it in hello `requiredCapabilities`; advertising it alone never changes the event
+stream. The isolated pipeline candidate's shared GPUI registration includes that
+requirement, so ordinary graphical launch subscribes through the same handshake.
+A peer without an eligible worker refuses startup; Terminal/custom-runtime
+contracts remain explicit. Normal installed Game/Engine remain unchanged.
+
+Retained put/remove operations use kind `asset_hold`. A put carries a positive
+revision up to 9007199254740991, an asset-relative UTF-8 path of at most 4096
+bytes, optional `sourceRect`, `base`, boolean `reread`, and paired `drawSize`/`canvas`.
+Drawing extents are positive finite logical units up to16384. Canvas dimensions
+are integers1..16384 with native|contain fitting, supplied before incoming art.
+The declared geometry belongs to immutable preparation identity and transaction
+byte accounting; invalid pairs use invalid_draw_size/invalid_canvas.
+Omitted crop means
+the whole image; explicit null is invalid. Base operations use the same canvas
+semantics. The existing 256-byte retained id, frame-operation, line and queue
+bounds apply, with at most 1024 unique final leases. The shared fixture is
+`tests/Fixtures/Renderer/asset-holds-wire-fixture.json`.
+
+Committing `frame_ack` replies may carry paired `holds` and `holdCapacity`
+fields. Asynchronous transitions arrive as `asset_holds` events. Each status
+correlates immutable `(id, revision, attempt)` and reports pending, held,
+refused, or ended/changed. Candidate fixture5 replaces separate region/base
+capacity stores with one `holdCapacity` object: integer `bytes`, `limitBytes`,
+`count`, `limitCount` and `owners`. Owners are exactly `held`, `foreground`,
+`staging`, `cache`, each with nonnegative integer bytes/count; only staging also
+has positive `limitBytes`. Aggregate bytes/count equal checked four-owner sums;
+integer overflow, missing/unknown fields, wrong types and the old two-store shape
+are refused before lease state changes. Usage above a newly lowered limit is a
+valid observation and grants no new allocation. Per-lease `regionBytes` and
+`baseBytes` remain observations of that request and cannot be summed as global
+usage when representations are shared. No production numeric ceiling is selected
+by the fixture's synthetic32MiB example. Shared-channel revision7 sealing and
+paired native qualification remain open.
+Schema and capability errors reject a batch; an unavailable or over-budget
+resource is an explicit status, never a fabricated ready result.
+
+The shared client validates the complete incoming batch before committing it.
+It charges every resource reply's complete wire size and event count, applies
+statuses in wire order, then keeps compact ACK progress in its existing two
+slots. A later ACK without statuses cannot discard an earlier refusal. Old
+revisions, attempts and delayed pending snapshots cannot overwrite current
+completion. Asset events are consumed by the registry; gameplay input and
+ordinary lifecycle events retain their separate queues.
+
+The native transaction contract validates and collapses all hold operations to
+the final desired set before admission. Net releases precede new reservations.
+Staged reset chunks preserve the previously committed holds and jobs; only a
+valid presenting reset chunk commits the complete replacement. Partial reset
+ACKs carry no hold fields. Rejection or abandonment preserves the old set.
+
+Renderer worker implementation, single-flight claims, true reread invalidation,
+first-paint tracing and total memory overlap require native qualification. The
+Engine wire tests establish sender and broker behavior only.
 
 ## Diagnostics and shutdown
 
@@ -344,3 +413,32 @@ When sharing a connection with input, use the [shared client](input-sources.md)
 rather than independently consuming this transport's events. See
 [runtime ownership](runtime.md), [styled row extraction](styled-presentation.md)
 and [retained world rows](tile-batches.md) for the higher-level contracts.
+
+
+#### Composite pixel sources
+
+Protocol2 may advertise `canvas_source_pixels` as an optional drawing feature. It requires `graphical_canvas` and `canvas_compositing`; `sprite_source_rect` alone does not enable it. Composite `image` operations and `image_alpha` masks accept mutually exclusive normalized `source` or pixel-valued `sourcePixels` rectangles. Pixel origins must be finite and nonnegative, extents finite and positive, and the rectangle must fit the current decoded image. Fractional values are supported. Unsupported sessions must reject the field through the same negotiated-feature boundary; senders must not send it before negotiation. Whole-image omission remains supported.
+
+
+#### Hold revision 6 transaction and event bounds
+
+The recovered candidate asset-hold fixture is version5; the shared-channel copy
+remains version4 pending the joint revision7 seal. A whole reset, including staged
+chunks and discarded churn, carries at most4096 hold operations and4194304 bytes
+of canonical typed-operation JSON. Exceeding either bound rejects that
+transaction with `asset_hold transaction_limit` and preserves committed holds
+and the visible scene. The Engine checks that its complete desired set can be
+replayed within this bound before ownership changes or direct retained sends.
+
+Waiting native events coalesce to the newest status of each current lease;
+feedback carries at most1024 entries and optional refusal messages at most1024
+UTF-8 bytes. The Engine preserves newer attempts while ignoring delayed older
+snapshots. Native delivery runs outside resource, cache and event-state locks.
+A backend without an eligible worker refuses a hello requiring asset_holds
+before ready. Normal Game configuration remains unsubscribed.
+
+The native parser’s recoverable nonfinite-field rejection remains an integration
+gate. Its current arbitrary-precision envelope trial changed existing fractional
+and signed-zero semantics. The shared header/raw-payload owner correction must
+preserve those cases and return recoverable frame_rejected for an overflowing
+hold base; no ordinary fatal error may stand in for that result.

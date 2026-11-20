@@ -75,11 +75,14 @@ final readonly class PresentationCanvas
   /** Stack a live screen-space layer without replacing the retained scene underneath. */
   public static function composeOverlay(?self $base, self $overlay, string $idPrefix = ''): self
   {
+    // Each complete layer owns its references before root IDs can meet during composition.
+    CanvasIndicatorReferences::assertCanvases($base === null ? [$overlay] : [$base, $overlay]);
     if ($base === null && $idPrefix === '') { return $overlay; }
     $base ??= new self($overlay->width, $overlay->height, viewportFit: $overlay->viewportFit);
     if ($base->width !== $overlay->width || $base->height !== $overlay->height) {
       throw new InvalidArgumentException('Canvas overlays must share their logical surface.');
     }
+    $overlay = CanvasIndicatorReferences::prefixRootPaths($overlay, $idPrefix);
     $offset = 1 + max([0, ...array_column($base->images, 'layer'), ...array_column($base->textLayers, 'layer'),
       ...array_column($base->indicators, 'layer'), ...array_column($base->composites, 'layer'),
       ...array_column($base->labels, 'layer'), ...array_column($base->groups, 'layer')]);
@@ -89,8 +92,9 @@ final readonly class PresentationCanvas
         $image->clipRect, $image->brightness, $image->flipX, $image->flipY, $image->rotation, $image->pivot,
         $image->bottomFade), $overlay->images)],
       [...$base->indicators, ...array_map(static fn($indicator) => new CanvasIndicator($idPrefix . $indicator->id,
-        $idPrefix . $indicator->imageId, $indicator->kind, $indicator->bounds, $indicator->strokeWidth, $indicator->color,
-        $offset + $indicator->layer), $overlay->indicators)],
+        $indicator->imagePath === null ? $idPrefix . $indicator->imageId : $indicator->imageId,
+        $indicator->kind, $indicator->bounds, $indicator->strokeWidth, $indicator->color,
+        $offset + $indicator->layer, $indicator->imagePath), $overlay->indicators)],
       CanvasTextBatch::compact([...$base->textLayers, ...array_map(static fn($text) => new CanvasTextLayer($idPrefix . $text->id, $offset + $text->layer,
         $text->x, $text->y, $text->grid, $text->runs, $text->clipRect, $text->opacity, $text->glyphEffects), $overlay->textLayers)]),
       [...$base->composites, ...array_map(static fn($composite) => new CanvasComposite($idPrefix . $composite->id,
@@ -102,7 +106,7 @@ final readonly class PresentationCanvas
         $label->measurement, $label->x, $label->y, $offset + $label->layer, $label->clipRect, $label->opacity,
         $label->rotation, $label->visibleBytes), $overlay->labels)], $base->viewportFit,
       [...$base->groups, ...array_map(static fn(CanvasGroup $group) => new CanvasGroup($idPrefix . $group->id,
-        $group->x, $group->y, $group->canvas, $offset + $group->layer, $group->clipRect, $group->colorTransform), $overlay->groups)]);
+        $group->x, $group->y, $group->canvas, $offset + $group->layer, $group->clipRect, $group->colorTransform, $group->scale), $overlay->groups)]);
   }
 
   /** @param list<CanvasImage> $images
@@ -172,7 +176,7 @@ final readonly class PresentationCanvas
     foreach ($this->composites as $composite) { $imageIds[$composite->id] = true; }
     foreach ($this->indicators as $indicator) {
       $indicator->bounds->assertWithin($width, $height);
-      if (!isset($imageIds[$indicator->imageId])) {
+      if ($indicator->imagePath === null && !isset($imageIds[$indicator->imageId])) {
         throw new InvalidArgumentException('Canvas indicators must reference an image or composite in the same frame.');
       }
     }

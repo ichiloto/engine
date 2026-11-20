@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Battle;
 
+use Ichiloto\Engine\Battle\ActionPointPolicy;
 use Ichiloto\Engine\Battle\EscapePolicy;
 use Ichiloto\Engine\Battle\ReservePolicy;
 use Ichiloto\Engine\Battle\BattlePartyRoster;
@@ -23,6 +24,7 @@ class BattleConfig implements SceneConfigurationInterface
   public const string TEST_WORLD_STATE = 'battleTestWorldState';
   public private(set) ?GameState $testWorldState = null;
 
+  public private(set) ?ActionPointPolicy $actionPointPolicy;
   protected(set) BattleClassification $classification;
   protected(set) string $entryExecutionId;
   protected(set) ?BattleEntryContext $battleEntryContext = null;
@@ -105,6 +107,7 @@ class BattleConfig implements SceneConfigurationInterface
       $this->testWorldState = $state;
       unset($this->settings[self::TEST_WORLD_STATE]);
     }
+    $this->actionPointPolicy = ActionPointPolicy::fromBattleData($this->settings);
     $this->classification = $classification ?? $troop->classification;
     $policy = $this->getReservePolicy();
     if ($partyRoster !== null && ($partyRoster->party !== $party || $partyRoster->policy !== $policy)) {
@@ -243,6 +246,7 @@ class BattleConfig implements SceneConfigurationInterface
     foreach ($data as $key => $value) {
       if (in_array($key, [
         'classification',
+        'actionPointPolicy',
         'entryExecutionId',
         'battleEntryContext',
         'appliedEntryRuleIds',
@@ -266,6 +270,7 @@ class BattleConfig implements SceneConfigurationInterface
     $this->testWorldState = null;
     $this->events = is_array($data['events'] ?? null) ? $data['events'] : [];
     $this->settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
+    $this->actionPointPolicy = ActionPointPolicy::fromBattleData($this->settings);
     $this->classification = BattleClassification::resolve(
       $data['classification'] ?? ($this->troop->classification ?? null),
       'serialized BattleConfig',

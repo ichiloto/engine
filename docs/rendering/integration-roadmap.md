@@ -2632,6 +2632,19 @@ verified macOS release and removed package scratch on the secondary drive.
 No native visual, other-platform or full-Engine acceptance is claimed for this
 resource slice, and it does not increase G3 completion.
 
+PHP visible-bound inspection shares the current PNG content revision within one
+composition. `PngAssetPreflight::runWithSnapshot` owns nested header and content
+facts and releases them on normal or exceptional exit. `SceneFrameComposer` and
+direct `GraphicalBattlePresentation::frame` use that same boundary. Bounds and
+ground-contact results remain keyed by content revision and crop; outside a
+composition, each query reads the current content revision. Same-header pixel
+replacements with colliding file stat facts refresh on the next composition.
+This PHP optimization preserves the native cache behavior described above.
+Synthetic PNG freshness, nested/failed-frame cleanup, direct battle ownership
+and relevant composition regressions pass 440 distinct cases / 9,341 assertions
+on macOS PHP 8.4.21. This is windowless coverage; Game timing qualification is
+tracked separately.
+
 The current GUI 1e3e181 release was rebuilt offline/locked through its existing
 managed secondary-drive cache, retaining the normal bundle's executable link.
 All 54 current GUI release tests pass with no failures or skips. Source remained
@@ -4713,6 +4726,65 @@ have Engine implementations and windowless qualification; see the current
 contracts in `effect-animation.md`. Game production binding, assembled native
 checks and player acceptance remain separate work.
 
+### Authored group scale and battlefield coverage (15 November 2026)
+
+`CanvasGroup.scale` is optional and uses `CanvasGroupScale`:
+
+```json
+{"factor": 1.5, "origin": {"x": 0.25, "y": 0.5}}
+```
+
+The origin is normalized in the child canvas. For local point `p`, child size
+`size`, normalized origin `o` and existing group translation `t`, the parent
+point is `t + o * size + factor * (p - o * size)`. Translation follows scale.
+The factor is finite, positive and at most the existing viewport ceiling8.
+Identity scale omits the wire field and needs no new capability. Fractional
+coordinates remain fractional until final rasterization. Both existing neutral
+placement bounds and transformed child edges must satisfy the unchanged
+16384coordinate bound.
+
+The fixed group clip is in parent coordinates, after the transform. Child
+clipping and nested drawing semantics remain local; all descendants, masks,
+glyphs, shadows, attached effects and colour inherit the same geometry. Group
+colour applies to completed child colour before its parent blend. An untreated
+group draws descendants at transformed geometry, preserving source detail;
+it must not first raster the child canvas at neutral size and enlarge that
+intermediate. A1pixel solid line at factor2 has2hard-edged output pixels.
+
+`canvas_group_scale` is opt-in and requires `graphical_canvas`, `canvas_groups`
+and `canvas_region_budget`. Engine refuses unnegotiated nonidentity scale
+before sending a partial frame. Group updates retain child content and stable
+identity; unchanged HUD drawings are not replayed. Preparation is keyed by
+child content, not scale/origin/placement. A changing factor is paint-time state,
+not a new prepared region. Region and composite budgets remain in child pixels
+with unchanged aggregate count, work, source and coordinate limits. Overlay
+protection, qualified indicator paths and group copies preserve/project scale.
+
+Battle field-motion samples may explicitly author uniform centre scale along
+with their logical offsets. The host checks every viewport corner against the
+inverse camera and backdrop rectangle/clip before admitting that transform,
+including rotated backdrop coverage. Uncovered offsets are now refused with
+a presentation diagnostic and a neutral field; they no longer expose backing
+edges. No automatic zoom, motion clamp, strip fill or game-specific value is
+introduced. Gameplay/save/formation/target/release coordinates remain neutral;
+HUD and screen UI are neither moved nor scaled. Reduced motion has neither
+transform. Current source and preview behavior is in `effect-animation.md`.
+
+Claude chose an explicit authored impact punch-in for Last Legend. No arena
+repaint or source crop is requested. The arena bindings already own an optional
+pixel source rectangle and the GUI editor exposes it source-preservingly. A
+future scene that requires artwork bleed beyond its neutral view still needs
+an explicit larger drawing extent retained until the final viewport clip;
+that coverage is not invented by this scale mechanism.
+
+Native renderer and GUI Editor remain Claude's owners. Their handoff includes
+fractional destination rectangles, a hard-edge2xline oracle and changing-scale
+preparation/retained cases. Editor field-motion sample authoring must expose
+scale separately from rigid battler offsets, preserve source/undo and negotiate
+it explicitly in battle previews/still rasters. No new arena field or Terminal
+graphical workflow is required. Engine tests do not establish those ports,
+Game bindings, live/native rendering or author acceptance.
+
 ### Group colour treatment
 
 `CanvasGroup.colorTransform` is optional and uses `CanvasColorTransform`:
@@ -4776,7 +4848,182 @@ artwork interleaves with untreated effects, preserve the original stable depth
 order with appropriately placed groups sharing the same treatment. Putting all
 bodies into one atomic group and all effects after it changes that order.
 
+
+### Qualified indicator associations
+
+An optional indicator `imagePath` names groups from the complete root canvas,
+then an existing image/composite leaf. It contains 2..9 stable string IDs;
+`imageId` remains required and equals the leaf. With no path, association stays
+local. The pointer is a lifecycle association: bounds, stroke, colour and depth
+remain explicit, and the indicator receives its own containing group's colour
+treatment. No source image is duplicated or drawn only to satisfy a reference.
+
+`CanvasIndicatorReferences::resolve()` and `assertCanvases()` own complete-root
+resolution. Intermediate child canvases can hold qualified references before
+root assembly; final runtime/still resource admission and renderer submission
+validate the complete graph before preparing or transmitting it. Missing groups
+or leaves refuse the complete candidate. Group identities stay unique among
+siblings. Local image-before-composite precedence at a shared leaf ID is
+preserved. Every root in a world/still/overlay collection owns an independent
+graph; references cannot escape into another root or a previous retained frame.
+
+The optional v2 capability `canvas_indicator_image_path` requires
+`graphical_canvas` and `canvas_groups`. It is negotiable without becoming a
+mandatory startup requirement. A client lacking it receives no qualified path.
+Composite-indicator capability is checked at the resolved source canvas.
+Paths add no drawing, prepared region or change to resource accounting; existing
+colour variants and aggregate group limits still apply.
+
+`PresentationCanvas::composeOverlay()` prefixes root IDs and the corresponding
+first group element of every qualified path, including paths held inside
+nested child canvases. Descendant IDs and leaf `imageId` remain unchanged when
+they were not renamed. `CanvasGroup::wrapRoot()` promotes a complete root into
+a placed group and prepends that identity to all qualified paths. Ordinary
+`new CanvasGroup` holds an already scoped local child. Neither operation changes
+geometry, clipping, original source models or treatment composition. An
+unrepresentable ninth group level is refused.
+
+This enables contiguous treatment runs to retain original layer/type/tie order
+while an image and its outline occupy different placed groups. Field partitioning
+and actual native/CPU ports remain separately qualified work. Retained
+replacement/removal, backend overlay namespacing and typed source validation
+must preserve or refuse these associations atomically.
+
 Engine model, transport and mathematical tests are windowless. Claude owns native
 and Editor CPU raster ports, including preparation accounting and equivalence at
 their raster precision. Field-colour timeline authoring and live battle binding
 remain work. No native launch, final cinematic or author acceptance is claimed.
+
+
+Canvas overlay layers are complete independent reference roots. composeOverlay validates each input root before prefixing or merging, including null-base and empty-prefix calls. A qualified reference cannot borrow a source from another layer. To assemble a deliberate sibling-group association, construct its one complete PresentationCanvas root before overlay composition. This closes cross-layer admission without renaming or changing any instance-specific caller.
+
+## Asset lifetimes and command readiness
+
+Current isolated continuation (17 November, persistent recovery checkout): the
+previous85source/test files and5documents were recovered exactly and reverified
+with997tests/22423assertions. Unified capacity parsing now passes776focused tests,
+including truthful reduced limits and checked owner sums. The obsolete separate
+store model is removed. Formation clearance now uses the actual body projector,
+and negotiated asset-hold sessions delegate aggregate image-byte admission to
+the native ledger while retaining source and structural validation. Unsubscribed
+sessions retain their64MiB limits. The canvas/renderer regression set passes876tests
+and16393assertions; five changed production classes pass project-level static
+analysis on macOS PHP8.4.21. These are isolated source results, without normal
+integration or a new native recording.
+
+Remaining implementation must replace the current eager future-action effect
+union. Scene ownership keeps body/reserve, ordinary attack/hit/condition, theme
+and control resources. Reclaimable speculation belongs only to the semantic
+focused action; command commitment promotes/shares its requests and releases
+competitors before required admission. Selection changes, unavailable actions,
+pause/resume, cancellation, completion and shutdown each need explicit owner
+lifetime coverage. Reserve actions begin at their actual selection/swap route.
+If a selected timeline alone exceeds the admitted working set, solve its actual
+cut/resource lifetime rather than raising a budget or omitting frames. The actual
+all-action Game inventory exceeded1.8GiB, so the recovered eager checkpoint is
+not a production-adoption result. Reconcile the shared revision7/fixture5 seal,
+measure complete live CPU/GPU working sets and adopt a defensible native ceiling
+before paired native and player qualification. No production ceiling is selected
+by the explicitly synthetic32MiB fixture example.
+
+
+The isolated Engine candidate adds typed owner-scoped resource intent, ordered
+shared-client feedback, retained diff/reset replay, frozen-frame borrowing and
+resource-only preloads through a scene drawing hold. The command host now waits
+before entry cues for the arena and known baseline/first-return battler
+preparations, including the authored cells of each selected pose. Its two-second deadline is finite; release starts a fresh command
+update boundary. Refusal and timeout report diagnostics and retain ordinary
+foreground preparation. Combat resolution, costs, Terminal behavior and authored
+cinematic timing remain owned by their existing shared mechanisms.
+
+This work remains separate from the three-file preview capability candidate and
+has not been committed or integrated into normal develop. `asset_holds` requires
+explicit subscription. Normal Game configuration and native worker enablement
+remain unchanged.
+
+Battle entry now has feedback-only readiness with no deadline or foreground-on-failure
+path. The complete owner-declared set includes HUD/pause/results/current-party
+portraits, control families and contact layers as well as arena and all participant,
+reserve and action art. The existing transition retains its covered outgoing frame
+until the initial set is ready; missing/corrupt/budget refusals use the existing
+renderer-session error route. Combat stays at Start and incoming composition waits.
+The command host's finite preparation policy above remains separate.
+
+The exact CPU facts component persists validated bounds/lower-edge data in a bounded,
+atomic, non-executable disposable user cache, with explicit host storage injection.
+The current catalogue CPU proof covers259crops/117PNGs: cold117decodes, fresh warm
+zero decodes with identical facts. The warm facts queries take148.65ms; this is not
+native frame timing or native/GPU memory qualification. Deadline-free readiness and
+related regression checks pass884tests/24338assertions on macOS/PHP8.4.21. Native
+B display-size copies need per-cell source/draw geometry and an incoming logical
+canvas context before the first frame. The shared version4 fixture/revision6 contract is agreed and implemented in the
+Engine candidate: paired logical drawSize/canvas values and1024 metadata slots,
+with the same4096-operation/4MiB transaction bounds. The complete collector passes
+940tests/24556assertions and level0 analysis for21changed production classes.
+It declares286resources for the measured four-actor/Great Wolf cohort and345 for
+all eight registered actors with four frontline/four reserves, including UI and
+contact cells. It shares position-independent size calibration with actual drawing.
+No enlarged display bitmap is allocated: at either master-crop extent the renderer
+holds the original crop and the GPU scales it. Native staging/copy/GPU peaks and
+before/after recordings remain renderer-owned qualification. Nothing is silently
+omitted to fit a bound. These candidate changes remain uninstalled.
+
+The native recording exposed a missing launch subscription despite the resource
+classes passing their explicit-subscription tests. The shared GPUI Registry now
+requires asset_holds in hello, removing startup without an eligible worker. A
+windowless eligible/missing-worker handshake and launch/client/preparation batch
+passes68tests/228assertions; the Registry passes level0 analysis. This is isolated
+candidate work, with no Last Legend switch or change to normal installed builds.
+
+Remaining production work:
+
+- Complete the shared typed declaration and renderer worker for display-size
+  derivatives using the actual logical drawing transform and native device scale.
+  Qualify resize/replacement lifetimes, unified native/GPU memory admission and
+  first-ready/first-draw timing without foreground work at battle entry.
+- Qualify newly resolved resources before their first native use. The live
+  resource scope now merges actual current/first-return poses after gameplay
+  resolution and each deferred reaction boundary, retaining initial preparations
+  without a second wait or predicted outcomes. Unannounced future base transforms
+  still require ordinary foreground preparation; native readiness/timing remains
+  an integration gate.
+- Resolve the shared decoded-source consumer boundary for composite images,
+  image-alpha masks and world overviews. Current native `FrameImages::load`
+  consumes decoded originals, while holds guarantee guarded regions and bases.
+  Texture strips already consume guarded regions. Preserve existing sampling,
+  resource bounds and replaceable-artwork behavior when connecting these paths.
+- Complete native parser conformance and pair against the adopted version 4 fixture,
+  including rejected/chunked resets, source mutation, reread, queue cancellation,
+  all joined-stage terminal outcomes and first-paint accounting.
+- Native worker/foreground/tileset overlap is measured windowless for CPU heap
+  allocations on macOS. Its separate worker allowances pass, with shared peaks
+  162412083 and 238183948 bytes; whole native-process/GPU qualification remains
+  open and normal worker enablement stays off.
+- Verify cold and warm cinematic return, east/reduced cases, pose continuity and
+  frame-source completeness on an authorized native run. Windowless tests do
+  not establish native timing, Linux coverage, appearance or Andrew's acceptance.
+
+
+#### Shared pixel source boundary
+
+Engine’s isolated candidate preserves exact crop intent through negotiated `canvas_source_pixels` descriptors and current-file bounds checks. Existing normalized descriptors remain compatible and carry a per-session precision diagnostic on older hosts. Claude owns the shared native/Editor sampler and prepared source-view ports after the asset-hold parser, transaction and event-lock corrections. Required paired evidence covers odd atlas sizes, integer and fractional clipping, flips, guarded-region versus decoded-whole equivalence, and the synthetic11x1 neighbour-alpha regression. Normal integration, native overlap qualification and milestone acceptance remain open.
+
+
+#### Revision 5 sender admission and feedback
+
+The Engine now rejects a desired set whose complete reset exceeds the shared
+4 MiB canonical metadata limit before changing owner leases, consuming revisions,
+or queuing direct retained bytes. A synthetic 256-lease set previously encoded to
+6316584 bytes despite every individual descriptor being schema-valid; that path
+could force repeated resynchronization. Shared aggregate admission fixes it and
+covers frozen borrowers and rereads. Exact 4 MiB and one-byte-over checks pass.
+Incoming feedback enforces the new 1024-entry/1024-UTF-8-byte message bounds and
+accepts coalesced newest attempts. The native parser’s overflow/signed-zero
+conformance, source-view ports and first-use native qualification remain open.
+
+
+#### Scene, focus and command resource lifetimes
+
+The isolated Engine candidate removes the all-abilities effect union from battle entry. Ordinary hits/attacks and configured condition/interception effects remain scene-owned; currently usable semantic focus prefetches one concrete action, including held crisis selection and linked summons. Required command admission releases competitors and promotes matching live requests. Pause, event, roster, stop and reconfiguration cleanup share the same owner release. Return artwork preserves the drawing-size/canvas descriptor.
+
+The full native working-set measurement remains open for both complete cohorts at each available scale, including held/foreground/staging/cache ownership at the same instant, staging sublimit, process peaks and GPU atlas high-water. The shared revision7/fixture5 contract is a draft until both owners seal it. No production numeric ceiling, runtime installation, native launch or publication follows from PHP verification.

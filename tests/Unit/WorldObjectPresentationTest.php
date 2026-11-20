@@ -629,6 +629,51 @@ it('projects one-shot completion into both object artwork and terminal state acr
         ->and($object->getTerminalSymbol())->toBeNull(); // Old installation cannot claim the new map.
 });
 
+it('preserves dialogue framing and authored camera movement when the current map refreshes its projection', function (bool $retained) {
+    $source = createWorldObjectSource(['terminal' => 'c', 'variants' => [[
+        'id' => 'opened', 'conditions' => [['type' => 'switch', 'name' => 'opened']],
+        'sprites2d' => ['asset' => 'Graphics/energized.png'], 'terminal' => 'o',
+    ]]]);
+    $prepared = createWorldObjectPreparedMap([$source]);
+    $camera = $this->scene->camera;
+    $map = $this->scene->mapManager;
+    $camera->resizeViewport(4, 3);
+    $map->applyPreparedMap($prepared, $this->scene->player);
+    $dialogue = new stdClass();
+    $pan = new stdClass();
+    $subject = new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(1, 1, 2, 2);
+    $safeArea = new \Ichiloto\Engine\Animations\Field\FieldSpriteBounds(0, 0, 4, 1);
+    expect($camera->frameBounds($dialogue, $subject, $safeArea, .2))->toBeTrue();
+    $camera->beginTransition($pan, new Vector2(1, 0), .4);
+    $origin = $camera->getWorldOrigin();
+    $motion = $camera->presentationMotion;
+    $authored = $map->tileMap;
+    $collisions = $map->getCollisionGrid();
+
+    Console::setRetainedWorldPresentation($retained);
+    $map->render();
+    expect($camera->isFramed)->toBeTrue()
+        ->and($camera->ownsTransition($pan))->toBeTrue()
+        ->and($camera->getWorldOrigin())->toBe($origin)
+        ->and($camera->presentationMotion)->toBe($motion)
+        ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($camera->worldSpace[1][1]))->toBe('c');
+
+    $this->scene->gameState->setSwitch('opened');
+    $map->render();
+    expect($camera->isFramed)->toBeTrue()
+        ->and($camera->ownsTransition($pan))->toBeTrue()
+        ->and($camera->getWorldOrigin())->toBe($origin)
+        ->and($camera->presentationMotion)->toBe($motion)
+        ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($camera->worldSpace[1][1]))->toBe('o')
+        ->and($map->tileMap)->toBe($authored)
+        ->and($map->getCollisionGrid())->toBe($collisions);
+
+    $map->applyPreparedMap(createWorldObjectPreparedMap([$source], 'synthetic/replacement'), $this->scene->player);
+    expect($camera->isFramed)->toBeFalse()
+        ->and($camera->ownsTransition($pan))->toBeFalse()
+        ->and($camera->presentationMotion)->toBeNull();
+})->with(['Terminal' => false, 'retained graphical world' => true]);
+
 it('keeps overview subjects at the source anchor and resting pose without advancing field clocks', function () {
     $source = createWorldObjectSource(['sprites2d' => ['asset'=>'Graphics/glow.png',
         'animation'=>['columns'=>2,'frames'=>[0,1],'fps'=>10]]]);
@@ -2095,4 +2140,44 @@ it('hides the terminal layers of the subjects a world canvas presents in the fie
     $this->scene->cinematicStage->configure([['id' => 'in-bed', 'subject' => ['kind' => 'npc', 'id' => 'sleeper']]]);
     $compose();
     expect($excluded)->toContain($npc->getGraphicalSpriteId(), $this->scene->cinematicStage->require('in-bed')->getGraphicalSpriteId());
+});
+
+
+it('withholds either object image representation without losing its terminal cells or presentation lease', function (bool $compound) {
+    $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20),
+        static fn(string $cap): bool => true, assetRoot: $this->root . '/assets'));
+    if ($compound) { installWorldObjectBed($this->scene, $this->root, cover: true); }
+    $object = $this->scene->mapManager->findWorldObject('fixture');
+    $cells = $object->getTerminalCells();
+    $collision = $this->scene->mapManager->getCollisionGrid();
+    expect($compound ? $object->getPresentationWorldCanvas() : $object->getGraphicalSpriteDefinition())->not->toBeNull();
+    $entry = ['id' => 'object-role', 'subject' => ['kind' => 'world_object', 'id' => 'fixture'], 'graphicalVisible' => false];
+    $actor = $this->scene->cinematicStage->add($entry);
+    expect($actor->isVisible)->toBeTrue()->and($actor->sprite)->toBe([])
+        ->and($actor->getGraphicalSpriteDefinition())->toBeNull()->and($actor->getPresentationWorldCanvas())->toBeNull()
+        ->and($this->scene->cinematicStage->suppresses($object))->toBeTrue()
+        ->and($this->scene->cinematicStage->hidesWorldObjectGlyphs($object))->toBeTrue()
+        ->and($object->getTerminalCells())->toBe($cells)->and($this->scene->mapManager->getCollisionGrid())->toBe($collision);
+    $this->scene->cinematicStage->remove('object-role');
+    expect($this->scene->cinematicStage->suppresses($object))->toBeFalse()
+        ->and($compound ? $object->getPresentationWorldCanvas() : $object->getGraphicalSpriteDefinition())->not->toBeNull()
+        ->and($object->getTerminalCells())->toBe($cells);
+})->with(['sprite' => false, 'compound canvas' => true]);
+
+it('withholds a staged bed occupant image while keeping the bed canvas and real occupant state', function () {
+    $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(12, 6, 10, 20),
+        static fn(string $cap): bool => true, assetRoot: $this->root . '/assets'));
+    $npc = installWorldObjectBed($this->scene, $this->root, cover: true);
+    $object = $this->scene->mapManager->findWorldObject('fixture');
+    $terminal = $npc->getFieldTerminalSprite();
+    $actor = $this->scene->cinematicStage->add(['id' => 'occupant-role',
+        'subject' => ['kind' => 'npc', 'id' => 'sleeper'], 'graphicalVisible' => false]);
+    $group = $object->getPresentationWorldCanvas();
+    expect(array_column($group->canvas->images, 'id'))->toBe(['base', 'cover'])
+        ->and($group->canvas->presentationOwners)->toContain($actor->getGraphicalSpriteId())
+        ->and($actor->isVisible)->toBeTrue()->and($actor->isGraphicallyVisible)->toBeFalse()
+        ->and($npc->bed->isOccupied)->toBeTrue()->and($npc->getFieldTerminalSprite())->toBe($terminal)
+        ->and($this->scene->mapManager->canMoveTo(1, 1))->toBeFalse();
+    $this->scene->cinematicStage->clear();
+    expect(array_column($object->getPresentationWorldCanvas()->canvas->images, 'id'))->toBe(['base', 'occupant', 'cover']);
 });

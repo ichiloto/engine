@@ -7,12 +7,14 @@ namespace Ichiloto\Engine\Rendering\Sprites;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use RuntimeException;
+use GdImage;
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 
 /**
  * What current artwork shows, read from its pixels once per content revision and crop: its visible extent as drawn,
  * which battle overlays attach to and author diagnostics measure, and where it meets the ground, which its shadow
- * lies under. Replacing the image needs no metadata. Read-only and presentation-only; never a native PNG decode or
- * gameplay gate.
+ * lies under. Replacing the image needs no authored metadata. Source pixels are read-only; exact generated facts
+ * are disposable cached presentation data, never a gameplay gate.
  */
 final class PngAssetBounds
 {
@@ -27,26 +29,125 @@ final class PngAssetBounds
   private const float PIECE = .08;
   /** @var array<string, array{version: string, pixels: ?array, edge: array<int, int>}> */
   private static array $cache = [];
+  private static ?PngAssetFactsCache $factsCache = null;
+  private static bool $factsCacheResolved = false;
+
+  /** Explicit host/test storage ownership; changing stores discards only process-local generated facts. */
+  public static function setFactsCache(PngAssetFactsCache $cache): void
+  {
+    self::$factsCache = $cache;
+    self::$factsCacheResolved = true;
+    self::$cache = [];
+  }
+
+
+  public static function getFactsCache(): ?PngAssetFactsCache
+  {
+    if (!self::$factsCacheResolved) {
+      self::$factsCacheResolved = true;
+      try { self::$factsCache = PngAssetFactsCache::createForUser(); }
+      catch (RuntimeException|\InvalidArgumentException $failure) {
+        \Ichiloto\Engine\Util\Debug::warn('Generated PNG facts cache location unavailable: ' . $failure->getMessage());
+      }
+    }
+    return self::$factsCache;
+  }
+
+  /** Check current revisions without decoding a missing crop or writing generated data.
+   * @param list<CanvasImage> $images
+   */
+  public static function hasCurrentFacts(string $root, array $images, bool $memoryOnly = false): bool
+  {
+    return PngAssetPreflight::runWithSnapshot(static function () use ($root, $images, $memoryOnly): bool {
+      foreach ($images as $image) {
+        if (self::readInSnapshot($root, $image, allowGeneration: false, allowStoreRead: !$memoryOnly) === null) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Load validated generated records up to the caller's monotonic deadline.
+   * The returned index is the next crop; null reports a missing current revision.
+   * @param list<CanvasImage> $images
+   */
+  public static function hydrateCurrentFacts(string $root, array $images, int $from, int $deadline): ?int
+  {
+    return PngAssetPreflight::runWithSnapshot(static function () use ($root, $images, $from, $deadline): ?int {
+      $end = count($images);
+      if ($from < 0 || $from > $end) {
+        throw new \InvalidArgumentException('Sprite facts hydration offset must be within the crop list.');
+      }
+      for ($index = $from; $index < $end; $index++) {
+        if (self::readInSnapshot($root, $images[$index], allowGeneration: false) === null) { return null; }
+        if (hrtime(true) >= $deadline) { return $index + 1; }
+      }
+      return $end;
+    });
+  }
 
   /** @return array{bounds: ?CanvasRectangle, diagnostic: ?string} */
   public static function getVisibleBounds(string $root, CanvasImage $image): array
   {
     try {
       [$size, $facts] = self::read($root, $image);
-      $pixels = $facts['pixels'];
-      if ($pixels === null || $image->opacity === 0.0) { return ['bounds' => null, 'diagnostic' => null]; }
-      [$x, $y, $right, $bottom] = $image->projectSourceBounds($size['width'], $size['height'], ...$pixels);
-      if ($image->clipRect !== null) {
-        $x = max($x, $image->clipRect->x);
-        $y = max($y, $image->clipRect->y);
-        $right = min($right, $image->clipRect->x + $image->clipRect->width);
-        $bottom = min($bottom, $image->clipRect->y + $image->clipRect->height);
-      }
-      return ['bounds' => $right <= $x || $bottom <= $y ? null : new CanvasRectangle(
-        $x, $y, $right - $x, $bottom - $y, allowOutsideCanvas: true), 'diagnostic' => null];
+      return self::projectVisibleBounds($image, $size, $facts);
     } catch (RuntimeException $error) {
       return ['bounds' => null, 'diagnostic' => $error->getMessage()];
     }
+  }
+
+  /**
+   * Inspect a set of drawings with one transient PNG decode per asset that has uncached crops.
+   * Only compact crop facts survive the call. Each file's decoded pixels are released before the next file.
+   * The owning content snapshot keeps replacement detection consistent across all crops in the batch.
+   *
+   * @param list<CanvasImage> $images
+   * @return list<array{bounds: ?CanvasRectangle, diagnostic: ?string}> Results in input order.
+   */
+  public static function getVisibleBoundsForImages(string $root, array $images): array
+  {
+    if ($images === []) { return []; }
+    $scan = static fn(): array => PngAssetPreflight::runWithSnapshot(static function () use ($root, $images): array {
+      $groups = [];
+      foreach ($images as $index => $image) { $groups[$image->asset][$index] = $image; }
+      $results = [];
+      foreach ($groups as $group) {
+        $decoded = null;
+        try {
+          foreach ($group as $index => $image) {
+            try {
+              [$size, $facts] = self::readInSnapshot($root, $image, $decoded);
+              $results[$index] = self::projectVisibleBounds($image, $size, $facts);
+            } catch (RuntimeException $error) {
+              $results[$index] = ['bounds' => null, 'diagnostic' => $error->getMessage()];
+            }
+          }
+        } finally { unset($decoded); }
+      }
+      ksort($results);
+      return array_values($results);
+    });
+    $cache = self::getFactsCache();
+    return $cache === null ? $scan() : $cache->runBatch($scan);
+  }
+
+  /** @return array{bounds: ?CanvasRectangle, diagnostic: ?string} */
+  private static function projectVisibleBounds(CanvasImage $image, array $size, array $facts): array
+  {
+    $pixels = $facts['pixels'];
+    if ($pixels === null || $image->opacity === 0.0) { return ['bounds' => null, 'diagnostic' => null]; }
+    [$x, $y, $right, $bottom] = $image->projectSourceBounds($size['width'], $size['height'], ...$pixels);
+    if ($image->clipRect !== null) {
+      $x = max($x, $image->clipRect->x);
+      $y = max($y, $image->clipRect->y);
+      $right = min($right, $image->clipRect->x + $image->clipRect->width);
+      $bottom = min($bottom, $image->clipRect->y + $image->clipRect->height);
+    }
+    return ['bounds' => $right <= $x || $bottom <= $y ? null : new CanvasRectangle(
+      $x, $y, $right - $x, $bottom - $y, allowOutsideCanvas: true), 'diagnostic' => null];
   }
 
   /** @return array{float, float}|null Horizontal span of the solid lower silhouette at a surface height. */
@@ -124,29 +225,45 @@ final class PngAssetBounds
     return ['top' => $top / $size['height'], 'bottom' => ($lowest + 1) / $size['height'], 'patches' => $patches];
   }
 
-  /**
-   * The current file's facts for a crop, read once per content revision.
-   * @return array{0: array{width: int, height: int}, 1: array{version: string, pixels: ?array, edge: array<int, int>}}
-   */
+  /** Single-image queries use the same inspection scope as a crop batch. */
   private static function read(string $root, CanvasImage $image): array
   {
+    return PngAssetPreflight::runWithSnapshot(static fn(): array => self::readInSnapshot($root, $image));
+  }
+
+  /**
+   * The current file's facts for a crop, read once per content revision.
+   * @return array{0: array{width: int, height: int}, 1: array{version: string, pixels: ?array, edge: array<int, int>}}|null
+   */
+  private static function readInSnapshot(string $root, CanvasImage $image, ?GdImage &$decoded = null,
+    bool $allowGeneration = true, bool $allowStoreRead = true): ?array
+  {
     $size = PngAssetPreflight::inspect($root, $image->asset, $image->sourceRect);
-    if (!function_exists('imagecreatefrompng')) {
-      throw new RuntimeException('Visible-pixel inspection unavailable: optional GD PNG support is not installed.');
-    }
-    $path = realpath($root . DIRECTORY_SEPARATOR . $image->asset);
-    $canonicalRoot = realpath($root);
-    // A content hash, not stat facts, so a same-size in-place edit is never served stale; xxh128 keeps it cheap per frame.
-    if ($path === false || $canonicalRoot === false || !str_starts_with($path, $canonicalRoot . DIRECTORY_SEPARATOR)
-      || ($version = @hash_file('xxh128', $path)) === false) {
-      throw new RuntimeException('Visible-pixel inspection could not read the current PNG.');
-    }
+    ['path' => $path, 'revision' => $version] = PngAssetPreflight::getContentIdentity($root, $image->asset);
     $crop = $image->sourceRect;
     $key = $path . ':' . serialize($crop);
     if (!isset(self::$cache[$key]) || self::$cache[$key]['version'] !== $version) {
+      $store = $allowStoreRead ? self::getFactsCache() : null;
+      $stored = $store?->find($path, $version, $crop, $size['width'], $size['height']);
+      if ($stored === null && !$allowGeneration) { return null; }
       if (count(self::$cache) >= self::MAX_CACHE_ENTRIES) { array_shift(self::$cache); }
-      $decoded = @imagecreatefrompng($path);
-      if ($decoded === false) { throw new RuntimeException('Visible-pixel inspection could not decode the current PNG.'); }
+      if ($stored !== null) {
+        self::$cache[$key] = $stored;
+        return [$size, $stored];
+      }
+      if (!function_exists('imagecreatefrompng') || !function_exists('imagecreatefromstring')) {
+        throw new RuntimeException('Visible-pixel inspection unavailable: optional GD PNG support is not installed.');
+      }
+      if ($decoded === null) {
+        $span = LatencyTrace::beginSpan();
+        try {
+          $current = @imagecreatefromstring(PngAssetPreflight::readRevisionBytes($root, $image->asset, $version));
+          if ($current === false) { throw new RuntimeException('Visible-pixel inspection could not decode the current PNG.'); }
+          // Palette transparency becomes alpha once for the complete source, before any crop is inspected.
+          if (!imageistruecolor($current)) { imagepalettetotruecolor($current); }
+          $decoded = $current;
+        } finally { LatencyTrace::endSpan('png.bounds.decode', $span, ['asset' => $image->asset]); }
+      }
       $x = $crop?->x ?? 0;
       $y = $crop?->y ?? 0;
       $width = $size['width'];
@@ -154,12 +271,16 @@ final class PngAssetBounds
       if ($x + $width > imagesx($decoded) || $y + $height > imagesy($decoded)) {
         throw new RuntimeException('Visible-pixel crop exceeds the decoded PNG.');
       }
-      // Palette transparency becomes the alpha channel, so one comparison classifies every pixel.
-      if (!imageistruecolor($decoded)) { imagepalettetotruecolor($decoded); }
-      $pixels = self::findVisiblePixels($decoded, $x, $y, $width, $height);
-      $edge = $pixels === null ? [] : self::findLowerEdge($decoded, $x, $y, $pixels);
-      unset($decoded);
+      $span = LatencyTrace::beginSpan();
+      try {
+        $pixels = self::findVisiblePixels($decoded, $x, $y, $width, $height);
+        $edge = $pixels === null ? [] : self::findLowerEdge($decoded, $x, $y, $pixels);
+      } finally {
+        LatencyTrace::endSpan('png.bounds.scan', $span, ['asset' => $image->asset,
+          'source' => [$x, $y, $width, $height]]);
+      }
       self::$cache[$key] = ['version' => $version, 'pixels' => $pixels, 'edge' => $edge];
+      $store?->store($path, $version, $crop, $width, $height, self::$cache[$key]);
     }
     return [$size, self::$cache[$key]];
   }
@@ -196,28 +317,32 @@ final class PngAssetBounds
    */
   private static function findVisiblePixels(\GdImage $image, int $x, int $y, int $width, int $height): ?array
   {
-    $top = $bottom = $left = $right = null;
-    for ($row = 0; $row < $height && $top === null; $row++) {
-      for ($column = 0; $column < $width; $column++) {
-        if (imagecolorat($image, $x + $column, $y + $row) < 0x7F000000) { $top = $row; break; }
+    $rightLimit = $x + $width - 1;
+    $bottomLimit = $y + $height - 1;
+    for ($top = $y; $top <= $bottomLimit; $top++) {
+      for ($column = $x; $column <= $rightLimit; $column++) {
+        if (imagecolorat($image, $column, $top) < 0x7F000000) { break 2; }
       }
     }
-    if ($top === null) { return null; }
-    for ($row = $height - 1; $bottom === null; $row--) {
-      for ($column = 0; $column < $width; $column++) {
-        if (imagecolorat($image, $x + $column, $y + $row) < 0x7F000000) { $bottom = $row; break; }
+    if ($top > $bottomLimit) { return null; }
+    $topHit = $column;
+    for ($bottom = $bottomLimit; $bottom > $top; $bottom--) {
+      for ($column = $x; $column <= $rightLimit; $column++) {
+        if (imagecolorat($image, $column, $bottom) < 0x7F000000) { break 2; }
       }
     }
-    for ($column = 0; $left === null; $column++) {
+    $bottomHit = $bottom === $top ? $topHit : $column;
+    // The first visible pixels on the top and bottom rows bound both searches.
+    for ($left = $x, $leftLimit = min($topHit, $bottomHit); $left < $leftLimit; $left++) {
       for ($row = $top; $row <= $bottom; $row++) {
-        if (imagecolorat($image, $x + $column, $y + $row) < 0x7F000000) { $left = $column; break; }
+        if (imagecolorat($image, $left, $row) < 0x7F000000) { break 2; }
       }
     }
-    for ($column = $width - 1; $right === null; $column--) {
+    for ($right = $rightLimit, $rightFloor = max($topHit, $bottomHit); $right > $rightFloor; $right--) {
       for ($row = $top; $row <= $bottom; $row++) {
-        if (imagecolorat($image, $x + $column, $y + $row) < 0x7F000000) { $right = $column; break; }
+        if (imagecolorat($image, $right, $row) < 0x7F000000) { break 2; }
       }
     }
-    return [$left, $top, $right - $left + 1, $bottom - $top + 1];
+    return [$left - $x, $top - $y, $right - $left + 1, $bottom - $top + 1];
   }
 }

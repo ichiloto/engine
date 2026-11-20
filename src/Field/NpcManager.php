@@ -108,7 +108,7 @@ class NpcManager
         graphicalSpriteId: 'npc:map:' . rawurlencode($mapId) . ':'
           . ($id !== '' ? 'id:' . rawurlencode($id) : 'entry:' . $index),
         assetRoot: $graphicalSprites === null && ($placement->placements?->poses ?? []) === [] ? null
-          : ($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets'),
+          : ($this->gameScene->getFieldAssetRoot()),
         directionFix: ($entry['directionFix'] ?? false) === true,
         facing: $placement->placements === null ? self::readFacing($entry)
           : $placement->placements->placements[$placement->placements->readSelection($this->gameScene->gameState, $mapId, $id)]['facing'],
@@ -125,7 +125,7 @@ class NpcManager
         [$object, $attachment] = $bed->resolveObject($worldObjects);
         $npc->bindBed(new NpcBed($bed, $npc, $object, $attachment, new Vector2($placement->x, $placement->y),
           $this->gameScene->gameState, $mapId,
-          $this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets', $this->gameScene));
+          $this->gameScene->getFieldAssetRoot(), $this->gameScene));
       }
       $npcs[] = $npc;
     }

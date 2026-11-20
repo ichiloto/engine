@@ -19,4 +19,6 @@ enum RendererEventType: string
   case TEXT_PREPARED = 'text_prepared';
   case TEXT_PREPARE_FAILED = 'text_prepare_failed';
   case TEXT_RELEASED = 'text_released';
+  /** Negotiated asset_holds only: residency changed after generation admission. */
+  case ASSET_HOLDS = 'asset_holds';
 }

@@ -49,7 +49,7 @@ final class SkillRecord
 {
   /** The keys a record's data may hold. */
   public const array KEYS = [
-    'kind', 'name', 'description', 'icon', 'cost', 'cooldown', 'occasion', 'scope', 'invocation', 'effects',
+    'kind', 'name', 'description', 'icon', 'cost', 'apCost', 'cooldown', 'occasion', 'scope', 'invocation', 'effects',
     'animationId', 'animationScale', 'effectType', 'counterAttack', 'battleTargeting',
   ];
 
@@ -144,6 +144,7 @@ final class SkillRecord
       'description' => self::requireText($data, 'description'),
       'icon' => self::requireText($data, 'icon'),
       'cost' => self::requireInt($data, 'cost'),
+      'apCost' => array_key_exists('apCost', $data) ? self::requireInt($data, 'apCost') : 0,
       'cooldown' => self::requireInt($data, 'cooldown'),
       'scope' => self::readScope(self::requireArray($data, 'scope')),
       'occasion' => self::readEnum(Occasion::class, self::requireString($data, 'occasion'), 'occasion'),
@@ -217,6 +218,9 @@ final class SkillRecord
       'effects' => array_map(self::writeEffect(...), $skill->effects),
     ];
 
+    if ($skill->apCost > 0) {
+      $data['apCost'] = $skill->apCost;
+    }
     if ($skill->animationId !== null) {
       $data['animationId'] = $skill->animationId;
     }

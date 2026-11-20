@@ -49,6 +49,6 @@ class TraditionalTurnBasedBattleEngine extends TurnBasedEngine
       $this->game->quit();
     }
 
-    $this->state->update($this->turnStateExecutionContext);
+    $this->updateBattlePhase();
   }
 }

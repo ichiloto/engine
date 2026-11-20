@@ -70,6 +70,26 @@ final class CinematicPresentationManager
     return $canvas;
   }
 
+  /** Actual current timed-text geometry, in pixels for a graphical host or cells for Terminal. */
+  public function getProtectedOverlayBounds(int $width, int $height, ?string $assetRoot = null,
+    ?\Ichiloto\Engine\Rendering\Transport\RendererGridConfig $graphicalGrid = null): array
+  {
+    $overlay = $this->getOverlayForActiveSurface();
+    if ($overlay === null) { return []; }
+    if ($graphicalGrid !== null && $assetRoot !== null) {
+      if ($this->dialogueAssetRoot !== $assetRoot) {
+        $this->dialogueAssetRoot = $assetRoot;
+        $this->dialoguePresentation = new DialogueScenePresentation($assetRoot);
+      }
+      $protected = $overlay->getProtectedBounds($this->dialoguePresentation, $width, $height);
+      if ($protected !== null) { return $protected; }
+    }
+    $cells = $overlay->getTerminalBounds($graphicalGrid?->columns ?? $width, $graphicalGrid?->rows ?? $height);
+    return [new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle(
+      $cells->x * ($graphicalGrid?->cellWidth ?? 1), $cells->y * ($graphicalGrid?->cellHeight ?? 1),
+      $cells->width * ($graphicalGrid?->cellWidth ?? 1), $cells->height * ($graphicalGrid?->cellHeight ?? 1))];
+  }
+
   public function getOverlayExcludedLayers(): array
   {
     return $this->hasGraphicalOverlay ? ['cinematic-overlay'] : [];

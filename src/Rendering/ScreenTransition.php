@@ -157,8 +157,11 @@ class ScreenTransition
       presentationOwners: ['cinematic-cover', 'transition']);
   }
 
-  /** Graphical appearance is authored data; lifecycle and reduced motion remain shared engine policy. */
-  public static function startHandoff(ScreenTransitionTreatment $treatment, callable $present,
+  /**
+   * Graphical appearance is authored data; lifecycle and reduced motion remain shared engine policy.
+   * The handoff may return false to keep the outgoing scene while incoming preparation is pending.
+   */
+  public static function startHandoff(?ScreenTransitionTreatment $treatment, callable $present,
     callable $handoff, callable $ready, callable $cleanup, bool $enabled = true): ScreenTransitionSession
   {
     return new ScreenTransitionSession($treatment, present: $present, handoff: $handoff, ready: $ready,

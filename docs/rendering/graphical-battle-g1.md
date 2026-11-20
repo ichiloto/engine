@@ -95,7 +95,12 @@ crop contract. Rust does not trim transparent borders, infer feet, apply another
 contain-fit calculation or measure ASCII art.
 
 Indicator fields: `id`, `imageId`, `kind`, `bounds`, `strokeWidth`, `color`, i32
-`layer`. `imageId` must identify an image in the same snapshot. `kind` is
+`layer`. `imageId` identifies a local image or composite. With negotiated
+`canvas_indicator_image_path`, optional `imagePath` names 1..8 groups from this
+complete root and then that existing leaf; `imageId` must equal the leaf.
+Absent paths retain local association. Final candidate admission resolves the
+complete graph; a missing target refuses the frame. Geometry and paint order
+are unchanged. `kind` is
 `outline` or `underline`. Strokes are integer 1..16, no larger than either bound
 dimension, drawn inside the bounds. Underline fills the inside bottom strip.
 `color` is a required nonnull existing ColorSpec. Native code renders submitted

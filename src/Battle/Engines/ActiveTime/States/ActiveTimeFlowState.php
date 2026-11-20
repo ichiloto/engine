@@ -28,6 +28,7 @@ class ActiveTimeFlowState extends PlayerActionState
    */
   public function enter(TurnStateExecutionContext $context): void
   {
+    $context->ui->releaseActionPrefetch();
     $context->roundNumber = max(1, $context->roundNumber);
     $context->ui->setState($context->ui->playerActionState);
     $this->menuStack = new Stack(MenuInterface::class);
@@ -112,6 +113,11 @@ class ActiveTimeFlowState extends PlayerActionState
     }
 
     $actor = $this->activeCharacter;
+    if (($refusal = $selectedOption->getAffordabilityRefusal($actor)) !== null) {
+      $context->ui->alert($refusal);
+      return;
+    }
+
     $anchor = $selectedOption->action->targeting?->shape === \Ichiloto\Engine\Battle\Formation\BattleTargetShape::LINE
       ? ($this->getSelectionPool($context, $selectedOption)[$this->activeTargetIndex] ?? null) : null;
     $this->selectionMode = self::MODE_COMMAND;

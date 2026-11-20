@@ -89,6 +89,12 @@ class BattleLoader
     $settings['escapePolicy'] = ($scriptPolicy ?? $troop->escapePolicy ?? EscapePolicy::ALLOWED)->value;
     $extraSettings['escapePolicy'] = $settings['escapePolicy'];
 
+    if ($systemData->actionPointPolicy !== null) {
+      $settings['actionPoints'] = ['basicAttackGain' => $systemData->actionPointPolicy->basicAttackGain];
+    }
+    // This is a project rule shared with saves and recovery, independent of the encounter.
+    unset($extraSettings['actionPoints']);
+
     return new BattleConfig(
       $party,
       $troop,

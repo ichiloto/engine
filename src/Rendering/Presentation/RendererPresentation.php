@@ -8,10 +8,12 @@ use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasViewportFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasFrameBudget;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasIndicatorReferences, CanvasComposite};
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use InvalidArgumentException;
 use Closure;
+use Ichiloto\Engine\Rendering\Assets\AssetHoldLeases;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 
@@ -19,6 +21,8 @@ use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 final class RendererPresentation
 {
   private readonly RetainedPresentation $retained;
+  private readonly object $visibleAssetOwner;
+  private bool $warnedNormalizedSourcePrecision = false;
 
   public function __construct(
     private readonly RendererClient $client,
@@ -27,14 +31,23 @@ final class RendererPresentation
   )
   {
     $this->retained = new RetainedPresentation($client, $serviceTransport);
+    $this->visibleAssetOwner = new \stdClass();
   }
 
   public function invalidate(bool $newSession = false, ?int $expectedGeneration = null): void
   {
     $this->retained->invalidate($newSession, $expectedGeneration);
+    if ($newSession) { $this->warnedNormalizedSourcePrecision = false; }
   }
 
   public function hasPendingUpload(): bool { return $this->retained->hasPendingUpload(); }
+
+  public function isAwaitingGeneration(int $generation): bool { return $this->retained->isAwaitingGeneration($generation); }
+
+  public function recoverDelivery(string $failure, int $expectedGeneration): void
+  {
+    $this->retained->recoverDelivery($failure, $expectedGeneration);
+  }
 
   public function hasPendingWorldDelivery(): bool { return $this->retained->hasPendingWorldDelivery(); }
 
@@ -42,6 +55,7 @@ final class RendererPresentation
 
   /** The world of the newest frame the renderer has shown. */
   public ?PresentationWorld $presentedWorld { get => $this->retained->presentedWorld; }
+  public AssetHoldLeases $assetHolds { get => $this->client->assetHolds; }
 
   public function acknowledge(int $generation, bool $presented): void { $this->retained->acknowledge($generation, $presented); }
 
@@ -60,7 +74,7 @@ final class RendererPresentation
     return PresentationSession::runForSession($this->client->supports(...), function () use ($canvas, $world): RetainedFrame {
       $this->validateCanvas($canvas);
       $this->validateCanvasFrame([$canvas]);
-      return $this->retained->prepareCanvas($canvas, $world);
+      return $this->retained->prepareCanvas($canvas, $world, $this->getSessionAssetHolds());
     });
   }
 
@@ -72,6 +86,7 @@ final class RendererPresentation
 
   private function presentPreparedFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay): bool
   {
+    $this->retained->assertOwnsFrame($frame);
     $this->validateCameraMotion($frame->viewport);
     $this->validateWorldCanvases($frame->worldCanvases);
     if ($frame->canvas !== null) { $this->validateCanvas($frame->canvas, $frame->canvasIsOverlay); }
@@ -88,7 +103,8 @@ final class RendererPresentation
     $canvas?->assertWorldReferences($frame->world);
     $this->validateCanvasFrame([...($canvas === null ? [] : [$canvas]),
       ...array_map(static fn($group) => $group->canvas, $frame->worldCanvases)]);
-    return $this->retained->presentFrame($frame, $screenOverlay);
+    $this->assetHolds->borrowRequests($this->visibleAssetOwner, $frame->getReferencedAssetHolds());
+    return $this->retained->presentFrame($frame, $screenOverlay, $this->getSessionAssetHolds());
   }
 
   /**
@@ -148,8 +164,15 @@ final class RendererPresentation
     $this->validateWorldCanvases($worldCanvases);
     $this->validateCanvasFrame([...($canvasOverlay === null ? [] : [$canvasOverlay]),
       ...array_map(static fn($group) => $group->canvas, $worldCanvases)]);
-    return $prepare ? $this->retained->prepareFrame($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases)
-      : $this->retained->present($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases);
+    if (!$this->client->supports(RendererSessionConfig::ASSET_HOLDS)) {
+      return $prepare ? $this->retained->prepareFrame($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases)
+        : $this->retained->present($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases);
+    }
+    $frame = $this->retained->prepareFrame($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases,
+      $this->getSessionAssetHolds());
+    if ($prepare) { return $frame; }
+    $this->assetHolds->borrowRequests($this->visibleAssetOwner, $frame->getReferencedAssetHolds());
+    return $this->retained->presentFrame($frame, assetHolds: $this->getSessionAssetHolds());
   }
 
   private function validateCameraMotion(PresentationViewport|array|null $viewport): void
@@ -166,8 +189,30 @@ final class RendererPresentation
     return PresentationSession::runForSession($this->client->supports(...), function () use ($canvas, $world): bool {
       $this->validateCanvas($canvas);
       $this->validateCanvasFrame([$canvas]);
-      return $this->retained->presentCanvas($canvas, $world);
+      if (!$this->client->supports(RendererSessionConfig::ASSET_HOLDS)) { return $this->retained->presentCanvas($canvas, $world); }
+      $frame = $this->retained->prepareCanvas($canvas, $world, $this->getSessionAssetHolds());
+      $this->assetHolds->borrowRequests($this->visibleAssetOwner, $frame->getReferencedAssetHolds());
+      return $this->retained->presentFrame($frame, assetHolds: $this->getSessionAssetHolds());
     });
+  }
+
+  /** @return list<\Ichiloto\Engine\Rendering\Assets\AssetHoldRequest> */
+  private function getSessionAssetHolds(): array
+  {
+    return $this->client->supports(RendererSessionConfig::ASSET_HOLDS)
+      ? $this->assetHolds->getDesiredRequests() : [];
+  }
+
+  /** Preload traffic is independent of drawing readiness and never waits for a worker. */
+  public function presentAssetHolds(): bool
+  {
+    return $this->client->supports(RendererSessionConfig::ASSET_HOLDS)
+      && $this->retained->presentAssetHolds($this->getSessionAssetHolds());
+  }
+
+  public function releaseAssetHolds(): void
+  {
+    $this->assetHolds->releaseOwner($this->visibleAssetOwner);
   }
 
   /** Admission is for the complete candidate, not one root or one prepared layout at a time.
@@ -176,6 +221,7 @@ final class RendererPresentation
   private function validateCanvasFrame(array $canvases): void
   {
     CanvasFrameBudget::assertCanvases($canvases);
+    CanvasIndicatorReferences::assertCanvases($canvases);
     $canvases = CanvasFrameBudget::getCanvases($canvases);
     if (!$this->client->supports(RendererSessionConfig::CANVAS_LABEL_INSTANCES)
       && array_sum(array_map(static fn($canvas) => count($canvas->textLayers) + count($canvas->labels), $canvases))
@@ -184,17 +230,29 @@ final class RendererPresentation
     }
   }
 
-  private function validateCanvas(PresentationCanvas $canvas, bool $isOverlay = false): void
+  private function validateCanvas(PresentationCanvas $canvas, bool $isOverlay = false,
+    ?PresentationCanvas $referenceRoot = null): void
   {
+    $referenceRoot ??= $canvas;
+    if (array_any($canvas->indicators, static fn($indicator): bool => $indicator->imagePath !== null)
+      && (!$this->client->supports(RendererSessionConfig::CANVAS_INDICATOR_IMAGE_PATH)
+        || !$this->client->supports(RendererSessionConfig::CANVAS_GROUPS))) {
+      throw new RendererProtocolException('Qualified indicator paths require negotiated canvas_indicator_image_path and canvas_groups support.');
+    }
     if ($canvas->groups !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_GROUPS)) {
       throw new RendererProtocolException('Canvas groups require negotiated canvas_groups support.');
     }
     foreach ($canvas->groups as $group) {
+      if ($group->scale !== null && $group->scale->factor !== 1.0
+        && (!$this->client->supports(RendererSessionConfig::CANVAS_GROUP_SCALE)
+          || !$this->client->supports(RendererSessionConfig::CANVAS_REGION_BUDGET))) {
+        throw new RendererProtocolException('Group scale requires negotiated canvas_group_scale and canvas_region_budget support.');
+      }
       if ($group->colorTransform !== null && (!$this->client->supports(RendererSessionConfig::CANVAS_GROUP_COLOR)
         || !$this->client->supports(RendererSessionConfig::CANVAS_REGION_BUDGET))) {
         throw new RendererProtocolException('Group colour requires negotiated canvas_group_color and canvas_region_budget support.');
       }
-      $this->validateCanvas($group->canvas, $isOverlay);
+      $this->validateCanvas($group->canvas, $isOverlay, $referenceRoot);
     }
 
     if (!$this->client->supports(RendererSessionConfig::GRAPHICAL_CANVAS)) {
@@ -211,15 +269,29 @@ final class RendererPresentation
     if ($canvas->composites !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_COMPOSITING)) {
       throw new RendererProtocolException('Canvas raster operations require negotiated canvas_compositing support.');
     }
+    if (!$this->client->supports(RendererSessionConfig::CANVAS_SOURCE_PIXELS)) {
+      foreach ($canvas->composites as $composite) {
+        foreach ($composite->operations as $operation) {
+          foreach ($operation->getImageSources() as $source) {
+            if (isset($source['sourcePixels'])) {
+              throw new RendererProtocolException('Pixel-valued composite sources require negotiated canvas_source_pixels support.');
+            }
+            if (isset($source['source']) && !$this->warnedNormalizedSourcePrecision) {
+              \Ichiloto\Engine\Util\Debug::warn('Renderer lacks canvas_source_pixels; normalized composite source crops retain existing precision and cannot guarantee atlas-cell isolation.');
+              $this->warnedNormalizedSourcePrecision = true;
+            }
+          }
+        }
+      }
+    }
     if (!$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_ALPHA_FLIP)
       && array_any($canvas->composites, static fn($composite): bool => array_any($composite->operations,
         static fn($operation): bool => array_any($operation->data['masks'], static fn(array $mask): bool =>
           ($mask['flipX'] ?? false) || ($mask['flipY'] ?? false))))) {
       throw new RendererProtocolException('Mirrored image-alpha masks require negotiated canvas_image_alpha_flip support.');
     }
-    $compositeIds = array_fill_keys(array_column($canvas->composites, 'id'), true);
-    $imageIds = array_fill_keys(array_column($canvas->images, 'id'), true);
-    if (array_any($canvas->indicators, static fn($indicator) => !isset($imageIds[$indicator->imageId]) && isset($compositeIds[$indicator->imageId]))
+    if (array_any($canvas->indicators, static fn($indicator): bool =>
+        CanvasIndicatorReferences::resolve($referenceRoot, $canvas, $indicator) instanceof CanvasComposite)
       && !$this->client->supports(RendererSessionConfig::CANVAS_COMPOSITE_INDICATORS)) {
       throw new RendererProtocolException('Composite indicators require negotiated canvas_composite_indicators support.');
     }

@@ -13,8 +13,13 @@ final class CanvasImageBudgetExceeded extends RuntimeException
    * @param array<string, int> $chargedSources
    * @param array<string, int> $regions
    */
-  public function __construct(array $sources, array $chargedSources, array $regions, bool $regionBudget)
+  public function __construct(array $sources, array $chargedSources, array $regions, bool $regionBudget, bool $rendererOwnsImageBytes = false)
   {
+    if ($rendererOwnsImageBytes) {
+      parent::__construct(sprintf('Canvas structural image limits exceeded. PNG sources: %d/1024; prepared regions: %d/4096. '
+        . 'Aggregate image-byte admission belongs to the subscribed renderer.', count($sources), count($regions)));
+      return;
+    }
     $sourceOverflow = count($sources) > 1024 || array_sum($chargedSources) > CanvasImagePreflight::MAX_BYTES;
     arsort($sources);
     arsort($regions);

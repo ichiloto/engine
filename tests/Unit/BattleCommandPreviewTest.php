@@ -230,3 +230,53 @@ it('refuses invalid playheads and foreign combatants without mutating the battle
     ->and(fn() => new BattleCommandPreview($this->battle, $this->plan, new Character('Foreign', 1, new Stats()),
       [$this->target], BattlePoseRole::MAGIC, $this->catalog, $this->root))->toThrow(InvalidArgumentException::class);
 });
+
+
+function createPreviewGroundSpanPlan(string $root): BattleCommandTimeline {
+  $effect = (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($root))->compile('synthetic-ground', [
+    'fps' => 24, 'lengthFrames' => 12, 'restFrame' => 3, 'targetCaptureFrame' => 2,
+    'tracks' => [['id' => 'ground', 'type' => 'image', 'asset' => 'effect.png', 'presentation' => 'graphical',
+      'anchor' => 'target-group', 'attachment' => 'ground', 'anchorLifetime' => 'target-capture', 'fit' => 'contain',
+      'pivot' => ['x' => .9, 'y' => .5], 'groundSpan' => ['tip' => ['x' => .1, 'y' => .5]],
+      'keyframes' => [['frame' => 3, 'duration' => 8]]]]], true);
+  return new BattleCommandTimeline(new BattleTurnTimings(.2, .2, .2, .2, .2, .2, .2), target: $effect);
+}
+
+it('negotiates compositing independently in both index and time preview requests', function (): void {
+  $plan = createPreviewGroundSpanPlan($this->root);
+  $preview = new BattleCommandPreview($this->battle, $plan, $this->actor, [$this->target],
+    BattlePoseRole::MAGIC, $this->catalog, $this->root);
+  $capture = array_find($plan->timeline->cueSchedule, static fn(array $cue) => $cue['type'] === 'commandCaptureTargetSnapshot');
+  $frame = $capture['frame'] + intdiv(BattleCommandTimeline::FPS, 24);
+  $index = $preview->getFrameAtIndex($frame, textureStrip: true, compositing: false);
+  $time = $preview->getFrameAtTime($frame / BattleCommandTimeline::FPS, textureStrip: true, compositing: false);
+  expect($index->diagnostics)->toHaveCount(1)->and($index->diagnostics[0])->toContain('compositing and texture-strip')
+    ->and($time->diagnostics)->toBe($index->diagnostics)
+    ->and($preview->getFrameAtIndex($frame, textureStrip: true, compositing: true)->diagnostics)->toBe([])
+    ->and($this->actor->stats->currentHp)->toBe(100)->and($this->target->stats->currentHp)->toBe(100);
+});
+
+it('checks actual capture positions before painting including normal advance and reduced-motion endpoint ties', function (bool $reduced): void {
+  $second = clone $this->target;
+  $battle = new BattleConfig($this->battle->party, new Troop('Synthetic symmetric', [$this->target, $second],
+    graphicalFormation: [getStageSlot(100, 200, 48, 96, groundBottom: 250), getStageSlot(300, 200, 48, 96, groundBottom: 250)]));
+  $art = new BattlerArtwork('body.png', 8, 16, 4, 16);
+  $catalog = new BattlePresentationCatalog(['preview' => new BattleArenaDefinition('Synthetic',
+    new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 400, 300)))],
+    ['Preview Hero' => $art], ['Preview Target' => $art],
+    ui: new BattleCanvasLayout(400, 300, uiCellWidth: 2, uiCellHeight: 4, ground: new BattleGround(bottom: 250),
+      partySlots: [getStageSlot(200, 200, 48, 96, groundBottom: 250)]), defaultArena: 'preview');
+  $plan = createPreviewGroundSpanPlan($this->root);
+  $before = serialize([$this->actor->stats, $this->target->stats, $second->stats]);
+  $single = new BattleCommandPreview($battle, $plan, $this->actor, [$this->target], BattlePoseRole::MAGIC, $catalog, $this->root);
+  $both = new BattleCommandPreview($battle, $plan, $this->actor, [$this->target, $second], BattlePoseRole::MAGIC, $catalog, $this->root);
+  expect($single->getGroundSpanDiagnostics($reduced))->toBe([]);
+  $diagnostics = $both->getGroundSpanDiagnostics($reduced);
+  if ($reduced) {
+    expect($diagnostics)->toHaveCount(1)->and($diagnostics[0])->toContain('opposite equally far endpoints');
+  } else {
+    // The normal cast advances before capture; the same resting symmetric formation is no longer tied.
+    expect($diagnostics)->toBe([]);
+  }
+  expect(serialize([$this->actor->stats, $this->target->stats, $second->stats]))->toBe($before);
+})->with([false, true]);

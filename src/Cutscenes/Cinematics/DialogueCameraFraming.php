@@ -101,18 +101,42 @@ final class DialogueCameraFraming
     $owners = array_values(array_filter($owners, static fn($owner): bool => $owner instanceof DialoguePresentationProviderInterface));
     $lines = array_map(static fn($owner) => $owner->getDialogueSnapshot(), $owners);
     $line = $lines[0] ?? null;
-    $subjects = $scene->cinematicController->getFramingSubjects();
+    $this->diagnosticKey = $scene->currentMapId . ':phase:' . ($scope === null ? 'none' : spl_object_id($scope));
+    try { $subjects = $scene->cinematicController->getFramingSubjects(); }
+    catch (\RuntimeException $error) {
+      $this->reportFailure('A required cinematic framing subject is unavailable: ' . $error->getMessage());
+      return;
+    }
     $view = $scene->getFieldViewport();
+    if ($view !== null && $scene->cinematicController->getCurrentFramingScope() !== null
+      && array_any($subjects, static fn($subject): bool => $subject instanceof StagedActor && !$subject->isGraphicallyVisible)) {
+      $this->reportFailure('A required cinematic framing subject has no visible graphical presentation.');
+      return;
+    }
+    if ($view !== null && $scene->cinematicController->getCurrentFramingScope() !== null) {
+      foreach ($subjects as $subject) {
+        $expectsArtwork = $subject instanceof StagedActor ? $subject->hasGraphicalArtwork
+          : $subject->getGraphicalCharacterSheet() !== null;
+        if ($expectsArtwork && $subject->getGraphicalSpriteDefinition() === null) {
+          $this->reportFailure('A required cinematic framing subject has invalid or unavailable graphical artwork.');
+          return;
+        }
+      }
+    }
     $bounds = $this->collectSubjectBounds($subjects, $view);
     if (array_any($lines, static fn($line): bool => $line->context->skitId !== null)
       || $subjects === []) { $this->clear(); return; }
-    if ($line === null) {
+    $hasOverlay = $scene->cinematicPresentation?->overlayPresentation !== null;
+    if ($line === null && !$hasOverlay) {
+      if ($scene->cinematicController->getCurrentFramingScope() !== null && $this->safeArea === null) {
+        $this->safeArea = new FieldSpriteBounds(0, 0, $scene->camera->screen->getWidth(), $scene->camera->screen->getHeight());
+      }
       if ($this->safeArea !== null) { $this->frameSubjects($bounds, $this->safeArea); }
       return;
     }
-    $this->diagnosticKey = $scene->currentMapId . ':' . $line->speaker;
+    if ($line !== null) { $this->diagnosticKey .= ':' . $line->speaker; }
     if ($view !== null) {
-      $root = $context?->assetRoot ?? $scene->getGame()->getRendererRuntime()?->getAssetRoot();
+      $root = $scene->getFieldAssetRoot();
       if ($root !== $this->assetRoot) {
         $this->assetRoot = $root;
         $this->dialogue = $root === null ? null : new DialogueScenePresentation($root);
@@ -125,6 +149,8 @@ final class DialogueCameraFraming
         if ($areas === null) { $this->clear(); return; }
         array_push($protected, ...$areas);
       }
+      array_push($protected, ...($scene->cinematicPresentation?->getProtectedOverlayBounds(
+        $width, $height, $root, $view->grid) ?? []));
       $tile = FieldViewport::TILE_SIZE * $view->zoom;
       $offsetY = ($height - $view->rows * $tile) / 2;
       $safe = self::findSafeArea($protected, $width, $height);
@@ -138,6 +164,7 @@ final class DialogueCameraFraming
         return new CanvasRectangle($rect->getX(), $rect->getY(), $rect->getWidth(), $rect->getHeight());
       }, $owners);
       $width = $scene->camera->screen->getWidth(); $height = $scene->camera->screen->getHeight();
+      array_push($protected, ...($scene->cinematicPresentation?->getProtectedOverlayBounds($width, $height) ?? []));
       $safe = self::findSafeArea($protected, $width, $height);
       $top = $safe?->y ?? 0; $bottom = $safe === null ? 0 : $safe->y + $safe->height;
 
@@ -160,10 +187,10 @@ final class DialogueCameraFraming
     } else { $this->diagnostic = null; }
   }
 
-  private function reportFailure(): void
+  private function reportFailure(?string $message = null): void
   {
     $this->clear();
-    $this->diagnostic = 'The current cinematic cast does not fit clear of the dialogue. Adjust its staging or reading viewport.';
+    $this->diagnostic = $message ?? 'The current cinematic cast does not fit clear of the dialogue. Adjust its staging or reading viewport.';
     if (!isset($this->notes[$this->diagnosticKey])) {
       Debug::warn($this->diagnostic); $this->notes[$this->diagnosticKey] = true;
     }

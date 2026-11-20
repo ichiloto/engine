@@ -148,6 +148,22 @@ it('labels the player-facing gauge Time without changing its ATB value or textur
     ->and(array_filter($frame->images, static fn($image) => str_contains($image->id, 'atb')))->not->toBeEmpty();
 });
 
+it('shows the opted-in AP balance alongside HP, MP and Time without adding an unused column', function () {
+  $layout = getHudTestLayout();
+  $with = GraphicalBattleHud::compose($layout, new BattleHudSnapshot(status: new BattleHudStatusSnapshot('', '', [
+    new BattleHudStatusRow(0, 90, 100, 27, 30, .7, 36),
+  ], 4)), 'command', 0);
+  $without = GraphicalBattleHud::compose($layout, new BattleHudSnapshot(status: new BattleHudStatusSnapshot('', '', [
+    new BattleHudStatusRow(0, 90, 100, 27, 30, .7),
+  ], 4)), 'command', 0);
+  $optIn = array_column($with->textLayers, null, 'id');
+  $legacy = array_column($without->textLayers, null, 'id');
+  expect(array_column($optIn['hud-ap-rows']->runs, 'text'))->toBe(['36'])
+    ->and(array_column($optIn['hud-stats-AP']->runs, 'text'))->toBe(['AP'])
+    ->and($optIn['hud-ap-rows']->x)->toBeGreaterThan($optIn['hud-mp-rows']->x)
+    ->and($legacy)->not->toHaveKey('hud-ap-rows');
+});
+
 it('omits zero fills and absent ATB while values update immediately', function () {
   $snapshot = fn(int $hp) => new BattleHudSnapshot(status: new BattleHudStatusSnapshot('', '', [new BattleHudStatusRow(0, $hp, 100, 7, 10)]));
   $empty = GraphicalBattleHud::compose(getHudTestLayout(), $snapshot(0), null, 0);

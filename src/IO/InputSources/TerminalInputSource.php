@@ -28,7 +28,7 @@ final class TerminalInputSource implements InputSourceInterface
   {
     LatencyTrace::beginPoll();
     $started = LatencyTrace::getTimeNow();
-    $key = $this->nonBlocking(fn() => self::normalize($this->readInputSequence()));
+    $key = $this->nonBlocking(fn() => self::decodeKey($this->readInputSequence()));
     if ($key !== null) { LatencyTrace::returned($key->value, self::class, $started); }
     return $key;
   }
@@ -55,7 +55,8 @@ final class TerminalInputSource implements InputSourceInterface
     }
   }
 
-  private static function normalize(string $sequence): ?KeyCode
+  /** Shared complete terminal-token decoder; sources and tool adapters use the same key identity. */
+  public static function decodeKey(string $sequence): ?KeyCode
   {
     return match ($sequence) {
       "\033[A" => KeyCode::UP,
@@ -67,6 +68,7 @@ final class TerminalInputSource implements InputSourceInterface
       ' ' => KeyCode::SPACE,
       "\010", "\177" => KeyCode::BACKSPACE,
       "\t" => KeyCode::TAB,
+      "\x11" => KeyCode::CTRL_Q,
       "\033" => KeyCode::ESCAPE,
       "\033[1~", "\033[H", "\033OH", "\033[7~" => KeyCode::HOME,
       "\033[2~" => KeyCode::INSERT,

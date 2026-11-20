@@ -524,3 +524,65 @@ it('keeps uniform battler size across foot rows in runtime and preview frames', 
   }
   expect(serialize($battle))->toBe($before);
 })->with([false, true]);
+
+
+it('keeps a raised preview pose whole and carries its viewport clip into a scaled menu frame', function () {
+  $grounding = new \Ichiloto\Engine\Battle\Presentation\BattlerGrounding(elevation: 3.0);
+  $catalog = new BattlePresentationCatalog(['scene' => $this->arena], ['Hero' => $this->art], [],
+    ui: $this->layout, actorPoses: ['Hero' => $this->poses], defaultArena: 'scene', scale:
+    new BattleScale('Hero', 150, ['Hero' => new BattlerScale(1, .75)]), actorGrounding: ['Hero' => $grounding]);
+  $preview = BattleFormationLayout::compose($catalog, null, [], ['Hero'], $this->root);
+  $body = $preview->party[0];
+  $image = $body->image;
+  expect($image)->not->toBeNull()->and($body->bounds->y)->toBeLessThan(0)
+    ->and($image->destination)->toEqual($body->bounds)->and($image->asset)->toBe('idle.png')
+    ->and($image->sourceRect->width)->toBe(100)->and($image->sourceRect->height)->toBe(200)
+    ->and($image->rotation)->toBe(0)->and($body->diagnostics)->toBe([])
+    ->and($body->ground)->toEqual(new Vector2($body->slot->x, $body->slot->y));
+  $frame = new CanvasRectangle(10, 30, 675, 360);
+  $paint = array_find($preview->composeInto($frame)['images'], static fn(CanvasImage $image): bool => $image->id === 'stage-party-0');
+  expect($paint->destination->x)->toBe($frame->x + $body->bounds->x * .5)
+    ->and($paint->destination->y)->toBe($frame->y + $body->bounds->y * .5)
+    ->and($paint->destination->height)->toBe($body->bounds->height * .5)
+    ->and($paint->sourceRect)->toBe($image->sourceRect)->and($paint->rotation)->toBe($image->rotation)
+    ->and($paint->pivot)->toBe($image->pivot)->and($paint->clipRect->y)->toBe($frame->y)
+    ->and($paint->clipRect->height)->toBe($image->clipRect->height * .5);
+  new \Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas(700, 400, [$paint]);
+});
+
+
+it('keeps independently visible ground contacts when a raised or submerged body paints outside the viewport', function (float $elevation, string $kind, bool $reduced) {
+  $contact = \Ichiloto\Engine\Battle\Presentation\BattlerContact::from($kind);
+  $layout = new BattleCanvasLayout(1350, 720, ground: new BattleGround(bottom: 720), partySlots: $this->layout->partySlots,
+    shadow: new \Ichiloto\Engine\Battle\Presentation\BattlerShadowStyle(
+      \Ichiloto\Engine\Rendering\Presentation\PresentationColor::rgb(0, 0, 0), hoverFade: 0.0));
+  $catalog = new BattlePresentationCatalog(['scene' => $this->arena], ['Hero' => $this->art], ['Creature' => $this->enemyArt],
+    ui: $layout, actorPoses: ['Hero' => $this->poses], defaultArena: 'scene', scale: $this->scale,
+    actorGrounding: ['Hero' => new \Ichiloto\Engine\Battle\Presentation\BattlerGrounding(elevation: $elevation, contact: $contact)]);
+  $preview = BattleFormationLayout::compose($catalog, null, [['enemyId' => 'Creature', 'slot' => $this->slot]],
+    ['Hero'], $this->root, reducedMotion: $reduced);
+  $body = $preview->party[0];
+  expect($body->image)->toBeNull()->and($body->contactComposites)->not->toBeEmpty()
+    ->and($body->diagnostics)->toBe([]);
+  foreach ($body->contactComposites as $surface) {
+    expect($preview->composeCanvas()->composites)->toContain($surface);
+    $surface->destination->assertWithin(1350, 720);
+  }
+  $party = new Party();
+  $hero = new Character('Hero', 1, new Stats(currentHp: 100, totalHp: 100));
+  $party->addMember($hero);
+  $enemy = new ReflectionClass(Enemy::class)->newInstanceWithoutConstructor();
+  foreach (['name' => 'Creature', 'level' => 1, 'stats' => new Stats(currentHp: 100, totalHp: 100),
+    'position' => new Vector2(1, 1)] as $key => $value) { new ReflectionProperty(Enemy::class, $key)->setValue($enemy, $value); }
+  $battle = new BattleConfig($party, new Troop('Synthetic', [$enemy], graphicalFormation: [$this->slot]));
+  $snapshot = static fn(): string => serialize([$hero->stats, $enemy->stats, $enemy->position, $battle->settings, $battle->partyRoster->battlers]);
+  $before = $snapshot();
+  $canvas = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame(reducedMotion: $reduced);
+  $id = spl_object_id($hero);
+  expect(array_find($canvas->images, static fn(CanvasImage $image): bool => $image->id === 'combatant-' . $id))->toBeNull();
+  $runtimeContacts = array_values(array_filter($canvas->composites,
+    static fn($composite): bool => str_starts_with($composite->id, 'contact-' . $id)));
+  expect(array_map(static fn($composite): array => [$composite->destination, $composite->operations, $composite->opacity], $runtimeContacts))
+    ->toEqual(array_map(static fn($composite): array => [$composite->destination, $composite->operations, $composite->opacity], $body->contactComposites))
+    ->and($snapshot())->toBe($before);
+})->with([[4.0, 'shadow'], [-4.0, 'ripple']])->with([false, true]);

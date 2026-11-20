@@ -538,15 +538,16 @@ it('negotiates a base session independently of optional theme files', function (
   $registry = new RendererRegistry($resolver);
   expect($registry->require('terminal')->createRuntime($this->root))->toBeNull()
     ->and(MenuPresentationCatalog::load($this->root))->toBeNull()->and($this->scene->getPresentationCanvas())->toBeNull();
+  $base = [RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES,
+    RendererSessionConfig::KEY_TRANSITIONS, RendererSessionConfig::MODIFIER_CONTROLS,
+    RendererSessionConfig::KEYBOARD_CHORDS, RendererSessionConfig::ASSET_HOLDS];
   $unconfigured = $registry->require('gpui')->createRuntime($this->root);
   $config = new ReflectionProperty($unconfigured, 'config')->getValue($unconfigured);
-  expect($config->requiredCapabilities)->toBe([RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES,
-    RendererSessionConfig::KEY_TRANSITIONS, RendererSessionConfig::MODIFIER_CONTROLS]);
+  expect($config->requiredCapabilities)->toBe($base);
   characterMenuWriteTheme($this->root, ['schema' => 'ichiloto.menu/1']);
   $configured = $registry->require('gpui')->createRuntime($this->root);
   $config = new ReflectionProperty($configured, 'config')->getValue($configured);
-  expect($config->requiredCapabilities)->toBe([RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES,
-    RendererSessionConfig::KEY_TRANSITIONS, RendererSessionConfig::MODIFIER_CONTROLS])
+  expect($config->requiredCapabilities)->toBe($base)
     ->and(is_file($this->root . '/Data/Presentation/battle.php'))->toBeFalse();
   $this->runtime = characterMenuRuntime($this->root, array_values(array_unique([...$config->requiredCapabilities, ...MenuPresentationCatalog::CAPABILITIES])));
   $this->game->useRendererRuntime($this->runtime);
@@ -697,7 +698,9 @@ it('starts a themed project with only base capabilities and retains terminal men
   });
   $discovered = $registry->require('gpui')->createRuntime($this->root);
   $config = new ReflectionProperty($discovered, 'config')->getValue($discovered);
-  $transport->batches = [[RendererEvent::fromJson('{"type":"ready","protocol":2,"capabilities":["sprite_source_rect","tile_batches","key_transitions","modifier_controls"]}')]];
+  $transport->batches = [[RendererEvent::fromJson(json_encode([
+    'type' => 'ready', 'protocol' => 2, 'capabilities' => $config->requiredCapabilities,
+  ], JSON_THROW_ON_ERROR))]];
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']), $this->root,
     requiredCapabilities: $config->requiredCapabilities), $transport);
   $this->runtime->start('Fixture', 135, 36);

@@ -102,7 +102,7 @@ class EnemyActionEvaluator
       static function (ActionPattern $pattern) use ($enemy, $roundNumber, $maxPartyLevel, $switchLookup): bool {
         $skill = $pattern->skill;
 
-        if ($skill instanceof Skill && $skill->cost > $enemy->stats->currentMp) {
+        if ($skill instanceof Skill && ($skill->cost > $enemy->stats->currentMp || $skill->apCost > $enemy->stats->currentAp)) {
           return false;
         }
 

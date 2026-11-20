@@ -54,7 +54,7 @@ final readonly class CanvasCompositeOperation
       default => throw new InvalidArgumentException('Unsupported composite operation.'),
     };
     CanvasCompositeValues::validateKeys($data, ['type', ...$required],
-      ['opacity', 'blend', 'masks', ...match ($type) { 'image' => ['source', 'displacement'], 'world' => ['source'], 'stroke' => ['dash'], default => [] }]);
+      ['opacity', 'blend', 'masks', ...match ($type) { 'image' => ['source', 'sourcePixels', 'displacement'], 'world' => ['source'], 'stroke' => ['dash'], default => [] }]);
     $blend = $data['blend'] ?? 'source_over';
     if (!in_array($blend, ['source_over', 'screen'], true)) { throw new InvalidArgumentException('Unsupported composite blend.'); }
     $result = ['type' => $type, 'opacity' => CanvasCompositeValues::getNumber($data['opacity'] ?? 1, 0, 1),
@@ -100,7 +100,7 @@ final readonly class CanvasCompositeOperation
       $result['brush'] = new CanvasCompositeBrush($data['brush'])->data;
     } else {
       $result['asset'] = CanvasCompositeValues::getAsset($data['asset']);
-      if (isset($data['source'])) { $result['source'] = CanvasCompositeValues::getRectangle($data['source'], true); }
+      $result += CanvasCompositeValues::getImageSource($data);
       if (isset($data['displacement'])) {
         $grid = $data['displacement'];
         CanvasCompositeValues::validateKeys($grid, ['columns', 'rows', 'offsets'], ['masks']);
@@ -152,6 +152,18 @@ final readonly class CanvasCompositeOperation
     if (isset($this->data['destination'])) {
       new CanvasRectangle(...array_values($this->data['destination']))->assertWithin($width, $height);
     }
+  }
+
+  /** PNG samplers share validation and capability checks, including masks inside displacement grids.
+   * @return list<array<string, mixed>>
+   */
+  public function getImageSources(): array
+  {
+    $sources = $this->data['type'] === 'image' ? [$this->data] : [];
+    foreach ([...$this->data['masks'], ...($this->data['displacement']['masks'] ?? [])] as $mask) {
+      if ($mask['type'] === 'image_alpha') { $sources[] = $mask; }
+    }
+    return $sources;
   }
 
   /** @return list<string> */

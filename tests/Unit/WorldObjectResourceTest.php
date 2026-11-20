@@ -173,3 +173,30 @@ it('reads attachments as named anchor-relative cells and artwork points and refu
         ->and($resource->findAttachment('chimney'))->toBeNull()
         ->and(WorldObjectResource::fromArray('plain', createWorldObjectResourceSource())->attachments)->toBe([]);
 })->with([null, 'empty', 'id', 'repeated', 'fractional cell', 'missing point', 'point outside art', 'unknown field', 'budget']);
+
+it('reads rectangular appearance regions without changing the resource default or stamp', function () {
+    $barrier = ['x' => -2, 'y' => -1, 'width' => 4, 'height' => 1, 'appearance' => 'barrier'];
+    $resource = WorldObjectResource::fromArray('mixed', createWorldObjectResourceSource([
+        'appearance' => 'ground', 'appearanceRegions' => [$barrier],
+    ]));
+    expect($resource->getAppearanceInRegion(-2, -1)?->value)->toBe('barrier')
+        ->and($resource->getAppearanceInRegion(1, -1)?->value)->toBe('barrier')
+        ->and($resource->getAppearanceInRegion(2, -1))->toBeNull()
+        ->and($resource->getAppearanceInRegion(0, 0))->toBeNull()
+        ->and($resource->appearance?->value)->toBe('ground')
+        ->and($resource->occupancyStamp)->toBe(createWorldObjectResourceSource()['occupancyStamp'] ?? []);
+});
+
+it('rejects ambiguous, malformed and out-of-range appearance regions', function (mixed $regions) {
+    expect(fn () => WorldObjectResource::fromArray('mixed', createWorldObjectResourceSource(['appearanceRegions' => $regions])))
+        ->toThrow(InvalidArgumentException::class);
+})->with([
+    'null list' => [null],
+    'untyped role' => [[['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'appearance' => 'anything']]],
+    'empty dimensions' => [[['x' => 0, 'y' => 0, 'width' => 0, 'height' => 1, 'appearance' => 'ground']]],
+    'invalid coordinate extent' => [[['x' => 2147483647, 'y' => 0, 'width' => 2, 'height' => 1, 'appearance' => 'ground']]],
+    'overlap' => [[
+        ['x' => -1, 'y' => 0, 'width' => 2, 'height' => 1, 'appearance' => 'ground'],
+        ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1, 'appearance' => 'barrier'],
+    ]],
+]);

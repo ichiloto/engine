@@ -81,6 +81,19 @@ final class BattleConditionEffects
     return $this->loadTimeline('interception:' . $stateId, $presentation, loop: false);
   }
 
+  /** Configured future states and stat stages own resources even before the condition is active.
+   * @return list<CompiledEffectTimeline>
+   */
+  public function getDeclaredTimelines(): array
+  {
+    $timelines = [];
+    foreach ($this->bindings as $key => $id) {
+      $timeline = $this->loadValidatedTimeline($id, EffectPresentation::GRAPHICAL, !str_starts_with($key, 'interception:'));
+      $timelines[$id] = $timeline;
+    }
+    return array_values($timelines);
+  }
+
   /** Loads an authored timeline without the runtime fallback, for authoring validation. */
   public function loadInterceptionTimeline(string $id, EffectPresentation $presentation): CompiledEffectTimeline
   {

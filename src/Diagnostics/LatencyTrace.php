@@ -64,6 +64,37 @@ final class LatencyTrace
     return self::enabled() ? (self::$clock !== null ? (self::$clock)() : hrtime(true)) : null;
   }
 
+  /** Opt-in wall/process CPU observation; disabled tracing does not read either clock.
+   * @return array{wall: int, cpu: ?array{user: int, system: int}}|null
+   */
+  public static function beginSpan(): ?array
+  {
+    $wall = self::getTimeNow();
+    return $wall === null ? null : ['wall' => $wall, 'cpu' => self::readCpuTime()];
+  }
+
+  /** @param array{wall: int, cpu: ?array{user: int, system: int}}|null $span
+   * @param array<string, mixed> $data
+   */
+  public static function endSpan(string $stage, ?array $span, array $data = []): void
+  {
+    if ($span === null) { return; }
+    $cpu = self::readCpuTime();
+    self::end($stage, $span['wall'], [...$data,
+      'cpu_user_ns' => $cpu === null || $span['cpu'] === null ? null : $cpu['user'] - $span['cpu']['user'],
+      'cpu_system_ns' => $cpu === null || $span['cpu'] === null ? null : $cpu['system'] - $span['cpu']['system']]);
+  }
+
+  /** Process CPU has microsecond resolution; null explicitly reports unavailable diagnostic support.
+   * @return array{user: int, system: int}|null
+   */
+  private static function readCpuTime(): ?array
+  {
+    if (!function_exists('getrusage') || ($usage = getrusage()) === false) { return null; }
+    return ['user' => ($usage['ru_utime.tv_sec'] * 1_000_000 + $usage['ru_utime.tv_usec']) * 1_000,
+      'system' => ($usage['ru_stime.tv_sec'] * 1_000_000 + $usage['ru_stime.tv_usec']) * 1_000];
+  }
+
   /** @param array<string, mixed> $data */
   public static function record(string $stage, array $data = []): void
   {

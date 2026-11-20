@@ -220,6 +220,17 @@ does not affect field collision.
 Staged actors render through the field camera. Map transfer, normal
 completion, authored skip, and controlled failure remove temporary cast state.
 
+`graphicalVisible` is an optional strict boolean, defaulting to `true`. False
+withholds the staged actor's sprite or compound world canvas, including inherited
+subject art. It removes graphical glyph fallback for that intentionally withheld
+role; Terminal glyphs, position, facing, collision and subject/suppression leases
+stay unchanged. `visible => false` still hides both presentations. Replacing an
+actor without `graphicalVisible` retains its current setting; explicit true or
+false replaces it. Removing the staged actor restores the subject's ordinary
+presentation through the existing lease lifecycle. This is temporary scene state
+and changes neither saves nor the renderer protocol. The Editor reads this field,
+its type and default from `CinematicCommandSchema::export()`.
+
 `sprites2d` accepts an RPG Maker character sheet (`sheet`, optional `index`
 and `layer`), which walks and turns like the Player, or a single field image
 (`asset`, optional `sourceRect`, `layer` 0..999, and an optional footprint in
@@ -504,6 +515,57 @@ clears stale projection; a live operation resumes its remaining segment. `focus`
 `track` and `shake` retain their existing operations. Seekable Editor previews
 use PHP-sampled camera positions until a controllable native field-clock contract
 can follow pause, step and seek; native preview acceptance remains open.
+
+## Required-subject framing phases
+
+`presentation.framing.subjects` optionally binds stable keys to player, NPC or
+staged-actor references. These bindings carry described and acting subjects
+without declaring a dialogue speaker or changing facing. The `framing` command
+selects required subjects for its nested command body:
+
+```php
+['type' => 'framing',
+ 'subjects' => [['kind' => 'player'], ['kind' => 'staged_actor', 'id' => 'prop']],
+ 'commands' => [
+   ['type' => 'narration', 'text' => 'Synthetic example.', 'seconds' => 2],
+   ['type' => 'wait', 'seconds' => 1],
+ ]]
+```
+
+A cinematic-local bound key may replace a direct reference in `subjects`.
+Reusable common events select direct references, so their source does not depend
+on a caller's binding names. The Engine exports the complete plain-data contract
+through `CinematicCommandSchema::export()['framingRequirements']`, including
+nested-block shape and picker source. Editor fields and source-preserving writers
+must consume this export. Unsupported computed edits retain the writer's refusal
+before mutation. Editor adoption and production scene bindings are separate
+integration work.
+
+Staged graphics resolve against the field host's declared asset root or the
+Game-owned project's root. Changing the current directory for reusable dispatch
+does not change the source of walking sheets. An explicitly required graphical
+role whose decoding fails reports a framing diagnostic instead of qualifying a
+one-cell physical substitute. Terminal framing retains its own glyph geometry.
+
+Every reference resolves before acquiring the phase. Stable real subjects use
+their current stage-owned presentation; duplicate real/staged aliases are
+rejected. Requirements supersede automatic whole-cast selection within the body;
+other actors remain visible with unchanged transforms, collision and facing.
+Each body uses an existing cooperative execution lane. Nested bodies restore
+their parent phase, sibling-lane conflicts fail before replacement, and every
+completion, cancellation, failure and skip releases its own scope. Map or stage
+replacement invalidates old scopes; their later cleanup cannot clear a new one.
+Common-event, branch and parallel bodies retain these same owners. Authored skip
+safety recursively checks the body.
+
+Narration and title cards expose protection from the same page snapshot or
+Terminal window used for drawing. Current overlay surfaces, theme geometry and
+page progress determine protection. Graphical subject bounds and Terminal
+character rows remain independent. Between text pages the current phase retains
+its safe projection; a phase with no preceding text frames within the current
+viewport. An unavailable required presentation or impossible fit yields a
+framing diagnostic. Existing content without explicit phases retains automatic
+cast selection and its diagnostics.
 
 ## Dialogue-safe camera framing
 
@@ -833,3 +895,16 @@ include the cinematic ID and command path. Runtime
 failures add lane path, nested content reference where available, and the
 underlying reason. Editor authoring for these contracts is a separate gate;
 the Engine APIs do not claim that the Editor surface is complete.
+
+The same field-owned asset root supplies player, NPC and staged artwork, dialogue framing, cinematic overlays and map-atlas canvases. Moving common-event dispatch to another directory does not change that owner.
+
+
+### Framing validation and reusable scripts
+
+CinematicDefinition::fromArrays resolves every framing phase's bound keys and duplicate identities throughout nested command blocks before a cinematic is admitted. Runtime resolution still requires each selected live subject to be present. Framing diagnostics name the framing selection and the subject.
+
+The framingRequirements export names three reference sources: the current field player, current map NPC ids, and cinematic cast/staged actor ids. The misleading subjectPicker category has been removed. bodyLane exports the stable framing path suffix and root-frame label consumed by runtime and preview.
+
+EventScriptContext distinguishes field, battle, an active field cinematic and a reusable script awaiting its caller. EventCommandRequirements owns framing's active-cinematic requirement. Field command lists no longer offer framing as an available command. Runtime admission validates nested local commands before starting a session and checks loaded common-event bodies before queueing them. A reusable common event uses direct references and receives its caller's execution context; private cinematic binding keys are not inherited.
+
+Authoring tools validate a reusable call site with EventCommandRequirements::validate, passing the caller context and a common-event reader to inspect the reachable call graph, including nested branches, choices, parallel lanes, sequences, framing bodies and storybook completion bodies. Cyclic calls are inspected once per active call chain. With no reader the API validates only the supplied local command tree; dependency loading remains with its owner.

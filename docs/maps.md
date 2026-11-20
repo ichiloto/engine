@@ -41,6 +41,18 @@ A field presentation resource or inline world object can declare optional
 A resource owns this value for all its placements; a placement cannot override
 it. Omission retains legacy image-based inspection. Invalid values are refused.
 
+A named resource with several surfaces can also declare `appearanceRegions`.
+Each entry is a rectangle of whole map cells relative to the placement anchor.
+Give it integer `x` and `y` offsets, positive `width` and `height`, and one
+`appearance` value. Rectangles may touch edges. Up to 32 may be declared and
+overlapping rectangles are refused. The whole-image appearance still applies
+outside the rectangles. A region describes only the art actually drawn there,
+and an explicit water or barrier region marks a ground-level obstacle even
+above the anchor row. For example, a bridge resource can declare `ground`
+as its appearance and a `barrier` rectangle for each rail. The same
+declaration applies to all placements. The graphical Editor's Field
+Resources record edits the rectangles through the same catalogue validation.
+
 `MapPassageAgreementRule` uses this declaration when inspecting opaque art.
 Floors and overhead trim do not imply a ground obstacle; water, barriers and
 unclassified images retain obstruction checks on their ground rows. Ground art

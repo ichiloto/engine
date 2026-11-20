@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleConfig;
 use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
 use Ichiloto\Engine\Battle\Engines\BattleEngineContext;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedBattleConfig;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineContextInterface;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\IO\Input;
@@ -24,8 +25,17 @@ class BattleRunState extends BattleSceneState
    */
   protected ?BattleEngineContextInterface $battleEngineContext = null;
 
-  public function suspend(): void { $this->ui->pauseTiming(); }
-  public function resume(): void { $this->ui->resumeTiming(); }
+  public function suspend(): void
+  {
+    if ($this->engine instanceof TurnBasedEngine) { $this->engine->setBattleStateClockSuspended(true); }
+    $this->ui->pauseTiming();
+  }
+
+  public function resume(): void
+  {
+    $this->ui->resumeTiming();
+    if ($this->engine instanceof TurnBasedEngine) { $this->engine->setBattleStateClockSuspended(false); }
+  }
 
   /**
    * @inheritDoc

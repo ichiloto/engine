@@ -396,20 +396,15 @@ it('validates through GameLoader without hydrating the previous campaign', funct
     $game->registerProjectStateParticipant(new SyntheticProjectStateParticipant());
     $game->getProjectStateRegistry()->replaceStates(['fixture/progress' => ['resourceId' => 'resource-a', 'count' => 6]]);
     $manager = new SaveManager($game, 'saves', 'saves/quick', createProjectStateManifest());
-    $previousManager = new ReflectionProperty(SaveManager::class, 'instance')->getValue();
-    new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $manager);
-    try {
-        $scene = new ProjectStateSceneProbe($game);
-        $scene->configure(createProjectStateConfig(['fixture/progress' => ['version' => 2, 'data' => ['resourceId' => 'resource-b', 'count' => 10]]]));
-        $slot = $manager->save($scene, 1);
-        $game->getProjectStateRegistry()->replaceStates(['fixture/progress' => ['resourceId' => 'resource-a', 'count' => 6]]);
-        $loader = createTestGameLoader($game);
-        $config = $loader->loadSavedGame($slot->path);
-        expect($config->projectState['fixture/progress']['data']['count'])->toBe(10)
-            ->and($game->getProjectStateRegistry()->getState('fixture/progress')['count'])->toBe(6);
-    } finally {
-        new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $previousManager);
-    }
+    $game->bindSaveManager($manager);
+    $scene = new ProjectStateSceneProbe($game);
+    $scene->configure(createProjectStateConfig(['fixture/progress' => ['version' => 2, 'data' => ['resourceId' => 'resource-b', 'count' => 10]]]));
+    $slot = $manager->save($scene, 1);
+    $game->getProjectStateRegistry()->replaceStates(['fixture/progress' => ['resourceId' => 'resource-a', 'count' => 6]]);
+    $loader = createTestGameLoader($game);
+    $config = $loader->loadSavedGame($slot->path);
+    expect($config->projectState['fixture/progress']['data']['count'])->toBe(10)
+        ->and($game->getProjectStateRegistry()->getState('fixture/progress')['count'])->toBe(6);
 });
 
 it('uses project policies in direct save readers and slot discovery without campaign hydration', function () {

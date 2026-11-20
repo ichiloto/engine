@@ -289,6 +289,20 @@ it('keeps existing inspection snapshots stable while a new reader sees same-size
     ->and(file_get_contents($path))->toBe($newBytes);
 });
 
+it('snapshots only selected ordinary sheets when an inspection names its sources', function () {
+  $mask = createTileCoverageMask(4, static fn(int $x, int $y): bool => $x === $y);
+  writeTileCoveragePng($this->root . '/B.png', TilesetSheet::B, 4,
+    static fn(GdImage $image) => paintTileCoverageMask($image, 4, 0, 4, $mask));
+  writeTileCoveragePng($this->root . '/C.png', TilesetSheet::C, 4,
+    static fn(GdImage $image) => paintTileCoverageMask($image, 0, 0, 4, $mask));
+  $tileset = new Tileset('selection', 'Selection', ['B' => 'B.png', 'C' => 'C.png']);
+  $reader = new TileCoverage($tileset, $this->root, ['B']);
+
+  expect($reader->readFrames(1)['frames'])->toBe([$mask])
+    ->and($reader->readFrames(TileId::C)['frames'])->toBeNull()
+    ->and((new TileCoverage($tileset, $this->root))->readFrames(TileId::C)['frames'])->toBe([$mask]);
+});
+
 it('reports unavailable layers rather than guessing coverage even above a complete substrate', function (string $failure) {
   $solid = array_fill(0, 16, true);
   writeTileCoveragePng($this->root . '/B.png', TilesetSheet::B, 4,

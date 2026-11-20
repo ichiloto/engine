@@ -357,7 +357,14 @@ final class BattleCommandCatalog
    */
   protected static function createSkillOption(Skill $skill, ?SkillBattleAction $action = null): BattleCommandOption
   {
-    $costLabel = $skill->cost > 0 ? sprintf(' (%d %s)', $skill->cost, Vocabulary::getTerm('stats.mp', 'MP')) : '';
+    $costs = [];
+    if ($skill->cost > 0) {
+      $costs[] = sprintf('%d %s', $skill->cost, Vocabulary::getTerm('stats.mp', 'MP'));
+    }
+    if ($skill->apCost > 0) {
+      $costs[] = sprintf('%d %s', $skill->apCost, Vocabulary::getTerm('stats.ap'));
+    }
+    $costLabel = $costs === [] ? '' : ' (' . implode(', ', $costs) . ')';
     $action ??= new SkillBattleAction($skill);
     $scope = $action->targetScope;
 
@@ -371,6 +378,7 @@ final class BattleCommandCatalog
       max(0, $skill->cost),
       $scope->number,
       self::getActionType($action),
+      $skill->apCost,
     );
   }
 

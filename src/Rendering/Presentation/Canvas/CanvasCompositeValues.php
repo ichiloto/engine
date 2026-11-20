@@ -50,6 +50,18 @@ final class CanvasCompositeValues
     return $rect->toArray();
   }
 
+  /** A PNG source keeps its coordinate domain explicit; pixel views are checked against current file facts at admission. */
+  public static function getImageSource(array $data): array
+  {
+    if (array_key_exists('source', $data) && array_key_exists('sourcePixels', $data)) {
+      throw new InvalidArgumentException('Composite image source and sourcePixels are mutually exclusive.');
+    }
+    if (array_key_exists('sourcePixels', $data)) {
+      return ['sourcePixels' => self::getRectangle($data['sourcePixels'])];
+    }
+    return array_key_exists('source', $data) ? ['source' => self::getRectangle($data['source'], true)] : [];
+  }
+
   public static function getBoolean(mixed $value): bool
   {
     if (!is_bool($value)) { throw new InvalidArgumentException('Composite flag must be boolean.'); }

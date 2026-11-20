@@ -94,37 +94,50 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     }
   }
 
-  /**
-   * @var array<int, string|array<int, string>> Literal source rows or their parsed cell arrays.
-   */
-  public array $worldSpace = [] {
-    get {
-      return $this->worldSpace;
-    }
-
+  /** @var array<int, string|array<int, string>> Installed world rows or their current visual projection. */
+  private array $worldRows = [];
+  /** @var array<int, string|array<int, string>> Literal source rows or their parsed cell arrays. */
+  public array $worldSpace {
+    get => $this->worldRows;
     set {
-      // Own the authored value: PHP array references must not mutate the map
-      // behind its setter and leave the retained rows stale.
-      $this->worldSpace = array_map(static fn($row) => is_array($row)
-        ? array_map(static fn($symbol) => $symbol, $row) : $row, $value);
+      $this->replaceWorldRows($value);
       $this->framingOwner = null; $this->framingOrigin = null; $this->presentationMotion = null;
       $this->transition = null; $this->framingRange = null;
-      $this->normalizedRows = [];
-      $this->stringRowSymbols = [];
-      $this->normalizationPolicy = null;
-      $this->retainedWorldAvailable = false;
-      $this->worldSpaceHeight = count($value);
-      $this->worldSpaceWidth = 0;
-      foreach ($this->worldSpace as $y => $source) {
-        if (is_array($source)) {
-          $this->worldSpaceWidth = max($this->worldSpaceWidth, count($source));
-        } else {
-          $symbols = TerminalText::visibleSymbols((string)$source);
-          $this->worldSpaceWidth = max($this->worldSpaceWidth, count($symbols));
-          $this->stringRowSymbols[$y] = $symbols;
-        }
-      }
     }
+  }
+
+  /** Publish new glyphs for the current map without transferring ownership of its camera. */
+  public function updateWorldPresentation(array $rows): void
+  {
+    $this->replaceWorldRows($rows, sameGeometry: true);
+  }
+
+  /** @param array<int, string|array<int, string>> $rows */
+  private function replaceWorldRows(array $rows, bool $sameGeometry = false): void
+  {
+    // Own the rows. References supplied by callers cannot bypass render cache invalidation.
+    $owned = array_map(static fn($row) => is_array($row)
+      ? array_map(static fn($symbol) => $symbol, $row) : $row, $rows);
+    $strings = [];
+    $width = 0;
+    $height = count($rows);
+    foreach ($owned as $y => $row) {
+      if (!is_array($row)) {
+        $row = $strings[$y] = TerminalText::visibleSymbols((string)$row);
+      }
+      $width = max($width, count($row));
+    }
+    if ($sameGeometry && ($width !== $this->worldSpaceWidth || $height !== $this->worldSpaceHeight)) {
+      throw new InvalidArgumentException('A world presentation update must keep the installed map dimensions.');
+    }
+
+    $this->worldRows = $owned;
+    $this->worldSpaceHeight = $height;
+    $this->worldSpaceWidth = $width;
+    $this->normalizedRows = [];
+    $this->stringRowSymbols = $strings;
+    $this->normalizationPolicy = null;
+    $this->retainedWorldAvailable = false;
   }
   /**
    * @var int The width of the world space.

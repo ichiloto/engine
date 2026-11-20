@@ -206,3 +206,16 @@ it('preserves authored announcement templates and silence while defaulting absen
   $data['invocation']['message'] = 5;
   expect(fn() => SkillRecord::readSkill($data))->toThrow(InvalidArgumentException::class, 'invocation.message');
 });
+
+it('round trips an optional battle-only AP cost and preserves MP-only records', function (string $kind) {
+  $record = minimalSkillData(['kind' => $kind, 'apCost' => 30, 'cost' => 0]);
+  $skill = SkillRecord::readSkill($record);
+  expect($skill->apCost)->toBe(30)->and(SkillRecord::writeSkill($skill)['apCost'])->toBe(30);
+  $copy = unserialize(serialize($skill));
+  expect($copy->apCost)->toBe(30);
+  expect(SkillRecord::writeSkill(SkillRecord::readSkill(minimalSkillData(['kind' => $kind]))))->not->toHaveKey('apCost');
+  foreach ([-1, '30', null] as $invalid) {
+    expect(fn () => SkillRecord::readSkill([...$record, 'apCost' => $invalid]))->toThrow(InvalidArgumentException::class);
+  }
+  expect(fn () => SkillRecord::readSkill([...$record, 'occasion' => 'Always']))->toThrow(InvalidArgumentException::class, 'battle-only');
+})->with(['basic', 'magic', 'special']);

@@ -20,6 +20,9 @@ final readonly class RendererSessionConfig
   public const string WORLD_CANVAS = 'world_canvas';
   public const string CANVAS_GROUPS = 'canvas_groups';
   public const string CANVAS_GROUP_COLOR = 'canvas_group_color';
+  public const string CANVAS_GROUP_SCALE = 'canvas_group_scale';
+  public const string SCALED_CANVAS_HOLDS = 'scaled_canvas_holds';
+  public const string CANVAS_INDICATOR_IMAGE_PATH = 'canvas_indicator_image_path';
   public const string CANVAS_VIEWPORT_FIT = 'canvas_viewport_fit';
   public const string SPRITE_SOURCE_RECT = 'sprite_source_rect';
   public const string TILE_BATCHES = 'tile_batches';
@@ -32,6 +35,8 @@ final readonly class RendererSessionConfig
   public const string CANVAS_IMAGE_BOTTOM_FADE = 'canvas_image_bottom_fade';
   public const string CANVAS_IMAGE_ROTATION = 'canvas_image_rotation';
   public const string CANVAS_IMAGE_ALPHA_FLIP = 'canvas_image_alpha_flip';
+  /** Exact pixel-valued source views for composite images and image-alpha masks. */
+  public const string CANVAS_SOURCE_PIXELS = 'canvas_source_pixels';
   public const string CANVAS_CLIP_OPACITY = 'canvas_clip_opacity';
   public const string CANVAS_GLYPH_EFFECTS = 'canvas_glyph_effects';
   public const string CANVAS_COMPOSITING = 'canvas_compositing';
@@ -79,8 +84,12 @@ final readonly class RendererSessionConfig
    * the modifier goes down and up, so a binding such as dash can hold it.
    */
   public const string MODIFIER_CONTROLS = 'modifier_controls';
+  /** Resource residency replies are a protocol 2 event subscription. */
+  public const string ASSET_HOLDS = 'asset_holds';
+  /** Event subscription: canonical Ctrl keyboard chords supported by this Engine, currently ctrl_q. */
+  public const string KEYBOARD_CHORDS = 'keyboard_chords';
   /** Event extensions change the event stream, so a session receives them only by requiring them. */
-  public const array EVENT_SUBSCRIPTIONS = [self::WINDOW_ACTIVATION, self::KEY_TRANSITIONS, self::MODIFIER_CONTROLS];
+  public const array EVENT_SUBSCRIPTIONS = [self::WINDOW_ACTIVATION, self::KEY_TRANSITIONS, self::MODIFIER_CONTROLS, self::KEYBOARD_CHORDS, self::ASSET_HOLDS];
   public string $assetRoot;
 
   /** Drawing features may be advertised without making them mandatory at startup. */
@@ -88,9 +97,9 @@ final readonly class RendererSessionConfig
   {
     return $this->protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_REGION_BUDGET, self::CANVAS_CLIP_OPACITY,
-        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::CANVAS_COMPOSITE_BUDGET, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::CANVAS_COVERAGE_DABS, self::CANVAS_TEXTURE_STRIP, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::CAMERA_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS, self::WORLD_ROW_DIFFS,
+        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::CANVAS_COMPOSITE_BUDGET, self::CANVAS_SOURCE_PIXELS, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::CANVAS_COVERAGE_DABS, self::CANVAS_TEXTURE_STRIP, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::CAMERA_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS, self::WORLD_ROW_DIFFS,
         self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::CANVAS_IMAGE_ROTATION, self::CANVAS_IMAGE_BOTTOM_FADE, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
-        self::TEXT_LAYOUT, self::TEXT_BLOCK_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::CANVAS_TEXT_REVEAL, self::WORLD_CANVAS, self::CANVAS_GROUPS, self::CANVAS_GROUP_COLOR, self::CANVAS_VIEWPORT_FIT,
+        self::TEXT_LAYOUT, self::TEXT_BLOCK_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::CANVAS_TEXT_REVEAL, self::WORLD_CANVAS, self::CANVAS_GROUPS, self::CANVAS_GROUP_COLOR, self::CANVAS_GROUP_SCALE, self::SCALED_CANVAS_HOLDS, self::CANVAS_INDICATOR_IMAGE_PATH, self::CANVAS_VIEWPORT_FIT,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
       : $this->requiredCapabilities;
   }
@@ -111,14 +120,26 @@ final readonly class RendererSessionConfig
     if ($icon !== null) { ApplicationIcon::assertAssetPath($icon); }
     $allowed = $protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_REGION_BUDGET, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
-        self::CANVAS_COMPOSITING, self::CANVAS_COMPOSITE_BUDGET, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::CANVAS_COVERAGE_DABS, self::CANVAS_TEXTURE_STRIP, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::CAMERA_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS, self::WORLD_ROW_DIFFS,
-        self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::KEY_TRANSITIONS, self::MODIFIER_CONTROLS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::CANVAS_IMAGE_ROTATION, self::CANVAS_IMAGE_BOTTOM_FADE, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
-        self::TEXT_LAYOUT, self::TEXT_BLOCK_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::CANVAS_TEXT_REVEAL, self::WORLD_CANVAS, self::CANVAS_GROUPS, self::CANVAS_GROUP_COLOR, self::CANVAS_VIEWPORT_FIT]
+        self::CANVAS_COMPOSITING, self::CANVAS_COMPOSITE_BUDGET, self::CANVAS_SOURCE_PIXELS, self::CANVAS_IMAGE_ALPHA_FLIP, self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::CANVAS_COVERAGE_DABS, self::CANVAS_TEXTURE_STRIP, ...self::EVENT_SUBSCRIPTIONS, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::CAMERA_MOTION, self::TILE_COVERS, self::TILE_SHADOWS, self::WORLD_ROW_RUNS, self::WORLD_ROW_DIFFS,
+        self::SPRITE_LIFT, self::SPRITE_BOB, self::SPRITE_FADE, self::SPRITE_THICKET, self::PINNED_SPRITE_MOTION, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::CANVAS_IMAGE_ROTATION, self::CANVAS_IMAGE_BOTTOM_FADE, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
+        self::TEXT_LAYOUT, self::TEXT_BLOCK_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::CANVAS_TEXT_REVEAL, self::WORLD_CANVAS, self::CANVAS_GROUPS, self::CANVAS_GROUP_COLOR, self::CANVAS_GROUP_SCALE, self::SCALED_CANVAS_HOLDS, self::CANVAS_INDICATOR_IMAGE_PATH, self::CANVAS_VIEWPORT_FIT]
       : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {
       if (!in_array($capability, $allowed, true)) {
         throw new InvalidArgumentException('Unsupported renderer capability for this protocol.');
       }
+    }
+    if (in_array(self::CANVAS_INDICATOR_IMAGE_PATH, $requiredCapabilities, true)
+      && array_diff([self::GRAPHICAL_CANVAS, self::CANVAS_GROUPS], $requiredCapabilities) !== []) {
+      throw new InvalidArgumentException('Qualified indicator paths require graphical_canvas and canvas_groups.');
+    }
+    if (in_array(self::CANVAS_GROUP_SCALE, $requiredCapabilities, true)
+      && array_diff([self::GRAPHICAL_CANVAS, self::CANVAS_GROUPS, self::CANVAS_REGION_BUDGET], $requiredCapabilities) !== []) {
+      throw new InvalidArgumentException('Group scale requires graphical_canvas, canvas_groups and canvas_region_budget.');
+    }
+    if (in_array(self::SCALED_CANVAS_HOLDS, $requiredCapabilities, true)
+      && array_diff([self::CANVAS_GROUP_SCALE, self::ASSET_HOLDS], $requiredCapabilities) !== []) {
+      throw new InvalidArgumentException('Scaled canvas holds require canvas_group_scale and asset_holds.');
     }
     if (in_array(self::CANVAS_GROUP_COLOR, $requiredCapabilities, true)
       && array_diff([self::GRAPHICAL_CANVAS, self::CANVAS_GROUPS, self::CANVAS_REGION_BUDGET], $requiredCapabilities) !== []) {
@@ -128,7 +149,7 @@ final readonly class RendererSessionConfig
       && !in_array(self::MAP_OVERVIEW,$requiredCapabilities,true)) {
       throw new InvalidArgumentException('Map overview viewports require map_overview.');
     }
-    if (array_intersect([self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::CANVAS_COVERAGE_DABS, self::CANVAS_TEXTURE_STRIP, self::CANVAS_IMAGE_ALPHA_FLIP, self::CANVAS_COMPOSITE_BUDGET],
+    if (array_intersect([self::MAP_OVERVIEW, self::MAP_OVERVIEW_VIEWPORT, self::CANVAS_COMPOSITE_INDICATORS, self::CANVAS_STROKE_DASHES, self::CANVAS_COVERAGE_DABS, self::CANVAS_TEXTURE_STRIP, self::CANVAS_SOURCE_PIXELS, self::CANVAS_IMAGE_ALPHA_FLIP, self::CANVAS_COMPOSITE_BUDGET],
         $requiredCapabilities) !== []
       && array_diff([self::GRAPHICAL_CANVAS, self::CANVAS_COMPOSITING], $requiredCapabilities) !== []) {
       throw new InvalidArgumentException('Extended composite capabilities require graphical_canvas and canvas_compositing.');

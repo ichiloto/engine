@@ -21,6 +21,7 @@ final class Vocabulary
     'stats.level_short' => 'Lv',
     'stats.hp' => 'HP',
     'stats.mp' => 'MP',
+    'stats.ap' => 'AP',
     'stats.exp' => 'EXP',
     'mastery.points' => 'SP',
     'mastery.points_name' => 'Skill Points',

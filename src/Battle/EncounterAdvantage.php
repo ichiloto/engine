@@ -12,6 +12,16 @@ enum EncounterAdvantage: string
   case PARTY = 'party';
   case TROOP = 'troop';
 
+  /** @return 'party'|'troop'|null Side without scheduled turns in the opening round. */
+  public function getSurprisedSide(): ?string
+  {
+    return match ($this) {
+      self::PARTY => 'troop',
+      self::TROOP => 'party',
+      self::NORMAL => null,
+    };
+  }
+
   public static function fromSetting(mixed $value): self
   {
     if ($value === null) {

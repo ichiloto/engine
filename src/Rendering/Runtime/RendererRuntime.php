@@ -33,6 +33,8 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use LogicException;
 use Throwable;
+use WeakReference;
+use Ichiloto\Engine\Rendering\Assets\AssetHoldLeases;
 use Ichiloto\Engine\Util\Debug;
 
 /** Owns one explicit session; PHP Game owns simulation and frame cadence. */
@@ -55,12 +57,16 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
   private ?ScreenTransitionTreatment $handoffTreatment = null;
   private ?RetainedFrame $handoffFrame = null;
   private ?RetainedFrame $sceneFrame = null;
+  /** @var WeakReference<SceneInterface>|null */
+  private ?WeakReference $sceneFrameSource = null;
+  private readonly object $handoffAssetOwner;
   private ScreenTransitionPhase $handoffPhase = ScreenTransitionPhase::GATHER;
   private float $handoffProgress = 0;
   public private(set) bool $windowActive = true;
   /** The world of the newest frame the renderer window has shown; null before one, or without a session. */
   public ?PresentationWorld $presentedWorld { get => $this->presentation?->presentedWorld; }
   public private(set) ?RendererGridConfig $grid = null;
+  public AssetHoldLeases $assetHolds { get => $this->client->assetHolds; }
 
   public function __construct(private readonly RendererRuntimeConfig $config, ?RendererTransportInterface $transport = null)
   {
@@ -68,6 +74,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     $this->client = new RendererClient($this->transport);
     $this->input = new RendererInputSource($this->client);
     $this->frameComposer = new SceneFrameComposer($config->assetRoot);
+    $this->handoffAssetOwner = new \stdClass();
   }
 
   /** @param string|null $icon The game's application icon, relative to the asset root. */
@@ -114,6 +121,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
       // The new surface has seen no presses; nothing may stay held from the old one.
       if (InputManager::getInputSource() === $this->input) { InputManager::resetState(); }
       $this->presentation?->invalidate(newSession: true);
+      $this->sceneFrameSource = null;
       $this->resetText = true;
       $this->closeRequested = false;
       $this->windowActive = true;
@@ -153,8 +161,9 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     } else {
       $this->client->pump();
     }
-    $invalidate = false;
+    $resized = false;
     $expectedGeneration = null;
+    $rejection = null;
     foreach ($this->client->drainEvents() as $event) {
       if ($event->type === RendererEventType::CLOSE_REQUESTED) {
         $this->closeRequested = true;
@@ -164,11 +173,12 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
         LatencyTrace::record('presentation.frame.rejected', ['generation' => $event->generation,
           'expected_generation' => $event->expectedGeneration, 'resync_required' => $event->resyncRequired,
           'message' => $event->message]);
+        if ($this->presentation?->isAwaitingGeneration($event->generation) !== true) { continue; }
         $this->recordFrameRejectionWarning($event->message);
-        $invalidate = true;
+        $rejection ??= $event->message ?? throw new LogicException('Frame rejection lacks its validated reason.');
         $expectedGeneration = max($expectedGeneration ?? 0, $event->expectedGeneration ?? 0);
       } elseif ($event->type === RendererEventType::RESIZED) {
-        $invalidate = true;
+        $resized = true;
       } elseif ($event->type === RendererEventType::FRAME_ACK) {
         $this->presentation?->acknowledge($event->generation, $event->presented);
         if ($event->presented === true) { $this->flushFrameRejectionWarnings(); }
@@ -179,12 +189,15 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
           $this->transport->getDiagnostics(), $this->transport->getExitCode());
       }
     }
-    if ($invalidate) {
-      $this->presentation?->invalidate(expectedGeneration: $expectedGeneration);
-      $this->resetText = true;
-    }
     if ($this->closeRequested) {
       throw new RendererWindowClosed('Renderer window closed.');
+    }
+    if ($rejection !== null) {
+      $this->presentation?->recoverDelivery($rejection, $expectedGeneration ?? 0);
+      $this->resetText = true;
+    } elseif ($resized) {
+      $this->presentation?->invalidate();
+      $this->resetText = true;
     }
   }
 
@@ -245,9 +258,11 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     if ($this->presentation === null || $this->closed) {
       throw new LogicException('Renderer presentation requires an active session.');
     }
+    $assetChanged = $this->presentation->presentAssetHolds();
+    if ($assetChanged) { $this->pump(); }
     if ($scene instanceof SceneFrameReadinessInterface && !$scene->canPresentSceneFrame()) {
-      LatencyTrace::end('presentation.end', $started, ['changed' => false]);
-      return false;
+      LatencyTrace::end('presentation.end', $started, ['changed' => $assetChanged]);
+      return $assetChanged;
     }
     if ($scene instanceof CanvasOverlayProviderInterface && $this->supports(RendererSessionConfig::CANVAS_OVERLAY)) {
       $overlayStarted = LatencyTrace::getTimeNow();
@@ -255,29 +270,35 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
       LatencyTrace::end('presentation.overlay', $overlayStarted);
     }
     if ($this->handoffTreatment !== null && $this->handoffFrame !== null) {
-      $changed = $this->presentHandoffFrame($notifications);
+      $changed = $this->presentHandoffFrame($notifications) || $assetChanged;
       if ($changed) { $this->pump(); }
       LatencyTrace::end('presentation.end', $started, ['changed' => $changed]);
       return $changed;
     }
     try {
-      $compositionStarted = LatencyTrace::getTimeNow();
+      $compositionStarted = LatencyTrace::beginSpan();
       $composition = $this->frameComposer->composeFrame($scene, $this->grid, $this->supports(...),
         fn(array $excluded, array $worldLayers) => Console::getRetainedPresentationChanges($excluded, $this->resetText, $worldLayers),
         $notifications, refreshOverlay: false, textPreparation: $this);
-      LatencyTrace::end('presentation.compose', $compositionStarted);
+      LatencyTrace::endSpan('presentation.compose', $compositionStarted);
       $this->resetText = $composition->snapshot === null;
       $prepareStarted = LatencyTrace::getTimeNow();
-      $this->sceneFrame = $composition->prepareFrame($this->presentation);
+      $frame = $composition->prepareFrame($this->presentation);
       LatencyTrace::end('presentation.prepare', $prepareStarted);
       $submitStarted = LatencyTrace::getTimeNow();
       if ($this->handoffTreatment !== null) {
-        $this->handoffFrame = $this->sceneFrame;
+        $this->assetHolds->borrowRequests($this->handoffAssetOwner, $frame->getReferencedAssetHolds());
+        $this->handoffFrame = $frame;
         $changed = $this->presentHandoffFrame($notifications);
       } else {
-        $changed = $this->presentation->presentFrame($this->sceneFrame, $composition->screenOverlay);
+        $changed = $this->presentation->presentFrame($frame, $composition->screenOverlay);
+      }
+      $this->sceneFrame = $frame;
+      if ($this->sceneFrameSource?->get() !== $scene) {
+        $this->sceneFrameSource = $scene === null ? null : WeakReference::create($scene);
       }
       LatencyTrace::end('presentation.submit', $submitStarted);
+      $changed = $changed || $assetChanged;
     } catch (Throwable $error) {
       $this->resetText = true;
       throw $error;
@@ -291,6 +312,29 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     return $changed;
   }
 
+  /** Freeze a ready canvas for an overlay, or retain this scene's last safe frame during a wait. */
+  public function retainSceneFrame(SceneInterface $scene, object $owner, ?PresentationCanvas $readyCanvas = null): ?RetainedFrame
+  {
+    if ($this->closed || $this->presentation === null) { return null; }
+    $frame = $readyCanvas !== null ? $this->presentation->prepareCanvas($readyCanvas)
+      : ($this->sceneFrameSource?->get() === $scene ? $this->sceneFrame : null);
+    if ($frame?->canvas === null || $frame->canvasIsOverlay) { return null; }
+    $this->assetHolds->borrowRequests($owner, $frame->getReferencedAssetHolds());
+    return $frame;
+  }
+
+  /** Remove an overlay over a retained frame even when the live scene still awaits resources. */
+  public function restoreSceneFrame(SceneInterface $scene, RetainedFrame $frame): void
+  {
+    if ($this->closed || $this->presentation === null || $this->sceneFrameSource?->get() !== $scene
+      || $frame->canvas === null || $frame->canvasIsOverlay) { return; }
+    $overlay = $this->notificationManager?->composePresentation(null, $frame->canvas->width, $frame->canvas->height);
+    $this->presentation->presentFrame($frame, $overlay);
+    $this->sceneFrame = $frame;
+    $this->resetText = true;
+    $this->pump();
+  }
+
   /** PHP's scene owner controls timing. This renderer only retains and paints the composition. */
   public function beginScreenHandoff(ScreenTransitionTreatment $treatment): void
   {
@@ -301,7 +345,9 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
       RendererSessionConfig::CANVAS_OVERLAY] as $capability) {
       if (!$this->supports($capability)) { throw new LogicException('A screen handoff requires ' . $capability); }
     }
-    $this->handoffFrame = $this->sceneFrame ?? $this->presentation->captureFrame();
+    $frame = $this->sceneFrame ?? $this->presentation->captureFrame();
+    $this->assetHolds->borrowRequests($this->handoffAssetOwner, $frame->getReferencedAssetHolds());
+    $this->handoffFrame = $frame;
     $this->handoffTreatment = $treatment;
     $this->handoffPhase = ScreenTransitionPhase::GATHER;
     $this->handoffProgress = 0;
@@ -321,6 +367,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
       throw new LogicException('Only a fully covered screen handoff may replace its scene.');
     }
     $this->handoffFrame = null;
+    $this->assetHolds->releaseOwner($this->handoffAssetOwner);
     $this->resetText = true;
   }
 
@@ -328,6 +375,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
   {
     $this->handoffTreatment = null;
     $this->handoffFrame = null;
+    $this->assetHolds->releaseOwner($this->handoffAssetOwner);
     $this->resetText = true;
   }
 
@@ -375,6 +423,7 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
     $this->flushFrameRejectionWarnings();
     $this->closed = true;
     $this->endScreenHandoff();
+    $this->presentation?->releaseAssetHolds();
     if (!$this->started) {
       return null;
     }

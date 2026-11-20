@@ -1831,3 +1831,281 @@ it('keeps bound still animated and sheet replacements on their real character gr
   expect(new GraphicalSpriteProjector()->project($subject, $this->scene->camera)->lift)->toBe($ordinary->lift)
     ->and($subject->position)->toEqual($position);
 })->with(['player', 'npc'])->with([false, true])->with(['still', 'animation', 'sheet']);
+
+
+it('withholds an owned graphical role while preserving Terminal, transforms and the real NPC lease', function (bool $explicitArt) {
+  $this->scene->npcManager->configure([['id' => 'guide', 'name' => 'Guide', 'sprite' => '=', 'x' => 7, 'y' => 4,
+    'sprites2d' => characterSheetData()]]);
+  $npc = $this->scene->npcManager->findById('guide');
+  $entry = ['id' => 'owned-role', 'subject' => ['kind' => 'npc', 'id' => 'guide'], 'graphicalVisible' => false];
+  if ($explicitArt) { $entry['sprites2d'] = characterSheetData(); }
+  $ordinary = $npc->getGraphicalSpriteDefinition();
+  expect($ordinary)->not->toBeNull();
+  $actor = $this->stage->add($entry);
+  $lease = $actor->subject;
+  expect($actor->isVisible)->toBeTrue()->and($actor->graphicalVisible)->toBeFalse()
+    ->and($actor->isGraphicallyVisible)->toBeFalse()->and($actor->getGraphicalSpriteDefinition())->toBeNull()
+    ->and($actor->position)->toEqual($npc->position)->and($actor->facing)->toBe($npc->heading)
+    ->and($actor->sprite)->toBe(['='])->and($this->stage->suppresses($npc))->toBeTrue();
+  $this->scene->camera->moveTo(0, 0);
+  Console::recomposeFrame(fn() => $this->stage->render());
+  expect(Console::charAt(7, 4))->toBe('=');
+  $replacement = $this->stage->add([...$entry, 'replace' => true, 'graphicalVisible' => true]);
+  expect($replacement->subject)->toBe($lease)->and($replacement->getGraphicalSpriteDefinition())->not->toBeNull();
+  unset($entry['graphicalVisible']);
+  $hidden = $this->stage->add([...$entry, 'replace' => true, 'graphicalVisible' => false]);
+  $retained = $this->stage->add([...$entry, 'replace' => true]);
+  expect($retained->graphicalVisible)->toBeFalse()->and($retained->subject)->toBe($lease)
+    ->and($retained->getGraphicalSpriteDefinition())->toBeNull();
+  $this->stage->hide('owned-role');
+  $this->stage->show('owned-role');
+  expect($retained->isVisible)->toBeTrue()->and($retained->isGraphicallyVisible)->toBeFalse();
+  $this->stage->remove('owned-role');
+  expect($this->stage->suppresses($npc))->toBeFalse()->and($npc->getGraphicalSpriteDefinition())->toEqual($ordinary);
+})->with(['inherited art' => false, 'explicit art' => true]);
+
+it('preserves an independent actor collision when its image is withheld and honors whole-actor visibility', function () {
+  $entry = ['id' => 'solid', 'sprite' => '=', 'x' => 6, 'y' => 3, 'collision' => true,
+    'sprites2d' => characterSheetData()];
+  $actor = $this->stage->add($entry);
+  expect($actor->graphicalVisible)->toBeTrue()->and($actor->getGraphicalSpriteDefinition())->not->toBeNull();
+  $actor = $this->stage->add([...$entry, 'replace' => true, 'graphicalVisible' => false]);
+  expect($this->stage->actorAt(6, 3))->toBe($actor)->and($actor->hasCollision)->toBeTrue();
+  $this->scene->camera->moveTo(0, 0);
+  Console::recomposeFrame(fn() => $this->stage->render());
+  expect(Console::charAt(6, 3))->toBe('=');
+  $actor = $this->stage->add([...$entry, 'replace' => true, 'graphicalVisible' => true, 'visible' => false]);
+  expect($actor->isVisible)->toBeFalse()->and($actor->isGraphicallyVisible)->toBeFalse()
+    ->and($actor->getGraphicalSpriteDefinition())->toBeNull();
+});
+
+it('rejects non-boolean graphical visibility before replacing an owned actor', function (mixed $value) {
+  $entry = subjectOwnershipCast(['graphicalVisible' => $value]);
+  expect(fn() => subjectOwnershipDefinition(data: ['cast' => [$entry]]))
+    ->toThrow(InvalidArgumentException::class, 'graphicalVisible must be boolean');
+  expect(fn() => CinematicScriptValidator::validate([['type' => 'stage_actor', ...$entry]]))
+    ->toThrow(InvalidArgumentException::class, 'graphicalVisible must be boolean');
+  $original = $this->stage->add(subjectOwnershipCast());
+  expect(fn() => $this->stage->add([...$entry, 'replace' => true]))
+    ->toThrow(InvalidArgumentException::class, 'graphicalVisible must be boolean');
+  expect($this->stage->find('pose'))->toBe($original)->and($this->stage->suppresses($this->npc))->toBeTrue();
+})->with(['null' => [null], 'integer zero' => [0], 'integer one' => [1], 'string' => ['false'], 'array' => [[]]]);
+
+
+it('keeps explicit described subjects clear of actual narration without requiring unrelated cast', function (bool $graphical): void {
+  $data = ['cast' => [
+    ['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide'], 'sprites2d' => characterSheetData()],
+    ['id' => 'distant', 'sprite' => 'D', 'x' => 2, 'y' => 22],
+  ], 'presentation' => ['framing' => ['subjects' => ['described' => ['kind' => 'staged_actor', 'id' => 'guide-look']]]]];
+  $this->scene->cinematicController->start(subjectOwnershipDefinition([
+    ['type' => 'framing', 'subjects' => ['described'], 'commands' => [['type' => 'wait', 'seconds' => 10]]],
+  ], $data));
+  if ($graphical) {
+    mkdir($this->assetRoot . '/Data/Presentation', 0777, true);
+    file_put_contents($this->assetRoot . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+      'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'],
+    ], true) . ';');
+    $grid = new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig(135, 36, 10, 20);
+    $view = new FieldViewport($grid);
+    new ReflectionProperty(GameScene::class, 'fieldViewport')->setValue($this->scene, $view);
+    new ReflectionProperty(GameScene::class, 'presentationContext')->setValue($this->scene,
+      new \Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext($grid, static fn() => true, assetRoot: $this->assetRoot));
+    $this->scene->camera->resizeViewport($view->columns, $view->rows);
+  }
+  $this->scene->cinematicPresentation->showOverlay('narration', 'A described subject remains visible.');
+  $required = $this->stage->find('guide-look');
+  $positions = [clone $required->position, clone $this->player->position, clone $this->stage->find('distant')->position];
+  $framing = new \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming($this->scene);
+  $framing->update();
+  expect($this->scene->cinematicController->getFramingSubjects())->toBe([$required])
+    ->and($this->scene->camera->isFramed)->toBeTrue()->and($framing->diagnostic)->toBeNull();
+  $origin = $this->scene->camera->getWorldOrigin();
+  if ($graphical) {
+    $protected = $this->scene->cinematicPresentation->getProtectedOverlayBounds(1350, 720, $this->assetRoot, $grid);
+    $safe = \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming::findSafeArea($protected, 1350, 720);
+    $bounds = \Ichiloto\Engine\Animations\Field\FieldSpriteBounds::findBounds($required, $view, $origin);
+    expect($bounds->top - $origin['y'] * 48)->toBeGreaterThanOrEqual($safe->y)
+      ->and($bounds->bottom - $origin['y'] * 48)->toBeLessThanOrEqual($safe->y + $safe->height);
+  } else {
+    $rect = $this->scene->cinematicPresentation->getProtectedOverlayBounds(24, 8)[0];
+    expect($required->position->y - $origin['y'])->toBeGreaterThanOrEqual($rect->y + $rect->height);
+  }
+  $this->scene->cinematicPresentation->clearOverlay(); $framing->update();
+  expect($this->scene->camera->getWorldOrigin())->toBe($origin)
+    ->and([$required->position, $this->player->position, $this->stage->find('distant')->position])->toEqual($positions)
+    ->and($this->stage->find('distant')->isVisible)->toBeTrue();
+})->with([false, true]);
+
+it('restores nested framing phases through the real cooperative interpreter', function (): void {
+  $this->scene->cinematicController->start(subjectOwnershipDefinition([
+    ['type' => 'framing', 'subjects' => [['kind' => 'player']], 'commands' => [
+      ['type' => 'wait', 'seconds' => .1],
+      ['type' => 'framing', 'subjects' => [['kind' => 'staged_actor', 'id' => 'guide-look']],
+        'commands' => [['type' => 'wait', 'seconds' => .1]]],
+      ['type' => 'wait', 'seconds' => .1],
+    ]],
+    ['type' => 'wait', 'seconds' => 10],
+  ], ['cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide']]]]));
+  $controller = $this->scene->cinematicController;
+  expect($controller->getFramingSubjects())->toBe([$this->player]);
+  $outer = $controller->getCurrentFramingScope();
+  $this->scene->eventInterpreter->update(.1);
+  expect($controller->getFramingSubjects())->toBe([$this->stage->find('guide-look')])
+    ->and($controller->getCurrentFramingScope()->parent)->toBe($outer);
+  $this->scene->eventInterpreter->update(.1);
+  expect($controller->getCurrentFramingScope())->toBe($outer)->and($controller->getFramingSubjects())->toBe([$this->player]);
+  $this->scene->eventInterpreter->update(.1);
+  expect($controller->getCurrentFramingScope())->toBeNull()->and($controller->active())->not->toBeNull();
+});
+
+it('rejects unavailable subjects and sibling phase ownership before replacing a valid selection', function (): void {
+  $this->scene->cinematicController->start(subjectOwnershipDefinition(data: ['cast' => []]));
+  $controller = $this->scene->cinematicController;
+  $scope = $controller->beginFramingPhase([['kind' => 'player']], 'root/parallel[a]');
+  expect(fn() => $controller->beginFramingPhase([['kind' => 'npc', 'id' => 'missing']], 'root/parallel[a]/nested'))
+    ->toThrow(RuntimeException::class);
+  expect($controller->getCurrentFramingScope())->toBe($scope);
+  expect(fn() => $controller->beginFramingPhase([['kind' => 'npc', 'id' => 'guide']], 'root/parallel[b]'))
+    ->toThrow(RuntimeException::class);
+  expect($controller->getCurrentFramingScope())->toBe($scope)->and($controller->getFramingSubjects())->toBe([$this->player]);
+  $this->scene->changeMapIdentity('map-b');
+  expect($controller->getCurrentFramingScope())->toBeNull();
+  $new = $controller->beginFramingPhase([['kind' => 'player']], 'root/new');
+  $controller->endFramingPhase($scope);
+  expect($controller->getCurrentFramingScope())->toBe($new);
+});
+
+it('releases a pending nested phase on failure or authored skip', function (bool $skip): void {
+  $this->scene->cinematicController->start(subjectOwnershipDefinition([
+    ['type' => 'framing', 'subjects' => [['kind' => 'player']], 'commands' => [
+      ['type' => 'framing', 'subjects' => [['kind' => 'npc', 'id' => 'guide']],
+        'commands' => [['type' => 'wait', 'seconds' => 10]]],
+    ]],
+  ], ['cast' => [], 'skip' => ['policy' => 'authored'], 'finalizer' => [['type' => 'camera', 'operation' => 'attach']]]));
+  expect($this->scene->cinematicController->getCurrentFramingScope())->not->toBeNull();
+  $skip ? $this->scene->cinematicController->skip() : $this->scene->eventInterpreter->failActiveSession('Synthetic phase failure.');
+  expect($this->scene->cinematicController->getCurrentFramingScope())->toBeNull()
+    ->and($this->scene->cinematicController->active())->toBeNull();
+})->with([false, true]);
+
+it('does not admit irreversible actions hidden inside a skippable framing block', function (): void {
+  expect(fn() => subjectOwnershipDefinition([
+    ['type' => 'framing', 'subjects' => [['kind' => 'player']], 'commands' => [['type' => 'give_gold', 'amount' => 1]]],
+  ], ['cast' => [], 'skip' => ['policy' => 'authored'], 'finalizer' => [['type' => 'camera', 'operation' => 'attach']]]))->toThrow(InvalidArgumentException::class, 'give_gold');
+});
+
+
+it('frames the current presentation of a stable real subject and rejects duplicate staged aliases', function (): void {
+  $this->scene->cinematicController->start(subjectOwnershipDefinition(data: ['cast' => [
+    ['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide'], 'sprites2d' => characterSheetData()],
+  ]]));
+  $controller = $this->scene->cinematicController;
+  $phase = $controller->beginFramingPhase([['kind' => 'npc', 'id' => 'guide']], 'root');
+  expect($controller->getFramingSubjects())->toBe([$this->stage->find('guide-look')]);
+  expect(fn() => $controller->beginFramingPhase([
+    ['kind' => 'npc', 'id' => 'guide'], ['kind' => 'staged_actor', 'id' => 'guide-look'],
+  ], 'root/nested'))->toThrow(RuntimeException::class);
+  expect($controller->getCurrentFramingScope())->toBe($phase);
+});
+
+
+it('cancels both real parallel lanes when they compete for independent framing phases', function (): void {
+  $session = $this->scene->cinematicController->start(subjectOwnershipDefinition([
+    ['type' => 'parallel', 'lanes' => [
+      ['id' => 'first', 'commands' => [['type' => 'framing', 'subjects' => [['kind' => 'player']],
+        'commands' => [['type' => 'wait', 'seconds' => 10]]]]],
+      ['id' => 'second', 'commands' => [['type' => 'framing', 'subjects' => [['kind' => 'npc', 'id' => 'guide']],
+        'commands' => [['type' => 'wait', 'seconds' => 10]]]]],
+    ]],
+  ], ['cast' => []]));
+  expect($session->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session->failureMessage)->toContain('Concurrent sibling lanes')
+    ->and($this->scene->cinematicController->active())->toBeNull()
+    ->and($this->scene->cinematicController->getCurrentFramingScope())->toBeNull();
+});
+
+it('runs a direct-reference framing phase from a real reusable common event', function (): void {
+  mkdir($this->assetRoot . '/assets/Events', 0777, true);
+  file_put_contents($this->assetRoot . '/assets/Events/shared-phase.php', '<?php return ' . var_export([
+    ['type' => 'framing', 'subjects' => [['kind' => 'npc', 'id' => 'guide']],
+      'commands' => [['type' => 'wait', 'seconds' => .1]]],
+  ], true) . ';');
+  $before = getcwd();
+  try {
+    chdir($this->assetRoot);
+    $this->scene->cinematicController->start(subjectOwnershipDefinition([
+      ['type' => 'common_event', 'id' => 'shared-phase'], ['type' => 'wait', 'seconds' => 10],
+    ], ['cast' => []]));
+    expect($this->scene->cinematicController->getFramingSubjects())->toBe([$this->npc]);
+    $this->scene->eventInterpreter->update(.1);
+    expect($this->scene->cinematicController->getCurrentFramingScope())->toBeNull()
+      ->and($this->scene->cinematicController->active())->not->toBeNull();
+  } finally { chdir($before); }
+});
+
+
+it('admits staged walking art from its declared field or bound Game root while common dispatch uses another directory', function (bool $fieldHost): void {
+  $game = $this->scene->getGame();
+  new ReflectionProperty(Game::class, 'rendererRuntime')->setValue($game, null);
+  if ($fieldHost) {
+    new ReflectionProperty(GameScene::class, 'presentationContext')->setValue($this->scene,
+      new \Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext(
+        new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig(135, 36, 10, 20),
+        static fn() => true, assetRoot: $this->assetRoot));
+  } else {
+    $loader = new ReflectionClass(\Ichiloto\Engine\Scenes\Game\GameLoader::class)->newInstanceWithoutConstructor();
+    new ReflectionProperty($loader, 'assetRoot')->setValue($loader, $this->assetRoot);
+    new ReflectionProperty(Game::class, 'gameLoader')->setValue($game, $loader);
+  }
+  mkdir($this->assetRoot . '/dispatch-only'); $cwd = getcwd();
+  try {
+    chdir($this->assetRoot . '/dispatch-only');
+    $this->stage->add(['id' => 'walker', 'sprite' => '@', 'x' => 1, 'y' => 1, 'sprites2d' => characterSheetData()]);
+    $npcs = $this->scene->npcManager->prepareNpcs([
+      ['id' => 'visitor', 'name' => 'Visitor', 'sprite' => 'V', 'x' => 2, 'y' => 2,
+        'sprites2d' => characterSheetData()],
+    ], $this->scene->currentMapId);
+    expect($this->stage->find('walker')->getGraphicalSpriteDefinition())->not->toBeNull()
+      ->and($npcs[0]->getGraphicalSpriteDefinition())->not->toBeNull()
+      ->and($this->scene->getFieldAssetRoot())->toBe($this->assetRoot);
+  } finally { chdir($cwd); }
+})->with([false, true]);
+
+it('diagnoses an invalid required graphical role while preserving independent Terminal framing', function (): void {
+  $this->scene->cinematicController->start(subjectOwnershipDefinition([
+    ['type' => 'framing', 'subjects' => [['kind' => 'staged_actor', 'id' => 'unavailable-art']],
+      'commands' => [['type' => 'wait', 'seconds' => 10]]],
+  ], ['cast' => [['id' => 'unavailable-art', 'sprite' => 'A', 'x' => 2, 'y' => 3,
+    'sprites2d' => array_replace(characterSheetData(), ['sheet' => 'missing-required-art.png'])]]]));
+  $view = new FieldViewport(new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig(135, 36, 10, 20));
+  new ReflectionProperty(GameScene::class, 'fieldViewport')->setValue($this->scene, $view);
+  $framing = new \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming($this->scene);
+  $framing->update();
+  expect($this->scene->camera->isFramed)->toBeFalse()
+    ->and($framing->diagnostic)->toContain('invalid or unavailable graphical artwork');
+  new ReflectionProperty(GameScene::class, 'fieldViewport')->setValue($this->scene, null);
+  $framing->update();
+  expect($framing->diagnostic)->toBeNull()->and($this->scene->camera->isFramed)->toBeTrue();
+});
+
+
+it('refuses framing in a plain field session before earlier commands can change state', function (): void {
+  expect(fn() => $this->scene->eventInterpreter->start([
+    ['type' => 'set_switch', 'name' => 'must-not-change', 'value' => true],
+    ['type' => 'sequence', 'commands' => [['type' => 'framing', 'subjects' => [['kind' => 'player']],
+      'commands' => [['type' => 'wait', 'seconds' => .1]]]]],
+  ]))->toThrow(InvalidArgumentException::class, 'requires an active field cinematic');
+  expect($this->scene->eventInterpreter->activeSession())->toBeNull()
+    ->and($this->scene->gameState->getSwitch('must-not-change'))->toBeFalse();
+});
+
+it('reports the required framing identity and exports its actual interpreter body lane', function (): void {
+  $this->scene->cinematicController->start(subjectOwnershipDefinition([
+    ['type' => 'framing', 'subjects' => [['kind' => 'player']], 'commands' => [['type' => 'wait', 'seconds' => 10]]],
+  ], ['cast' => []]));
+  $controller = $this->scene->cinematicController; $scope = $controller->getCurrentFramingScope();
+  expect($scope->lanePath)->toEndWith('/' . \Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema::FRAMING_BODY_LANE);
+  expect(fn() => $controller->beginFramingPhase([['kind' => 'npc', 'id' => 'missing']], $scope->lanePath . '/nested'))
+    ->toThrow(RuntimeException::class, 'Required framing subject: The selected field subject npc:missing is not present.');
+  expect($controller->getCurrentFramingScope())->toBe($scope);
+});

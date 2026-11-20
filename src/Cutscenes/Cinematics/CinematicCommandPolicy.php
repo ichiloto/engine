@@ -66,8 +66,8 @@ final class CinematicCommandPolicy
         ));
       }
 
-      if ($type === 'sequence') {
-        self::inspectSkipCommands($command['commands'], $cinematicId, "$commandPath/sequence");
+      if (in_array($type, ['sequence', 'framing'], true)) {
+        self::inspectSkipCommands($command['commands'], $cinematicId, "$commandPath/$type");
         continue;
       }
 

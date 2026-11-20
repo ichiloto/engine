@@ -27,6 +27,10 @@ class State
   protected(set) float $atbRate = 1.0;
   protected(set) int $accuracyModifier = 0;
   protected(set) float $physicalDamageDealtRate = 1.0;
+  protected(set) ?float $durationSeconds = null;
+  protected(set) ?string $stackGroup = null;
+  protected(set) int $stackPriority = 0;
+
   /** The badge label length derived from the name when none is authored. */
   protected const int DERIVED_LABEL_LENGTH = 3;
 
@@ -50,7 +54,7 @@ class State
    * @param string $name The display name.
    * @param string $icon The icon shown next to afflicted battlers.
    * @param string $description The description.
-   * @param int|null $durationTurns Turns before the state expires; null lasts until cured.
+   * @param int|null $durationTurns Bearer turns before expiry. Omit for elapsed expiry or indefinite duration.
    * @param string|null $tickFormula HP delta applied each turn (negative harms); same formula language as skill effects, with `$target` bound to the afflicted battler.
    * @param bool $preventsAction True when the afflicted battler cannot act.
    * @param bool $persistsAfterBattle True when the state survives the end of battle (classic poison).
@@ -65,6 +69,9 @@ class State
    *   foe and makes its ordinary attack on a random battler of either side instead of acting (Confusion); 0 never.
    * @param int $accuracyModifier Adds percentage points to the bearer's rolled hit chances while active.
    * @param float $physicalDamageDealtRate Scales physical damage the bearer deals while active.
+   * @param float|null $durationSeconds Active battle seconds before expiry.
+   * @param string|null $stackGroup Optional mutually exclusive group of state definitions.
+   * @param int $stackPriority Higher priority replaces lower priority in the same group. Equal priority refreshes the group.
    */
   public function __construct(
     protected(set) string $id,
@@ -87,6 +94,9 @@ class State
     float $atbRate = 1.0,
     int $accuracyModifier = 0,
     float $physicalDamageDealtRate = 1.0,
+    ?float $durationSeconds = null,
+    ?string $stackGroup = null,
+    int $stackPriority = 0,
   )
   {
     if ($fieldTickSteps !== null && $fieldTickSteps < 1) {
@@ -107,6 +117,19 @@ class State
     if (!is_finite($physicalDamageDealtRate) || $physicalDamageDealtRate < 0.0) {
       throw new InvalidArgumentException(sprintf('State "%s" physicalDamageDealtRate must be a finite non-negative multiplier.', $id));
     }
+    if ($durationSeconds !== null && (!is_finite($durationSeconds) || $durationSeconds <= 0
+      || $durationTurns !== null || $fieldTickSteps !== null || $persistsAfterBattle)) {
+      throw new InvalidArgumentException(sprintf(
+        'State "%s" durationSeconds must be finite and positive, with no turn duration, field ticks, or persistence after battle.', $id
+      ));
+    }
+    if (($stackGroup !== null && trim($stackGroup) === '') || $stackPriority < 0
+      || ($stackGroup === null && $stackPriority !== 0)) {
+      throw new InvalidArgumentException(sprintf('State "%s" stackPriority must be nonnegative and requires a stackGroup.', $id));
+    }
+    $this->durationSeconds = $durationSeconds;
+    $this->stackGroup = $stackGroup === null ? null : trim($stackGroup);
+    $this->stackPriority = $stackPriority;
     $this->atbRate = $atbRate;
     $this->accuracyModifier = $accuracyModifier;
     $this->physicalDamageDealtRate = $physicalDamageDealtRate;
@@ -127,6 +150,18 @@ class State
     }
 
     $duration = $data['durationTurns'] ?? null;
+    $seconds = $data['durationSeconds'] ?? null;
+    $stackGroup = $data['stackGroup'] ?? null;
+    $stackPriority = $data['stackPriority'] ?? 0;
+    if ($seconds !== null && (!is_int($seconds) && !is_float($seconds))) {
+      throw new InvalidArgumentException(sprintf('State "%s" durationSeconds must be a number.', $id));
+    }
+    if ($seconds !== null && $duration !== null) {
+      throw new InvalidArgumentException(sprintf('State "%s" must use either durationSeconds or durationTurns.', $id));
+    }
+    if (($stackGroup !== null && !is_string($stackGroup)) || !is_int($stackPriority)) {
+      throw new InvalidArgumentException(sprintf('State "%s" requires a text stackGroup and a whole-number stackPriority.', $id));
+    }
     $disposition = $data['disposition'] ?? StateDisposition::HARMFUL;
     if (!$disposition instanceof StateDisposition) {
       $disposition = is_string($disposition) ? StateDisposition::tryFrom($disposition) : null;
@@ -190,6 +225,9 @@ class State
       (float) $atbRate,
       $accuracyModifier,
       (float) $physicalDamageDealtRate,
+      $seconds === null ? null : (float) $seconds,
+      $stackGroup,
+      $stackPriority,
     );
   }
 }

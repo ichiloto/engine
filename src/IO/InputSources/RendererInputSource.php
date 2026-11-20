@@ -16,7 +16,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
  * With negotiated key transitions it also reports presses, releases and
  * resets; without them it remains an event-only source and claims no release.
  */
-final readonly class RendererInputSource implements HeldInputSourceInterface, PressAwareInputSourceInterface
+final readonly class RendererInputSource implements HeldInputSourceInterface, PressContextInputSourceInterface
 {
   public function __construct(private RendererClient $client)
   {
@@ -41,6 +41,11 @@ final readonly class RendererInputSource implements HeldInputSourceInterface, Pr
   public function wasLastPollPress(): ?bool
   {
     return $this->client->wasLastPollPress();
+  }
+
+  public function wasKeyHeldAtLastPress(KeyCode $key): ?bool
+  {
+    return $this->client->wasKeyHeldAtLastPress($key);
   }
 
   public function canReportHeldState(): bool

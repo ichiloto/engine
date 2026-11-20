@@ -20,6 +20,7 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\RetainedFrame;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
@@ -42,6 +43,7 @@ class BattlePauseState extends BattleSceneState
   public private(set) ?BattlePauseMenu $menu = null;
   public private(set) ?ConfigMenu $configMenu = null;
   private ?PresentationCanvas $battlefield = null;
+  private ?RetainedFrame $retainedBattlefield = null;
   private bool $configReturned = false;
   private bool $ownsOverlay = false;
   private bool $ownsConfigLayer = false;
@@ -50,7 +52,18 @@ class BattlePauseState extends BattleSceneState
   private ?string $configPresentationError = null;
   private float $configPresentationStart = 0;
 
-  public function retainFrame(?PresentationCanvas $frame): void { $this->battlefield = $frame; }
+  public function retainFrame(?PresentationCanvas $frame, ?RetainedFrame $retained = null): void
+  {
+    $this->battlefield = $frame;
+    $this->retainedBattlefield = $retained;
+  }
+
+  public function restoreRetainedFrame(): void
+  {
+    if ($this->retainedBattlefield !== null) {
+      $this->scene->getGame()->getRendererRuntime()?->restoreSceneFrame($this->scene, $this->retainedBattlefield);
+    }
+  }
 
   public function hasOwnedResources(): bool
   {
@@ -122,6 +135,8 @@ class BattlePauseState extends BattleSceneState
     $this->configPresentationError = null;
     $this->configReturned = false;
     $this->battlefield = null;
+    $this->retainedBattlefield = null;
+    $this->scene->getGame()->getRendererRuntime()?->assetHolds->releaseOwner($this);
     try {
       $this->releaseConfigLayer();
     } finally {

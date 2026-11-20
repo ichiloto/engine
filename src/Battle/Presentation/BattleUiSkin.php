@@ -41,4 +41,16 @@ final readonly class BattleUiSkin
     }
     return $copy;
   }
+  /** Artwork the HUD can select, including cursors and semantic icons; no state is sampled to discover it.
+   * @return list<string>
+   */
+  public function getAssetPaths(): array
+  {
+    $assets = array_map(static fn(CanvasNineSlice $art): string => $art->asset, $this->textures);
+    foreach ($this->targetCursor?->textures ?? [] as $art) { $assets[] = $art->asset; }
+    array_push($assets, ...array_values($this->icons?->icons ?? []));
+    if ($this->icons?->cursor !== null) { $assets[] = $this->icons->cursor; }
+    return array_values(array_unique($assets));
+  }
+
 }

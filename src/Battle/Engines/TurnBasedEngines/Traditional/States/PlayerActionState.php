@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\UI\BattleControlHints;
 use Ichiloto\Engine\Battle\BattleConclusion;
 use Assegai\Collections\Stack;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
+use Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction;
 use Ichiloto\Engine\Battle\Actions\GuardAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\Actions\PassAction;
@@ -27,7 +28,6 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
-use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Progression\{TutorialDirector, TutorialStartContext};
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
@@ -89,6 +89,7 @@ class PlayerActionState extends TurnState
    */
   public function enter(TurnStateExecutionContext $context): void
   {
+    $context->ui->releaseActionPrefetch();
     $context->ui->setState($context->ui->playerActionState);
     $this->menuStack = new Stack(MenuInterface::class);
     $this->activeCharacterIndex = -1;
@@ -104,6 +105,7 @@ class PlayerActionState extends TurnState
     }
 
     $this->selectNextCharacter($context, true);
+    if ($this->engine->state === $this) { $this->synchronizeActionPrefetch($context); }
   }
 
   /**
@@ -125,11 +127,40 @@ class PlayerActionState extends TurnState
     $revealedAlternative = $this->heldAttackOption !== null
       && $previousAlternative !== $this->heldAttackOption->label
       && InputManager::wasButtonPressed('right');
+    $this->synchronizeActionPrefetch($context);
     $this->handleActions($context);
+    if ($this->engine->state === $this) { $this->synchronizeActionPrefetch($context); }
 
     if ($revealedAlternative || $previousChoice !== $this->getChoiceState($context)) {
       $context->game->recordPlayerActivity();
     }
+  }
+
+  /** Only a currently usable semantic action owns speculation; queued command preparation consumes the handoff. */
+  protected function synchronizeActionPrefetch(TurnStateExecutionContext $context): void
+  {
+    if (!$context->ui->usesGraphicalField()) { $context->ui->releaseActionPrefetch(); return; }
+    $actor = $this->activeCharacter;
+    $option = null;
+    if ($actor !== null && $actor->isFighting
+      && (!method_exists($actor, 'getActionBlockingState') || $actor->getActionBlockingState() === null)) {
+      if ($this->selectionMode === self::MODE_COMMAND) {
+        $command = $this->getSelectedCommand($context);
+        if ($command?->type === BattleCommandType::ATTACK) {
+          $option = $this->heldAttackOption ?? array_find(BattleCommandCatalog::buildOptions($actor,
+            $context->party, $command->type, $this->getReservedItemCounts($context), $context->getGameState()),
+            static fn(BattleCommandOption $option): bool => !$option->action instanceof CrisisSkillBattleAction);
+        }
+      } else { $option = $this->getSelectedOption($context); }
+    }
+    if (!$option instanceof BattleCommandOption || $actor === null
+      || !$option->isAffordable($actor->stats->currentMp, $actor->stats->currentAp) || $this->getEligibleOptionTargets($context, $option) === []
+      || ($option->action instanceof \Ichiloto\Engine\Battle\Actions\ExecutionEligibility
+        && $option->action->getExecutionRefusal($actor) !== null)) {
+      $context->ui->prefetchActionResources(null, null);
+      return;
+    }
+    $context->ui->prefetchActionResources($actor, $option->action);
   }
 
   /** The selection state changed by accepted commands and target changes. */
@@ -245,7 +276,7 @@ class PlayerActionState extends TurnState
       $this->showFocusedInfo($context);
     }
 
-    if (Input::isButtonDown('action')) {
+    if (Input::isButtonPressed('action')) {
       $context->game->audioManager->playSystemSound(SystemSound::CONFIRM);
 
       match ($this->selectionMode) {
@@ -354,7 +385,7 @@ class PlayerActionState extends TurnState
       if ($command !== BattleCommandType::SUMMON) { return true; }
       $options = BattleCommandCatalog::buildOptions($actor, $context->party, $command, gameState: $context->getGameState());
       return array_any($options, fn(BattleCommandOption $option): bool =>
-        $option->mpCost <= $actor->stats->currentMp && $this->getEligibleOptionTargets($context, $option) !== []);
+        $option->isAffordable($actor->stats->currentMp, $actor->stats->currentAp) && $this->getEligibleOptionTargets($context, $option) !== []);
     };
 
     $director->enterContext(
@@ -449,12 +480,15 @@ class PlayerActionState extends TurnState
 
     $this->directAttackSelection = false;
     if ($command->type === BattleCommandType::ATTACK && Input::isHeldInputAvailable()) {
-      if ($this->heldAttackOption !== null) {
-        $options = [$this->heldAttackOption];
+      $chosenAlternative = InputManager::wasButtonHeldAtPress('right')
+        ? array_find($options, static fn(BattleCommandOption $option): bool => $option->action instanceof CrisisSkillBattleAction)
+        : null;
+      if ($chosenAlternative !== null) {
+        $options = [$chosenAlternative];
         $this->directAttackSelection = true;
       } else {
         $options = array_values(array_filter($options, static fn(BattleCommandOption $option): bool =>
-          !$option->action instanceof \Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction));
+          !$option->action instanceof CrisisSkillBattleAction));
       }
     }
     $this->selectionMode = self::MODE_SUBMENU;
@@ -462,7 +496,8 @@ class PlayerActionState extends TurnState
     $this->activeTargetIndex = -1;
     $context->ui->commandWindow->setSelectionBlink(false);
     $context->ui->commandWindow->setControlHints([BattleControlHints::getInfoHint()]);
-    $context->ui->commandContextWindow->setMpBudget($this->activeCharacter->stats->currentMp);
+    $stats = $this->activeCharacter->stats;
+    $context->ui->commandContextWindow->setResourceBudget($stats->currentMp, $stats->currentAp);
     $context->ui->commandContextWindow->setItems($options, $command->name, $this->getEmptyMenuMessage($command->type));
     $context->ui->commandContextWindow->focus();
     if ($this->directAttackSelection) {
@@ -572,17 +607,8 @@ class PlayerActionState extends TurnState
       return;
     }
 
-    // Insufficient MP blocks the option here, at selection time — waiting
-    // until execution would let the move fizzle after it was announced.
-    if ($this->activeCharacter && $option->mpCost > $this->activeCharacter->stats->currentMp) {
-      $context->ui->alert(get_engine_message(
-        'battle.insufficient_resource_selection',
-        $option->action->name,
-        $option->mpCost,
-        $this->activeCharacter->name,
-        $this->activeCharacter->stats->currentMp,
-        Vocabulary::getTerm('stats.mp', 'MP')
-      ));
+    if ($this->activeCharacter && ($refusal = $option->getAffordabilityRefusal($this->activeCharacter)) !== null) {
+      $context->ui->alert($refusal);
       return;
     }
 
@@ -681,15 +707,8 @@ class PlayerActionState extends TurnState
       return;
     }
 
-    if ($selectedOption->mpCost > $this->activeCharacter->stats->currentMp) {
-      $context->ui->alert(get_engine_message(
-        'battle.insufficient_resource_selection',
-        $selectedOption->action->name,
-        $selectedOption->mpCost,
-        $this->activeCharacter->name,
-        $this->activeCharacter->stats->currentMp,
-        Vocabulary::getTerm('stats.mp', 'MP')
-      ));
+    if (($refusal = $selectedOption->getAffordabilityRefusal($this->activeCharacter)) !== null) {
+      $context->ui->alert($refusal);
       return;
     }
 

@@ -5,7 +5,6 @@ namespace Ichiloto\Engine\Rendering;
 use Closure;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use InvalidArgumentException;
-use LogicException;
 use Throwable;
 
 /** PHP-owned traversal, with a safe scene handoff independent of renderer acknowledgements. */
@@ -29,7 +28,7 @@ final class ScreenTransitionSession
 
   /** @param array<int, array{0: string, 1: int}> $frames */
   public function __construct(
-    protected ScreenTransition|ScreenTransitionTreatment $transition,
+    protected ScreenTransition|ScreenTransitionTreatment|null $transition,
     protected array $frames = [],
     ?callable $present = null,
     ?callable $handoff = null,
@@ -40,7 +39,7 @@ final class ScreenTransitionSession
     private bool $graphicalOnly = false,
   )
   {
-    if ($transition instanceof ScreenTransitionTreatment) {
+    if (!$transition instanceof ScreenTransition) {
       if ($present === null || $handoff === null || $ready === null || $cleanup === null || $frames !== []) {
         throw new InvalidArgumentException('A graphical transition needs one presentation and owned handoff/readiness/cleanup callbacks.');
       }
@@ -62,7 +61,7 @@ final class ScreenTransitionSession
       return true;
     }
     if ($this->paused) { return false; }
-    if ($this->transition instanceof ScreenTransitionTreatment) {
+    if (!$this->transition instanceof ScreenTransition) {
       try { return $this->advanceHandoff(max(0, $deltaSeconds)); }
       catch (Throwable $error) {
         try { $this->cancel(); } catch (Throwable) { /* Preserve the original failure. */ }
@@ -129,7 +128,7 @@ final class ScreenTransitionSession
   /** Repaints the most recent frame after a field composition redraw. */
   public function renderCurrentFrame(): void
   {
-    if ($this->isComplete && $this->transition instanceof ScreenTransitionTreatment) { return; }
+    if ($this->isComplete && !$this->transition instanceof ScreenTransition) { return; }
     if ($this->paintedPhase !== null) {
       ($this->present)($this->paintedPhase, $this->paintedProgress);
       return;
@@ -145,10 +144,8 @@ final class ScreenTransitionSession
   private function advanceHandoff(float $delta): bool
   {
     $treatment = $this->transition;
-    if (!$treatment instanceof ScreenTransitionTreatment) { throw new LogicException('Handoff requires a graphical treatment.'); }
-    if (!$this->enabled) {
-      $this->performHandoff();
-      if (($this->ready)()) { $this->finish(ScreenTransitionPhase::COMPLETE); }
+    if ($treatment === null || !$this->enabled) {
+      if ($this->performHandoff() && ($this->ready)()) { $this->finish(ScreenTransitionPhase::COMPLETE); }
       return $this->isComplete;
     }
     // Match the monotonic clock's resolution, avoiding float drift at phase boundaries.
@@ -177,8 +174,7 @@ final class ScreenTransitionSession
       return false;
     }
     if ($this->phase === ScreenTransitionPhase::HOLD) {
-      $this->performHandoff();
-      $ready = ($this->ready)();
+      $ready = $this->performHandoff() && ($this->ready)();
       $this->presentPhase($this->phase, 1);
       if ($ready && $this->phaseElapsedNanoseconds >= $this->getPhaseDurationNanoseconds($treatment)) {
         $this->phase = ScreenTransitionPhase::REVEAL;
@@ -201,11 +197,13 @@ final class ScreenTransitionSession
     return (int) round($treatment->timings[$this->phase->value] * 1_000_000_000);
   }
 
-  private function performHandoff(): void
+  private function performHandoff(): bool
   {
-    if ($this->hasHandedOff) { return; }
-    $this->hasHandedOff = true;
-    ($this->handoff)();
+    if (!$this->hasHandedOff) {
+      $this->hasHandedOff = true;
+      if (($this->handoff)() === false) { $this->hasHandedOff = false; }
+    }
+    return $this->hasHandedOff;
   }
 
   private function presentPhase(ScreenTransitionPhase $phase, float $progress): void

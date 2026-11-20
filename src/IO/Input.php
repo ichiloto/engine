@@ -34,6 +34,12 @@ class Input
     return InputManager::isKeyPressed($keyCode);
   }
 
+  /** Whether this sample is a fresh key press, excluding native repeat events. */
+  public static function isDiscreteKeyPressed(KeyCode $keyCode): bool
+  {
+    return InputManager::isDiscreteKeyPressed($keyCode);
+  }
+
   /**
    * Checks if all the given keys are pressed.
    *

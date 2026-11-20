@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Battle\BattlePacing;
 use Ichiloto\Engine\Battle\Presentation\BattlerPose;
+use Ichiloto\Engine\Battle\Presentation\BattleArtworkPreparation;
 use Ichiloto\Engine\Battle\Presentation\BattlePoseRole;
 use Ichiloto\Engine\Battle\UI\States\BattleScreenState;
 use Ichiloto\Engine\Battle\UI\States\PlayerActionState;
@@ -31,6 +32,10 @@ use RuntimeException;
  */
 class BattleScreen implements CanRender, CanUpdate
 {
+  /** Optional return-only timeout; required image resources wait for actual feedback. */
+  public const float RESOURCE_PREPARATION_TIMEOUT_SECONDS = 2.0;
+  private ?\Ichiloto\Engine\Rendering\Assets\AssetHoldPrefetch $actionPrefetch = null;
+
   /**
    * The width of the battle screen.
    */
@@ -359,6 +364,164 @@ class BattleScreen implements CanRender, CanUpdate
     if (!$playback->plan->requiresGraphicalAnchorCapture() || !$this->usesGraphicalField()) { return; }
     $this->battleScene->graphicalPresentation?->bindCommandPosePoints($playback,
       \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion(), $this->fieldWindow->getPoseElapsedSeconds());
+  }
+
+  private ?BattlerPose $focusedPose = null;
+  private ?BattleArtworkPreparation $focusedArtwork = null;
+
+  /** Transfer the source preparation to the committed command before travel geometry is resolved. */
+  public function takeActionArtworkPreparation(CharacterInterface $actor, ?int $animationId): ?BattleArtworkPreparation
+  {
+    $presentation = $this->battleScene->graphicalPresentation ?? null;
+    $pose = $presentation?->getAnimationPose($actor, $animationId);
+    if ($pose !== null && $pose === $this->focusedPose) {
+      $artwork = $this->focusedArtwork;
+      $this->focusedPose = null;
+      $this->focusedArtwork = null;
+      return $artwork;
+    }
+    $this->clearFocusedArtwork();
+    return $pose === null ? null : $presentation->prepareActionArtwork($pose);
+  }
+
+  private function clearFocusedArtwork(): void
+  {
+    $this->focusedArtwork?->cancel();
+    $this->focusedArtwork = null;
+    $this->focusedPose = null;
+  }
+
+  /** Called only by the semantic selection owner; no drawing path discovers or loads future actions. */
+  public function prefetchActionResources(?CharacterInterface $actor, ?\Ichiloto\Engine\Battle\BattleAction $action): void
+  {
+    if ($actor === null || $action === null || !$this->usesGraphicalField()) { $this->releaseActionPrefetch(); return; }
+    $runtime = $this->battleScene->getGame()->getRendererRuntime();
+    if (!($runtime?->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS) ?? false)) {
+      $this->releaseActionPrefetch(); return;
+    }
+    $effects = $this->battleScene->getBattleEffectResources();
+    $reducedMotion = \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion();
+    $this->getActionPrefetch($runtime)->selectResources($effects->getActionSelectionKey($actor, $action, $reducedMotion),
+      function () use ($effects, $actor, $action, $reducedMotion): array {
+        $presentation = $this->battleScene->graphicalPresentation;
+        $pose = $presentation->getAnimationPose($actor, $effects->getActionAnimationId($actor, $action));
+        if ($pose !== $this->focusedPose) {
+          $this->clearFocusedArtwork();
+          if ($pose !== null) {
+            $this->focusedPose = $pose;
+            $this->focusedArtwork = $presentation->prepareActionArtwork($pose);
+            $this->focusedArtwork->poll();
+          }
+        }
+        return array_replace($effects->collectActionPrefetchResources($actor, $action, $reducedMotion),
+          $pose === null ? [] : $presentation->collectActionPoseResources($actor, $pose, $reducedMotion));
+      },
+      $this->battleScene->getBattleResourceRequests());
+    $this->focusedArtwork?->pollWhilePending();
+  }
+
+  private function getActionPrefetch(\Ichiloto\Engine\Rendering\Runtime\RendererRuntime $runtime): \Ichiloto\Engine\Rendering\Assets\AssetHoldPrefetch
+  {
+    if ($this->actionPrefetch === null || !$this->actionPrefetch->usesLeases($runtime->assetHolds)) {
+      $this->releaseActionPrefetch();
+      $this->actionPrefetch = new \Ichiloto\Engine\Rendering\Assets\AssetHoldPrefetch($runtime->assetHolds);
+    }
+    return $this->actionPrefetch;
+  }
+
+  public function releaseActionPrefetch(): void
+  {
+    $this->actionPrefetch?->clear();
+    $this->actionPrefetch = null;
+    $this->clearFocusedArtwork();
+  }
+
+  private ?\Ichiloto\Engine\Battle\Presentation\BattleCommandResourceStream $commandResourceStream = null;
+
+  public function createCommandResourceStream(\Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback $playback,
+    float $startedAt): ?\Ichiloto\Engine\Battle\Presentation\BattleCommandResourceStream
+  {
+    if (!$this->usesGraphicalField()) { return null; }
+    $runtime = $this->battleScene->getGame()->getRendererRuntime();
+    if (!($runtime?->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS) ?? false)) { return null; }
+    $hasScaledField = $runtime->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::SCALED_CANVAS_HOLDS)
+      && \Ichiloto\Engine\Battle\Presentation\BattleFieldMotion::getScaledFrames($playback, false) !== [];
+    if (!$hasScaledField && !$playback->plan->requiresImagePreparation()) { return null; }
+    return new \Ichiloto\Engine\Battle\Presentation\BattleCommandResourceStream($playback, $runtime->assetHolds,
+      $runtime->getAssetRoot(), fn(): array => $this->collectCommandReturnResources($playback, $runtime),
+      fn(): array => $this->battleScene->getBattleResourceRequests(),
+      \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion(...), $this->getActionPrefetch($runtime), $startedAt,
+      $hasScaledField ? fn(array $scales): array => $this->battleScene->graphicalPresentation->collectScaledFieldResources($playback,
+        $scales, $this->fieldWindow->getPoseElapsedSeconds(),
+        $runtime->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_FLIP),
+        $runtime->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_BOTTOM_FADE)) : null);
+  }
+
+  public function setCommandResourceStream(\Ichiloto\Engine\Battle\Presentation\BattleCommandResourceStream $stream): void
+  {
+    if ($this->commandResourceStream !== null && $this->commandResourceStream !== $stream) {
+      throw new \LogicException('The active battle command already owns its resource stream.');
+    }
+    $this->commandResourceStream = $stream;
+  }
+
+  public function releaseCommandResourceStream(\Ichiloto\Engine\Battle\Presentation\BattleCommandResourceStream $stream): void
+  {
+    if ($this->commandResourceStream === $stream) { $this->commandResourceStream = null; }
+  }
+
+  public function canPresentCommandFrame(): bool
+  {
+    return $this->commandResourceStream?->canPresentAt(\Ichiloto\Engine\Core\Clocks\RuntimeClock::getSeconds()) ?? true;
+  }
+
+  /** The command owns these resources until disposal; Terminal and unsubscribed renderers keep their existing path. */
+  public function prepareCommandResources(\Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback $playback,
+    float $startedAt, float $timeoutSeconds): ?\Ichiloto\Engine\Rendering\Assets\AssetHoldPreparation
+  {
+    if (!$this->usesGraphicalField()) { $this->releaseActionPrefetch(); return null; }
+    $hasImages = $playback->plan->requiresImagePreparation();
+    if (!$hasImages && !$playback->plan->hasCinematicStages()) { $this->releaseActionPrefetch(); return null; }
+    $runtime = $this->battleScene->getGame()->getRendererRuntime();
+    if (!($runtime?->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS) ?? false)) {
+      $this->releaseActionPrefetch(); return null;
+    }
+    if ($hasImages) {
+      throw new \Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException('Image commands require their rolling resource stream.');
+    }
+    try {
+      return $this->getActionPrefetch($runtime)->prepareResources(
+        $this->collectCommandReturnResources($playback, $runtime), $startedAt, $timeoutSeconds,
+        $this->battleScene->getBattleResourceRequests());
+    } catch (\Throwable $failure) {
+      $this->releaseActionPrefetch();
+      throw $failure;
+    }
+  }
+
+  /** Actual combat has resolved. Declare its current return artwork without another wait or gameplay prediction. */
+  public function refreshCommandResources(\Ichiloto\Engine\Rendering\Assets\AssetHoldScope $scope,
+    \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback $playback): void
+  {
+    $runtime = $this->battleScene->getGame()->getRendererRuntime();
+    if (!($runtime?->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS) ?? false)) { return; }
+    $scope->mergeResources($this->collectCommandReturnResources($playback, $runtime));
+  }
+
+  /** @return array<string, \Ichiloto\Engine\Rendering\Assets\AssetHoldResource> */
+  private function collectCommandReturnResources(\Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback $playback,
+    \Ichiloto\Engine\Rendering\Runtime\RendererRuntime $runtime): array
+  {
+    $presentation = $this->battleScene->graphicalPresentation;
+    $reducedMotion = \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion();
+    $pose = $playback->plan->actionPoseOverride;
+    $selected = $pose === null ? [] : $presentation->collectActionPoseResources($playback->actor, $pose, $reducedMotion, $playback);
+    $resources = $playback->plan->hasCinematicStages()
+      ? $presentation->collectReturnResources($playback,
+        $this->fieldWindow->getPoseElapsedSeconds(), $reducedMotion,
+        $runtime->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_FLIP),
+        $runtime->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_BOTTOM_FADE)) : [];
+    return array_replace($selected, $resources);
   }
 
   public function measureActionRange(CharacterInterface $actor, array $targets): ?float

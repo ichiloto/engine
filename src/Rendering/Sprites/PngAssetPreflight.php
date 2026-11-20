@@ -7,9 +7,10 @@ namespace Ichiloto\Engine\Rendering\Sprites;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use RuntimeException;
 use Closure;
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Util\Debug;
 
-/** Header/bounds preflight only. Native preparation remains the PNG decode authority. */
+/** Validates PNG sources and owns their file facts for one presentation inspection. */
 final class PngAssetPreflight
 {
   private const int MAX_CACHE_ENTRIES = 1024;
@@ -29,6 +30,49 @@ final class PngAssetPreflight
     self::$snapshot = [];
     try { return $compose(); }
     finally { self::$snapshot = null; }
+  }
+
+  /**
+   * Prepare a reading within one snapshot and retain versions for later consumption.
+   * @template T
+   * @param Closure(): T $read
+   * @return array{0: T, 1: array<string, array{version: array, contentRevision?: string}>|null}
+   */
+  public static function captureReadVersions(string $root, Closure $read): array
+  {
+    return self::runWithSnapshot(static function () use ($root, $read): array {
+      $result = $read();
+      if (count(self::$snapshot) >= self::MAX_CACHE_ENTRIES) { return [$result, null]; }
+      $prefix = $root . DIRECTORY_SEPARATOR;
+      $versions = [];
+      foreach (self::$snapshot as $key => $entry) {
+        if (!str_starts_with($key, $prefix)) { continue; }
+        $versions[substr($key, strlen($prefix))] = ['version' => $entry['version']];
+        if (isset($entry['contentRevision'])) {
+          $versions[substr($key, strlen($prefix))]['contentRevision'] = $entry['contentRevision'];
+        }
+      }
+      return [$result, $versions];
+    });
+  }
+
+  /** @param array<string, array{version: array, contentRevision?: string}> $versions */
+  public static function hasReadVersions(string $root, array $versions): bool
+  {
+    return self::runWithSnapshot(static function () use ($root, $versions): bool {
+      foreach ($versions as $asset => $expected) {
+        $key = $root . DIRECTORY_SEPARATOR . $asset;
+        $entry = self::$snapshot[$key] ?? self::inspectFile($root, $asset, $key);
+        if (count(self::$snapshot) < self::MAX_CACHE_ENTRIES) { self::$snapshot[$key] = $entry; }
+        if ($entry['version'] !== $expected['version']) { return false; }
+        if (isset($expected['contentRevision'])) {
+          try { $revision = self::getContentIdentity($root, $asset)['revision']; }
+          catch (RuntimeException) { return false; }
+          if ($revision !== $expected['contentRevision']) { return false; }
+        }
+      }
+      return true;
+    });
   }
 
   /** Optional artwork fails independently; report once per file revision, not once per frame. */
@@ -58,10 +102,77 @@ final class PngAssetPreflight
     }
     if ($entry['error'] !== null) { throw new RuntimeException($entry['error']); }
     $size = $entry['size'];
-    if ($crop !== null && ($crop->x + $crop->width > $size['width'] || $crop->y + $crop->height > $size['height'])) {
+    if ($crop !== null) { self::assertRegionFits($asset, $size, $crop->x, $crop->y, $crop->width, $crop->height); }
+    return ['width' => $crop?->width ?? $size['width'], 'height' => $crop?->height ?? $size['height']];
+  }
+
+  /** Fractional pixel views share the same current-file bounds and failure classification as integer crops.
+   * @return array{width: float, height: float}
+   */
+  public static function inspectRegion(string $root, string $asset, float $x, float $y, float $width, float $height): array
+  {
+    foreach ([$x, $y, $width, $height] as $value) {
+      if (!is_finite($value)) { throw new \InvalidArgumentException('PNG source region values must be finite.'); }
+    }
+    if ($x < 0 || $y < 0 || $width <= 0 || $height <= 0) {
+      throw new \InvalidArgumentException('PNG source regions require nonnegative origins and positive extents.');
+    }
+    self::assertRegionFits($asset, self::inspect($root, $asset), $x, $y, $width, $height);
+    return ['width' => $width, 'height' => $height];
+  }
+
+  /** File replacement can invalidate an otherwise valid authored crop; consumers report this resource failure.
+   * @param array{width: int, height: int} $size
+   */
+  private static function assertRegionFits(string $asset, array $size, float $x, float $y, float $width, float $height): void
+  {
+    if ($x + $width > $size['width'] || $y + $height > $size['height']) {
       throw new RuntimeException("PNG dimensions or crop exceed image bounds: {$asset}");
     }
-    return ['width' => $crop?->width ?? $size['width'], 'height' => $crop?->height ?? $size['height']];
+  }
+
+  /** Current revision for callers that do not need the resolved path. */
+  public static function getContentRevision(string $root, string $asset): string
+  {
+    return self::getContentIdentity($root, $asset)['revision'];
+  }
+
+  /** Current PNG path and revision, shared only until the owning composition ends.
+   * @return array{path: string, revision: string}
+   */
+  public static function getContentIdentity(string $root, string $asset): array
+  {
+    self::inspect($root, $asset);
+    $key = $root . DIRECTORY_SEPARATOR . $asset;
+    $entry = self::$snapshot[$key] ?? self::$cache[$key];
+    $path = $entry['version']['path'];
+    if (isset($entry['contentRevision'])) { return ['path' => $path, 'revision' => $entry['contentRevision']]; }
+    $span = LatencyTrace::beginSpan();
+    try {
+      clearstatcache(true, $path);
+      if (realpath($path) !== $path || ($revision = @hash_file('xxh128', $path)) === false) {
+        throw new RuntimeException('Visible-pixel inspection could not read the current PNG.');
+      }
+      if (self::$snapshot !== null) { self::$snapshot[$key]['contentRevision'] = $revision; }
+    } finally { LatencyTrace::endSpan('png.content_revision', $span, ['asset' => $asset]); }
+    return ['path' => $path, 'revision' => $revision];
+  }
+
+  /** Keep generated pixel data tied to the exact encoded revision, even during an external replacement. */
+  public static function readRevisionBytes(string $root, string $asset, string $revision): string
+  {
+    self::inspect($root, $asset);
+    $key = $root . DIRECTORY_SEPARATOR . $asset;
+    $source = (self::$snapshot[$key] ?? self::$cache[$key])['version'];
+    $path = $source['path'];
+    clearstatcache(true, $path);
+    $bytes = realpath($path) === $path && is_file($path)
+      ? @file_get_contents($path, false, null, 0, self::MAX_FILE_BYTES + 1) : false;
+    if ($bytes === false || strlen($bytes) > self::MAX_FILE_BYTES
+      || substr($bytes, 0, 24) !== $source['header'] || hash('xxh128', $bytes) !== $revision) {
+      throw new RuntimeException("PNG asset changed during inspection: {$asset}");
+    }
+    return $bytes;
   }
 
   private static function inspectFile(string $root, string $asset, string $key): array
@@ -76,8 +187,9 @@ final class PngAssetPreflight
     // header bytes owning dimensions, never the full image or decoded pixels.
     try { $header = self::readHeader($canonicalRoot, $path, $asset); }
     catch (RuntimeException $failure) { $readError = $failure->getMessage(); }
-    $version = [$canonicalRoot, $path, $stat['mtime'] ?? null, $stat['ctime'] ?? null,
-      $stat['size'] ?? null, $stat['ino'] ?? null, $stat['mode'] ?? null, $header, $readError];
+    $version = ['root' => $canonicalRoot, 'path' => $path, 'mtime' => $stat['mtime'] ?? null,
+      'ctime' => $stat['ctime'] ?? null, 'size' => $stat['size'] ?? null, 'inode' => $stat['ino'] ?? null,
+      'mode' => $stat['mode'] ?? null, 'header' => $header, 'readError' => $readError];
     if (!isset(self::$cache[$key]) || self::$cache[$key]['version'] !== $version) {
       if (count(self::$cache) >= self::MAX_CACHE_ENTRIES) { array_shift(self::$cache); }
       $size = null;

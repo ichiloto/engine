@@ -127,7 +127,8 @@ beforeEach(function () {
   $this->scene = new LeaderFieldAppearanceScene($this->game);
   new ReflectionProperty(GameScene::class, 'party')->setValue($this->scene, $this->party);
   new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, new GameState());
-  $this->camera = new Camera($this->scene, 20, 10, worldSpace: array_fill(0, 30, str_repeat('.', 40)));
+  $tiles = array_fill(0, 30, str_repeat('.', 40));
+  $this->camera = new Camera($this->scene, 20, 10, worldSpace: $tiles);
   new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
   $this->config = new GameConfig('synthetic-map', $this->party, new Vector2(7, 4), new Rect(0, 0, 1, 1),
     MovementHeading::SOUTH, playerSprite: ['v'], playerSprites: $this->sprites);
@@ -136,9 +137,10 @@ beforeEach(function () {
   new ReflectionProperty(GameScene::class, 'player')->setValue($this->scene, $this->player);
   $this->camera->attach($this->player);
   $map = new LeaderFieldAppearanceMap($this->scene);
+  new ReflectionProperty(MapManager::class, 'tileMap')->setValue($map, $tiles);
   new ReflectionProperty(MapManager::class, 'layers')->setValue($map,
     new MapLayerSet([new MapLayer('ground', 0, false, 'synthetic',
-      implode("\n", array_fill(0, 30, str_repeat('.', 40))))]));
+      implode("\n", $tiles))]));
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
   new ReflectionProperty(GameScene::class, 'npcManager')->setValue($this->scene, new NpcManager($this->scene));
   new ReflectionProperty(GameScene::class, 'cinematicStage')->setValue($this->scene, new CinematicStageManager($this->scene));
@@ -326,8 +328,9 @@ it('loads new and saved games through GameLoader with configured ownership and c
   $saved = serialize($pipeline->createEnvelope($slot, $new));
   file_put_contents($path, 'IED1' . gzencode($saved));
   $manager = makeBareScene(SaveManager::class);
+  new ReflectionProperty(SaveManager::class, 'game')->setValue($manager, $this->game);
   new ReflectionProperty(SaveManager::class, 'compatibilityPipeline')->setValue($manager, $pipeline);
-  new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $manager);
+  $this->game->bindSaveManager($manager);
   $replacement = characterSheetData('Graphics/Replaced.png', 5, 100);
   writeCharacterSheetPng($this->root . '/assets/' . $replacement['sheet'], 10, 14);
   ($this->setFirstFieldRole)($replacement);

@@ -90,14 +90,14 @@ class EffectPlaybackSession
     $this->traversal++;
   }
 
-  public function seek(int $frame): void
+  public function seek(int $frame, bool $completed = false): void
   {
     $this->currentFrame = clamp($frame, 0, $this->totalFrames - 1);
     $this->accumulatedSeconds = 0.0;
     // Seeking and stepping are inspection operations. They reposition the
     // playhead without pretending that the destination frame was traversed.
     $this->currentFrameCuesPending = false;
-    $this->isCompleted = false;
+    $this->isCompleted = $completed;
   }
 
   public function stepForward(): void

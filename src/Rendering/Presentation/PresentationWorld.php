@@ -82,6 +82,12 @@ final class PresentationWorld
         public readonly array $tileCovers, private readonly ?array $tileShadows,
         private readonly string $assetRevision) {}
 
+    /** @return list<string> Tile sheets referenced by this retained world snapshot. */
+    public function getTilesetAssetPaths(): array
+    {
+        return $this->definition['tileset']['sheets'] ?? [];
+    }
+
     /**
      * The operations that upload this world, built for this upload. With tile
      * covers, for a renderer that negotiated tile_covers, each tile layer that

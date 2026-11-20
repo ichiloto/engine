@@ -2,7 +2,10 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
+use Closure;
+use Ichiloto\Engine\Battle\Presentation\BattleArtworkPreparation;
 use Ichiloto\Engine\Animations\Animation;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Animations\ActionAnimationResolver;
 use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Core\Time;
@@ -57,6 +60,9 @@ class ActionExecutionState extends TurnState
 {
   private bool $endingTurn = false;
   private ?BattleCommandRunner $command = null;
+  /** @var (Closure(): void)|null */
+  private ?Closure $pendingCommand = null;
+  private ?BattleArtworkPreparation $pendingArtwork = null;
   /** @var list<CounterAttack> Owned by the original command, not the round's turn queue. */
   private array $counterQueue = [];
   private bool $executingCounter = false;
@@ -130,6 +136,10 @@ class ActionExecutionState extends TurnState
     if ($this->command !== null) {
       $this->command->update(max(0, Time::getDeltaTime()));
       $this->refreshCommandField($context);
+      return;
+    }
+    if ($this->pendingCommand !== null) {
+      $this->advancePendingCommand();
       return;
     }
     $turn = $context->getCurrentTurn();
@@ -227,6 +237,10 @@ class ActionExecutionState extends TurnState
           $this->engine,
           $this->engine->battleConfig,
         ));
+        if ($isPartyActor && $confused === null && $responseAction === null
+          && $turn->battler instanceof Character && $turn->action !== null) {
+          $this->engine->battleConfig->actionPointPolicy?->creditAction($turn->battler, $turn->action);
+        }
         if ($responseAction !== null) {
           $responseWindows->consumeExecutedAction($turn->battler, $responseAction);
         }
@@ -339,6 +353,12 @@ class ActionExecutionState extends TurnState
 
   private function disposeCommand(TurnStateExecutionContext $context): void
   {
+    if ($this->pendingCommand !== null) {
+      $this->pendingArtwork?->cancel();
+      $this->pendingArtwork = null;
+      $this->pendingCommand = null;
+      $context->ui->releaseActionPrefetch();
+    }
     $command = $this->command;
     $this->command = null;
     if ($command === null) { return; }
@@ -414,19 +434,45 @@ class ActionExecutionState extends TurnState
       $this->command->begin();
       return;
     }
-    $primaryTarget = $targets[0];
+    $summonCutscene = $action !== null ? $this->resolveSummonCutscene($action) : null;
+    $actionAnimation = $summonCutscene instanceof SummonCompiledCutscene
+      ? null
+      : $this->resolveActionAnimation($action, $actor);
+    $artwork = $context->ui->takeActionArtworkPreparation($actor, $actionAnimation?->id);
+    if ($artwork === null) {
+      $this->startPreparedCommand($context, $actor, $targets, $action, $actionName, $resolveAction,
+        $timings, $summonCutscene, $actionAnimation);
+      return;
+    }
+    $this->pendingArtwork = $artwork;
+    $this->pendingCommand = fn() => $this->startPreparedCommand($context, $actor, $targets, $action,
+      $actionName, $resolveAction, $timings, $summonCutscene, $actionAnimation);
+    $this->advancePendingCommand();
+  }
 
+  private function advancePendingCommand(): void
+  {
+    PngAssetPreflight::runWithSnapshot(function (): void {
+      if (!$this->pendingArtwork->poll()) { return; }
+      $start = $this->pendingCommand;
+      $this->pendingArtwork = null;
+      $this->pendingCommand = null;
+      $start();
+    });
+  }
+
+  private function startPreparedCommand(TurnStateExecutionContext $context, CharacterInterface $actor, array $targets,
+    ?BattleAction $action, string $actionName, Closure $resolveAction, BattleTurnTimings $timings,
+    ?SummonCompiledCutscene $summonCutscene, ?Animation $actionAnimation): void
+  {
+    $primaryTarget = $targets[0];
     $this->highlightActor($context, $actor);
     $context->ui->fieldWindow->clearTargetIndicators();
     $context->ui->refreshField();
-    $summonCutscene = $action !== null ? $this->resolveSummonCutscene($action) : null;
     $displayName = $summonCutscene instanceof SummonCompiledCutscene
       ? (trim(strval($summonCutscene->defaults['moveName'] ?? '')) ?: $actionName)
       : $actionName;
     $announcement = BattleAnnouncement::formatForAction($action, $actor->name, $displayName);
-    $actionAnimation = $summonCutscene instanceof SummonCompiledCutscene
-      ? null
-      : $this->resolveActionAnimation($action, $actor);
     $legacyTarget = !($actionAnimation?->hasLegacyPresentation ?? false) ? null
       : LegacyAnimationTimeline::compile($actionAnimation,
         \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline::FPS,
@@ -456,6 +502,11 @@ class ActionExecutionState extends TurnState
             }
           }
         } catch (\Throwable $error) {
+          if ($context->ui->usesGraphicalField()
+            && ($context->game->getRendererRuntime()?->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS) ?? false)) {
+            throw new \Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException(
+              'Selected battle effect could not be prepared: ' . $id . ': ' . $error->getMessage(), previous: $error);
+          }
           Debug::warn('Battle effect could not be loaded; retaining legacy presentation: ' . $id . ': ' . $error->getMessage());
         }
       }

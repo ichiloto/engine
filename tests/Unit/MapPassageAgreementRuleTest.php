@@ -126,6 +126,33 @@ it('uses a reusable resource appearance for every placement without changing ima
         ->toBe([MapPassageAgreementRule::WALK_THROUGH => [[1, 1], [3, 1]]]);
 });
 
+it('reads the deck and rails of one reusable image against independent physical collision', function () {
+    $path = $this->root . '/Graphics/crossing.png';
+    writePassageArt($path, 3, 3, [[0, 0, 3, 3]]);
+    $imageHash = hash_file('sha256', $path);
+    $resource = ['name' => 'Crossing', 'pivot' => ['x' => .5, 'y' => 1.],
+        'sprites2d' => ['asset' => 'Graphics/crossing.png', 'cells' => ['width' => 3, 'height' => 3]],
+        'appearance' => 'ground', 'appearanceRegions' => [
+            ['x' => -1, 'y' => -2, 'width' => 3, 'height' => 1, 'appearance' => 'barrier'],
+            ['x' => -1, 'y' => 0, 'width' => 3, 'height' => 1, 'appearance' => 'barrier'],
+        ],
+    ];
+    $data = ['worldObjects' => [
+        ['id' => 'first', 'resource' => 'crossing', 'anchor' => ['x' => 2, 'y' => 3]],
+        ['id' => 'second', 'resource' => 'crossing', 'anchor' => ['x' => 6, 'y' => 3]],
+    ]];
+    $tiles = fillTiles(9, 5, cells: [[2, 2, 2048], [6, 2, 2048]]);
+    expect(inspectPassage($this->root, ['         ', ' ### ### ', '         ', ' ### ### ', '         '],
+        $tiles, $data, ['crossing' => $resource]))->toBe([]);
+
+    // The visual intent is independent of collision. A walkable rail above the anchor still warns.
+    expect(groupPassageCells(inspectPassage($this->root, ['         ', ' # # ### ', '      #  ', ' ### ### ', '         '],
+        $tiles, $data, ['crossing' => $resource])))->toBe([
+            MapPassageAgreementRule::INVISIBLE_WALL => [[6, 2]],
+            MapPassageAgreementRule::WALK_THROUGH => [[2, 1]],
+        ])->and(hash_file('sha256', $path))->toBe($imageHash);
+});
+
 it('reports a solid cell that shows only walkable ground, and not one that shows water or a barrier', function () {
     $glyphs = ['     ', '  #  ', '     '];
     $issues = inspectPassage($this->root, $glyphs, fillTiles(5, 3));
@@ -189,6 +216,33 @@ it('reports a world object whose art leaves most of its solid footprint bare, an
     $post = ['worldObjects' => [['id' => 'post', 'anchor' => ['x' => 3, 'y' => 2], 'pivot' => ['x' => .5, 'y' => 1.],
         'sprites2d' => ['asset' => 'Graphics/post.png'], 'covers' => ['layer' => 'terrain', 'cells' => [[3, 2]], 'tileLayers' => []]]]];
     expect(inspectPassage($this->root, ['       ', '       ', '   #   ', '       '], fillTiles(7, 4), $post))->toBe([]);
+});
+
+it('recognizes a visible low crossbar without clearing bare cells, raised trim or edge slivers', function () {
+    $rail = ['id' => 'rail', 'anchor' => ['x' => 3, 'y' => 2], 'pivot' => ['x' => .5, 'y' => 1.],
+        'sprites2d' => ['asset' => 'Graphics/rail.png'],
+        'covers' => ['layer' => 'terrain', 'cells' => [[3, 2]], 'tileLayers' => []]];
+    $glyphs = ['       ', '       ', '   #   ', '       '];
+    $tiles = fillTiles(7, 4);
+    $asset = $this->root . '/Graphics/rail.png';
+
+    // The crossbar runs across the feet of the cell. Its posts leave the centre band thin.
+    writePassageArt($asset, 1, 1, [[.0625, .5, .125, .5], [.8125, .5, .125, .5], [.0625, .75, .875, .125]]);
+    expect(inspectPassage($this->root, $glyphs, $tiles, ['worldObjects' => [$rail]]))->toBe([]);
+
+    foreach ([
+        [[.0625, .125, .875, .125]], // A high horizontal strip does not establish the barrier at ground level.
+        [[.0625, .75, .875, .0625]], // A painted edge lacks a face.
+        [[.0, .5, .125, .5]], // A vertical strip at the edge does not fill the blocked cell.
+        [[.0, .75, .3125, .125], [.6875, .75, .3125, .125]], // Disconnected marks leave the middle open.
+    ] as $art) {
+        writePassageArt($asset, 1, 1, $art);
+        $issues = groupPassageCells(inspectPassage($this->root, $glyphs, $tiles, ['worldObjects' => [$rail]]));
+        expect($issues)->toBe([
+            MapPassageAgreementRule::UNDER_COVERED => [[3, 2]],
+            MapPassageAgreementRule::INVISIBLE_WALL => [[3, 2]],
+        ]);
+    }
 });
 
 it('attributes covered solid cells to the gameplay layer the object covers', function () {

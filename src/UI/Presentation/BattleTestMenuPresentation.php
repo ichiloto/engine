@@ -55,7 +55,7 @@ final class BattleTestMenuPresentation
 
     self::renderList($view, $theme, $list, $listFocused, $arena, $listBox);
     self::renderStage($view, $theme, $stage, $outlined, $placing, $stageIssue, $stageBox, $compositing);
-    self::renderParty($view, $theme, $party, $partySelected, $partySelected ?? $partyAnchor, $partyBox, $partyTitle);
+    self::renderParty($view, $theme, $party, $partySelected, $partySelected ?? $partyAnchor, $partyBox, $partyTitle, !$listFocused);
 
     return $view->finish();
   }
@@ -141,7 +141,7 @@ final class BattleTestMenuPresentation
 
   /** @param list<array{0: string, 1: array<string, string>}> $party */
   private static function renderParty(MenuCanvas $view, MenuPresentationCatalog $theme, array $party, ?int $selected,
-    int $anchor, CanvasRectangle $box, string $title): void
+    int $anchor, CanvasRectangle $box, string $title, bool $focused): void
   {
     $m = $theme->metrics;
     $p = $m->panelPadding;
@@ -157,7 +157,7 @@ final class BattleTestMenuPresentation
     $rows = [];
     foreach ($party as $index => [$name, $stats]) {
       $rows[] = new MenuRow('battle-test-member-' . $index, $name, array_map(static fn(string $figure): MenuRowValue => new MenuRowValue($figure),
-        array_values($stats)), selected: $index === $selected, focused: $index === $selected);
+        array_values($stats)), selected: $index === $selected, focused: $focused && $index === $selected);
     }
     $availableHeight = $inner->y + $inner->height - $y;
     $preferredHeight = min($m->rowHeight, intdiv((int) $availableHeight, max(self::PARTY_ROWS, count($rows))));

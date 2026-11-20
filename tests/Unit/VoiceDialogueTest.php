@@ -562,7 +562,7 @@ it('types and pauses Auto reading against the shared host clock without wall-tim
   require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
   $saved = new ReflectionClass(\Ichiloto\Engine\Core\Clocks\RuntimeClock::class)->getStaticProperties();
   $source = new \Tests\Support\ManualRuntimeClock();
-  $lease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($source);
+  $lease = \Tests\Support\DeclaredRuntimeClock::lease($source);
   try {
     $flow = new DialoguePlayback($this->audio);
     $flow->beginLine(); $flow->toggleAuto();

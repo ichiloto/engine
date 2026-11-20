@@ -10,16 +10,16 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
-use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
-use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use InvalidArgumentException;
 
 /** Seekable retained composition, with no audio, combat or world-camera mutation. */
 final class CinematicStagePresentation
 {
+  /** @param ?\Closure(object, ?string): void $recordSource */
   public static function compose(CinematicStageFrame $frame, array $segments, string $assetRoot,
-    int $width, int $height, bool $imageFlips = true, bool $compositing = true): PresentationCanvas
+    int $width, int $height, bool $imageFlips = true, bool $compositing = true, ?\Closure $recordSource = null,
+    bool $retainSourceAtViewport = true): PresentationCanvas
   {
     $images = $composites = [];
     $hasBackground = $frame->active && $frame->stage->data['background'] !== null;
@@ -29,6 +29,7 @@ final class CinematicStagePresentation
     if ($hasBackground) {
       $composites[] = self::createFill('cinematic-stage-background', $width, $height,
         $frame->stage->data['background'], PresentationLayerPolicy::CINEMATIC - 501, 1);
+      $recordSource?->__invoke($composites[array_key_last($composites)], null);
     }
     if ($frame->drawsContent) {
       foreach ($segments as $segment) {
@@ -41,16 +42,9 @@ final class CinematicStagePresentation
           $flipY = $data['flipY'] ?? false;
           if (!$imageFlips && ($flipX || $flipY)) { throw new InvalidArgumentException('Renderer cannot mirror a cinematic stage image.'); }
           $asset = $command['assetId'];
-          $size = PngAssetPreflight::getAvailableSize($assetRoot, $asset);
-          $columns = $data['columns'];
-          $rows = $data['rows'];
-          $source = $data['sourceFrame'];
-          if ($size === null || $size['width'] % $columns !== 0 || $size['height'] % $rows !== 0
-            || $source < 0 || $source >= $columns * $rows) {
-            throw new InvalidArgumentException('Cinematic image is unavailable or no longer matches its authored sheet.');
-          }
-          $frameWidth = intdiv($size['width'], $columns);
-          $frameHeight = intdiv($size['height'], $rows);
+          $crop = \Ichiloto\Engine\Animations\Timelines\EffectImageSource::fromCommand($command)->getSourceRect($assetRoot);
+          $frameWidth = $crop->width;
+          $frameHeight = $crop->height;
           $placement = $data['placement'];
           $placement['size'] = CanvasImageFit::parse($data['fit'] ?? 'stretch')->getSize($frameWidth, $frameHeight,
             $placement['size']['width'], $placement['size']['height']);
@@ -58,14 +52,20 @@ final class CinematicStagePresentation
           if ($flipX) { $pivot['x'] = 1 - $pivot['x']; }
           if ($flipY) { $pivot['y'] = 1 - $pivot['y']; }
           $rectangle = $frame->getImagePlacement($placement, $pivot, $command['position'], $width, $height);
-          $image = CanvasImage::createClipped('cinematic-stage-' . $command['trackId'], $asset,
-            $rectangle['x'], $rectangle['y'], $rectangle['width'], $rectangle['height'], $width, $height,
-            PresentationLayerPolicy::CINEMATIC + $data['zIndex'],
-            new SpriteSourceRect(($source % $columns) * $frameWidth, intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight),
-            $flipX, $flipY);
+          $id = 'cinematic-stage-' . $command['trackId'];
+          $layer = PresentationLayerPolicy::CINEMATIC + $data['zIndex'];
+          if ($retainSourceAtViewport) {
+            // The command holds the authored cell. Camera motion changes only placement and viewport coverage.
+            $destination = new CanvasRectangle(...$rectangle, allowOutsideCanvas: true);
+            $image = new CanvasImage($id, $asset, $destination, $layer, $crop, $data['opacity'],
+              flipX: $flipX, flipY: $flipY)->clipToViewport($width, $height);
+          } else {
+            $image = CanvasImage::createClipped($id, $asset, $rectangle['x'], $rectangle['y'],
+              $rectangle['width'], $rectangle['height'], $width, $height, $layer, $crop, $flipX, $flipY, $data['opacity']);
+          }
           if ($image !== null) {
-            $images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer, $image->sourceRect,
-              $data['opacity'], $image->clipRect, flipX: $image->flipX, flipY: $image->flipY);
+            $images[] = $image;
+            $recordSource?->__invoke($image, $command['trackId']);
           }
         }
       }
@@ -73,6 +73,7 @@ final class CinematicStagePresentation
     if ($frame->cover['opacity'] > 0) {
       $composites[] = self::createFill('cinematic-stage-cover', $width, $height, $frame->cover['color'],
         PresentationLayerPolicy::TRANSITION, $frame->cover['opacity']);
+      $recordSource?->__invoke($composites[array_key_last($composites)], null);
     }
     return new PresentationCanvas($width, $height, $images, composites: $composites,
       protectedAreas: $hasBackground || $frame->cover['opacity'] > 0

@@ -540,3 +540,20 @@ it('adapts explicit camera motion independently and preserves world-canvas membe
     else { $store::put($configClass, $prior); }
   }
 });
+
+
+it('withholds intentional images without graphical glyph fallback while preserving ordinary missing-art fallback', function (bool $overlays) {
+  $actor = new class('actor', new Vector2(7, 4), $this->actor->definition) extends CompositionSpriteProbe
+    implements \Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteVisibilityInterface {
+    public bool $isGraphicallyVisible = false;
+  };
+  $this->scene->providers = [$actor, new CompositionSpriteProbe('terminal-only', new Vector2(6, 3), null)];
+  $collection = new \Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector()->collectPresentation($this->scene);
+  expect($collection['sprites'])->toBe([])->and($collection['unpresented'])->toBe(['terminal-only'])
+    ->and($collection['excludedTerminalLayers'])->toBe(['actor']);
+  $frame = $this->composer->composeFrame($this->scene, $this->grid,
+    static fn(string $cap): bool => $cap !== RendererSessionConfig::CANVAS_OVERLAY || $overlays, $this->capture);
+  expect($frame->sprites)->toBe([])->and($this->captures[0][0])->toContain('actor')
+    ->and(array_column($frame->snapshot->textLayers, 'id'))->not->toContain('actor')
+    ->and(array_column($frame->snapshot->textLayers, 'id'))->toContain('terminal-only');
+})->with(['without overlay capability' => false, 'with overlay capability' => true]);
