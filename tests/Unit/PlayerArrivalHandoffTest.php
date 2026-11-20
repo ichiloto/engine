@@ -160,14 +160,18 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-  $this->interpreter->failActiveSession('Synthetic fixture teardown.');
-  // Shared fixture cleanup follows this local teardown, including its final diagnostic.
-  new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, $this->previousDelta);
-  new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, $this->configState);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $this->eventState);
-  foreach ([Console::class => $this->consoleState, InputManager::class => $this->inputState,
-    Debug::class => $this->debugState] as $class => $state) {
-    foreach ($state as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
+  try {
+    $this->interpreter->failActiveSession('Synthetic fixture teardown.');
+  } finally {
+    // Shared fixture cleanup follows this local teardown, including its final diagnostic. It runs even when
+    // setup or the local teardown failed, so this file's process-wide state never leaks into later files.
+    new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, $this->previousDelta);
+    new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, $this->configState);
+    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $this->eventState);
+    foreach ([Console::class => $this->consoleState, InputManager::class => $this->inputState,
+      Debug::class => $this->debugState] as $class => $state) {
+      foreach ($state as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
+    }
   }
 });
 
