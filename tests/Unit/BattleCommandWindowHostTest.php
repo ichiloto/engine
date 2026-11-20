@@ -5,7 +5,6 @@ use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Battle\Actions\{AttackAction, ExecutionEligibility};
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Presentation\{BattleCommandResourceStream, BattleCommandRunner};
-use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Assets\{AssetHoldLeases, AssetHoldPrefetch};
@@ -43,7 +42,7 @@ function createWindowHostEffect(string $root, string $asset, int $impact): Compi
 }
 
 it('gates actual runner outcomes and freshly known result pictures, resumes without catch-up, and releases the host stream', function () {
-  $clock = new ManualRuntimeClock(); $clockLease = RuntimeClock::useClock($clock); $runner = null;
+  $clock = new ManualRuntimeClock(); $clockLease = \Tests\Support\DeclaredRuntimeClock::lease($clock); $runner = null;
   try {
     [, $context] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
     $root = createTestDirectory('runner-window-host');
@@ -92,7 +91,7 @@ it('gates actual runner outcomes and freshly known result pictures, resumes with
 
 it('releases pending artwork if command eligibility expires before playback', function () {
   $clock = new ManualRuntimeClock();
-  $clockLease = RuntimeClock::useClock($clock);
+  $clockLease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
   $runner = null;
   try {
     [, $context] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
@@ -141,7 +140,7 @@ it('releases pending artwork if command eligibility expires before playback', fu
 });
 
 it('keeps a refused runner window fatal until cancellation instead of painting or advancing through it', function () {
-  $clock = new ManualRuntimeClock(); $clockLease = RuntimeClock::useClock($clock); $runner = null;
+  $clock = new ManualRuntimeClock(); $clockLease = \Tests\Support\DeclaredRuntimeClock::lease($clock); $runner = null;
   try {
     [, $context] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
     $root = createTestDirectory('runner-window-refusal'); $effect = createWindowHostEffect($root, 'action.png', 3);
@@ -165,7 +164,7 @@ it('keeps a refused runner window fatal until cancellation instead of painting o
 
 
 it('preserves the existing warm command clock across resource decisions and large updates', function (float $delta) {
-  $clock = new ManualRuntimeClock(); $clockLease = RuntimeClock::useClock($clock); $runner = null; $scene = null;
+  $clock = new ManualRuntimeClock(); $clockLease = \Tests\Support\DeclaredRuntimeClock::lease($clock); $runner = null; $scene = null;
   try {
     [, $context] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
     $root = createTestDirectory('warm-runner-clock'); $effect = createWindowHostEffect($root, 'action.png', 3);

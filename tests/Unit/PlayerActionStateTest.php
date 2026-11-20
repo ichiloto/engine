@@ -662,7 +662,7 @@ require_once __DIR__ . '/../Support/Input/FakeHeldInputSource.php';
 it('reveals the live crisis technique only while semantic Right is held and confirms through normal targeting', function (bool $activeTime): void {
   require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
   $clock = new \Tests\Support\ManualRuntimeClock();
-  $lease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($clock);
+  $lease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
   $statics = [];
   foreach ([InputManager::class, ConfigStore::class] as $class) { $statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
   $cwd = getcwd(); $root = createTestDirectory('ichiloto-held-crisis-');

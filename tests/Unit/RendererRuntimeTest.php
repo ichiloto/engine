@@ -4,7 +4,6 @@ use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\CinematicMusicRequest;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
-use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Core\Vector2;
@@ -564,7 +563,7 @@ describe('repeated retained-frame rejection diagnostics', function () {
 
   it('stops retrying when delivery keeps failing without a presented frame', function () {
     $clock = new ManualRuntimeClock();
-    $lease = RuntimeClock::useClock($clock);
+    $lease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
     try {
       ($this->rejectFrame)('frame cannot fit');
       expect(end($this->transport->sent)->payload['reset'])->toBeTrue();
@@ -588,7 +587,7 @@ describe('repeated retained-frame rejection diagnostics', function () {
 
   it('ignores stale rejections and allows a later recovery after a displayed frame', function () {
     $clock = new ManualRuntimeClock();
-    $lease = RuntimeClock::useClock($clock);
+    $lease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
     try {
       ($this->rejectFrame)('frame cannot fit');
       $this->transport->batches[] = [

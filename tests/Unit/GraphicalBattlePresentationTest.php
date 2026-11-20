@@ -61,6 +61,7 @@ use Tests\Support\Input\FakeRendererTransport;
 use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/DeclaredRuntimeClock.php';
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
@@ -5286,7 +5287,7 @@ it('keeps slow preparation behind the shared frame barrier without advancing com
     public function getSeconds(): float { return $this->now; }
     public function sleep(float $seconds): void { $this->now += $seconds; }
   };
-  $clockLease = \Ichiloto\Engine\Core\Clocks\RuntimeClock::useClock($clock);
+  $clockLease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
   [$battle, $catalog, $hero] = graphicalBattleFixture();
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   $transport = new FakeRendererTransport();

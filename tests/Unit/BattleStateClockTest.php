@@ -11,7 +11,6 @@ use Ichiloto\Engine\Battle\Resolution\CombatResolutionRequest;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
-use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
@@ -24,7 +23,7 @@ require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
 
 it('counts only running battle seconds and refreshes or upgrades one live state in a group', function (): void {
   $clock = new ManualRuntimeClock();
-  $lease = RuntimeClock::useClock($clock);
+  $lease = \Tests\Support\DeclaredRuntimeClock::lease($clock);
   $game = new class extends Game {
     public function __construct() {}
     public function __destruct() {}
