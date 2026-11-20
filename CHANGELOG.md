@@ -79,6 +79,14 @@
 
 ### Added
 
+- `SaveManager` takes `readOnly: true` for hosts that load saves without owning storage, such as
+  an Editor preview. A read-only manager loads an explicitly chosen save through the normal
+  compatibility pipeline. It refuses numbered saves, Quick Save, Autosave, slot deletion and
+  checkpoint import with "read-only save storage", and that refusal comes before the
+  project's own Quick Save and Autosave settings are checked. It skips the storage availability
+  diagnosis. The compatibility manifest may also be given as a closure, which is read on the
+  first save operation that needs it, so a map-only preview never reads save metadata.
+
 - Cinematic `field_animation` commands, `stage_actor` commands and cast entries accept
   `plane: aboveCover` to draw their graphical art over the active stage cover (a dim) at full
   strength, below cinematic text, map transfer covers and notifications. The default `field`

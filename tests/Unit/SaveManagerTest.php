@@ -10,6 +10,10 @@ use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
+use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 class SaveManagerTestGame extends Game
 {
@@ -326,3 +330,47 @@ it('keeps save slots and scene services with the Game that owns their storage', 
     foreach ($slotPaths as $path) { cleanupSaveManagerTestFiles($path); }
   }
 });
+
+it('defers a read-only host manifest and refuses every storage mutation as read-only, whichever save features the project enables', function (bool $featuresEnabled) {
+  $root = createTestDirectory('save-read-only-');
+  $game = new class($root) extends SaveManagerTestGame {
+    public function __construct(private readonly string $root) {}
+    public function getDataRoot(): string { return $this->root; }
+  };
+  $manifestReads = 0;
+  $readManifest = static function () use (&$manifestReads): SaveCompatibilityManifest {
+    $manifestReads++;
+    return makeSaveManagerTestManifest();
+  };
+  $manager = new SaveManager($game, compatibilityManifest: $readManifest, readOnly: true);
+  $game->bindSaveManager($manager);
+  $path = $manager->getSlotPath(1);
+  $slot = new SaveSlot(1, $path, false, 'Preview source', 'Test', 1, 0, 1);
+  $bytes = 'IED1' . gzencode(serialize(['slot' => $slot, 'config' => makeSaveManagerTestConfig()]));
+  writeSaveManagerTestPayload($path, $bytes);
+  $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
+  $priorConfig = ConfigStore::has(ProjectConfig::class)
+    ? ConfigStore::get(ProjectConfig::class) : null;
+  ConfigStore::put(ProjectConfig::class,
+    new PlaySettings(['save' => ['autosave' => $featuresEnabled, 'quicksave' => $featuresEnabled]]));
+  try {
+    expect($manifestReads)->toBe(0)
+      ->and(fn() => $manager->save($scene, 1))->toThrow(LogicException::class, 'read-only')
+      ->and(fn() => $manager->autoSave($scene))->toThrow(LogicException::class, 'read-only')
+      ->and(fn() => $manager->quickSave($scene))->toThrow(LogicException::class, 'read-only')
+      ->and(fn() => $manager->deleteSlot(1))->toThrow(LogicException::class, 'read-only')
+      ->and(fn() => $manager->importIsolatedCheckpoint($path))->toThrow(LogicException::class, 'read-only')
+      ->and($manifestReads)->toBe(0)
+      ->and($manager->loadSaveFile($path)->slot->locationName)->toBe('Preview source')
+      ->and($manager->loadSlot(1)->config->mapId)->toBe('happyville/town-square')
+      ->and($manifestReads)->toBe(1)
+      ->and(file_get_contents($path))->toBe($bytes);
+  } finally {
+    if ($priorConfig === null) {
+      ConfigStore::remove(ProjectConfig::class);
+    } else {
+      ConfigStore::put(ProjectConfig::class, $priorConfig);
+    }
+    cleanupSaveManagerTestFiles($path);
+  }
+})->with(['save features enabled' => [true], 'save features disabled' => [false]]);
