@@ -157,6 +157,8 @@ uses the existing conditions editor. See
 | CLI | `generate:actor` throws (no `configure()`) and never writes; `generate:map` never writes and emits malformed PHP |
 | Field | `MapTrigger` dead code with broken serialization |
 | Input | `InputConfig::persist()` writes JSON into a PHP file |
+| Tests | 11 test files start `afterEach` by calling an object their `beforeEach` creates, so when setup throws first the rest of the teardown does not run and its process-wide restores can leak into later files: `ApplicationSceneTeardownTest`, `BattlePauseLifecycleTest`, `GameShutdownInputTest`, `InnRestPresentationTest`, `NpcGraphicalSpriteTest`, `PlaybackPauseTest`, `PlayerFieldPromptTest`, `PlayerRelocationTest`, `RendererLaunchTest`, `SceneExcursionLifecycleTest`, `VoiceDialogueTest`. `PlayerArrivalHandoffTest` had the same shape: on 20 Nov 2026 its setup failure leaked state that failed `RendererRuntimeTest` and `TransientPresentationTest`. Its restores now run in `finally` (`a0873fc7`). |
+| Tests | `GraphicalBattlePresentationTest.php:5123` calls `imagedestroy()`, deprecated in PHP 8.5 and without effect since PHP 8.0; the PHP 8.5 suite reports 3 deprecations from it |
 
 ## The plan
 
