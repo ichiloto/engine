@@ -113,6 +113,8 @@ beforeEach(function () {
     array_fill(0, 10, array_fill(0, 10, CollisionType::ENCOUNTER->value)));
   new ReflectionProperty(MapManager::class, 'layers')->setValue($this->map,
     new MapLayerSet([new MapLayer('ground', 0, false, 'synthetic', implode("\n", array_fill(0, 10, str_repeat('.', 10))))]));
+  // The map installs its tiles with the camera's world, as MapManager does for every installed map.
+  new ReflectionProperty(MapManager::class, 'tileMap')->setValue($this->map, $this->camera->worldSpace);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $this->map);
   $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(10, 10, 48, 48),
     static fn(string $capability): bool => true, graphical: true));
@@ -158,14 +160,18 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-  $this->interpreter->failActiveSession('Synthetic fixture teardown.');
-  // Shared fixture cleanup follows this local teardown, including its final diagnostic.
-  new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, $this->previousDelta);
-  new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, $this->configState);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $this->eventState);
-  foreach ([Console::class => $this->consoleState, InputManager::class => $this->inputState,
-    Debug::class => $this->debugState] as $class => $state) {
-    foreach ($state as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
+  try {
+    $this->interpreter->failActiveSession('Synthetic fixture teardown.');
+  } finally {
+    // Shared fixture cleanup follows this local teardown, including its final diagnostic. It runs even when
+    // setup or the local teardown failed, so this file's process-wide state never leaks into later files.
+    new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, $this->previousDelta);
+    new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, $this->configState);
+    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $this->eventState);
+    foreach ([Console::class => $this->consoleState, InputManager::class => $this->inputState,
+      Debug::class => $this->debugState] as $class => $state) {
+      foreach ($state as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
+    }
   }
 });
 

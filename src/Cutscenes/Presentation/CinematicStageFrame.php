@@ -10,6 +10,7 @@ final readonly class CinematicStageFrame
   public function __construct(public CinematicStage $stage, public bool $active, public int $contentFrame,
     public array $camera, public array $cover, public bool $drawsContent) {}
 
+  /** @return array{x: int|float, y: int|float, width: int|float, height: int|float} The placed image's screen rectangle. */
   public function getImagePlacement(array $placement, array $pivot, array $offset, int $width, int $height): array
   {
     $scale = min($width / $this->stage->data['canvas']['width'], $height / $this->stage->data['canvas']['height'])
