@@ -95,8 +95,8 @@ final class RelocationTestPresentation implements EventPresentationInterface
 
 final class RelocationTestModals extends ModalManager
 {
-  public function select(string $message, array $options, string $title = '', int $default = 0,
-    ?Vector2 $position = null, int $width = DEFAULT_SELECT_DIALOG_WIDTH, int $height = DEFAULT_SELECT_DIALOG_HEIGHT): int
+  // The inn and bed question is dialogue, so the party answers it through the dialogue answer list.
+  public function selectDialogueAnswer(string $message, array $answers, string $speaker = '', int $default = 0): int
   { return 0; }
 }
 

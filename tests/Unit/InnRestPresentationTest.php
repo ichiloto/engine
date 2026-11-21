@@ -113,8 +113,8 @@ class InnRestTestModals extends ModalManager
 {
   public int $choice = 0;
   public int $alerts = 0;
-  public function select(string $message, array $options, string $title = '', int $default = 0,
-    ?Vector2 $position = null, int $width = DEFAULT_SELECT_DIALOG_WIDTH, int $height = DEFAULT_SELECT_DIALOG_HEIGHT): int
+  // The innkeeper's question is dialogue, so the party answers it through the dialogue answer list.
+  public function selectDialogueAnswer(string $message, array $answers, string $speaker = '', int $default = 0): int
   { return $this->choice; }
   public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void { $this->alerts++; }
 }
