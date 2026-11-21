@@ -476,6 +476,11 @@ an answer, as an innkeeper's offer is. A question no one asks is authored as a d
 `['name' => '', 'text' => 'Go to bed?', 'kind' => 'decision']`. The kind is always authored, never read from a title
 or a speaker's name. An unknown `kind` is refused before the script runs.
 
+A confirmation also takes the choice its focus starts on, `defaultChoice`: `0` for Yes, `1` for No. Andrew, 21
+November 2026: it is "Authored per confirmation". Inns and beds start on Yes; a confirmation of something that
+cannot be undone starts on No. One with no `defaultChoice` starts on Yes, as confirmations always have. A starting
+choice that is not one of the choices is refused.
+
 ### Bed occupants and posture changes
 
 An ordinary map NPC can bind a bed world object and its resource's named logical

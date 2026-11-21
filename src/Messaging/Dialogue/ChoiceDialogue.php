@@ -3,8 +3,7 @@
 namespace Ichiloto\Engine\Messaging\Dialogue;
 
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
-use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use InvalidArgumentException;
 use Override;
 
 class ChoiceDialogue extends Dialogue
@@ -20,7 +19,7 @@ class ChoiceDialogue extends Dialogue
    * @param string $text The text to display.
    * @param string[] $face The face to display.
    * @param string[] $choices The choices to display.
-   * @param int $defaultChoice The default choice.
+   * @param int $defaultChoice The choice the focus starts on, as authored: the first unless the author names another.
    * @param ChoiceKind $kind Who is asking: an answer to the speaker (a list), unless authored as the party's own
    *   decision (buttons). A dialogue is someone's line, so a choice that names no kind is an answer.
    */
@@ -33,6 +32,9 @@ class ChoiceDialogue extends Dialogue
     public readonly ChoiceKind $kind = ChoiceKind::ANSWER,
   )
   {
+    if ($choices !== [] && ! isset(array_values($choices)[$defaultChoice])) {
+      throw new InvalidArgumentException(sprintf('The starting choice %d is not one of the %d choices.', $defaultChoice, count($choices)));
+    }
     parent::__construct($name, $text, $face);
   }
 
@@ -42,12 +44,9 @@ class ChoiceDialogue extends Dialogue
   #[Override]
   public function show(): void
   {
-    $height = count(explode("\n", $this->text)) + count($this->choices) + 2;
-    $position = config(ProjectConfig::class, 'ui.dialogue.window.position', WindowPosition::BOTTOM);
-    $position = $position->getCoordinates(DEFAULT_DIALOG_WIDTH, $height);
     $this->selectedChoice = $this->kind === ChoiceKind::ANSWER
-      ? select_dialogue_answer($this->text, $this->choices, $this->name)
-      : select($this->text, $this->choices, $this->name);
+      ? select_dialogue_answer($this->text, $this->choices, $this->name, $this->defaultChoice)
+      : select($this->text, $this->choices, $this->name, $this->defaultChoice);
   }
 
   /**
@@ -61,8 +60,18 @@ class ChoiceDialogue extends Dialogue
       $data['text'] ?? throw new RequiredFieldException('text'),
       self::loadFaceData($data['face'] ?? ''),
       $data['choices'] ?? [],
-      $data['defaultChoice'] ?? 0,
+      self::readDefaultChoice($data['defaultChoice'] ?? 0),
       ChoiceKind::readAuthored($data['kind'] ?? null, ChoiceKind::ANSWER),
     );
+  }
+
+  /**
+   * An authored starting choice: the index of a choice.
+   *
+   * @throws InvalidArgumentException When it is not a whole number.
+   */
+  protected static function readDefaultChoice(mixed $value): int
+  {
+    return is_int($value) ? $value : throw new InvalidArgumentException('A starting choice is the number of a choice, from 0.');
   }
 }

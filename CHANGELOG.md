@@ -4,6 +4,32 @@
 
 ### Fixed
 
+- Saving into a file that already holds a save asks first. Andrew, 21 November 2026: "Add the question, on 'No'".
+  The Save menu asks the project's `confirm.overwrite_save` message ("Overwrite this save?" by default) as the
+  party's own decision, through the same `ConfirmDialogue` as every confirmation, starting on No; No or Cancel keeps
+  the file as it was. An empty file saves at once, as before. A confirmation's choices are the project's
+  `confirm.yes` and `confirm.no` terms (Yes and No by default) instead of fixed text. The Quit chooser is unchanged.
+- An NPC bed takes the field's asset root as `GameScene::getFieldAssetRoot()` owns it: the attached host's, or the
+  project root of the Game the scene's manager holds, or none for a scene outside both. `NpcBed` required a root
+  where that owner may give none, so a bed on a field without one threw a TypeError (since `c67ab109`). `NpcManager`
+  now asks for the root only when the NPC or its bed has artwork, and a bed or placement asks for it only when it
+  draws its art. Removed: `Npc` no longer falls back to `getcwd()/assets`; a graphical NPC without its project asset
+  root is refused. `BattleScreen` reads the project asset root from its Game instead of the renderer's root or
+  `getcwd()/assets`.
+- `MapManager::refreshTerminalPresentation()` publishes nothing until a map is installed. A presentation context set
+  before the first map pushed an empty grid against the camera's world and was refused ("A world presentation update
+  must keep the installed map dimensions", since `19a58b7f`).
+
+- A cinematic stage protects what each image paints (`CanvasImage::getPaintBounds()`). A source retained behind the
+  viewport clip that crossed the canvas edge was declared as a protected area outside the canvas and refused, which
+  failed the Turbo Cranker cut-in at frame 34.
+- A confirmation starts on its authored choice. Andrew, 21 November 2026: "Authored per confirmation".
+  `ChoiceDialogue::show()` now passes `defaultChoice`, which it had dropped since the sleeping system (`535e474f`), and
+  `ConfirmDialogue` reads `defaultChoice` (0 for Yes, 1 for No). One that names none starts on Yes, as confirmations
+  always have; a starting choice that is not one of the choices is refused. Removed: `ConfirmDialogue` no longer
+  declares No as its unauthored default; that value never took effect. The `inn` command declares its
+  confirmation's Kind (`confirmDialogue.kind`) and Starts On (`confirmDialogue.defaultChoice`, 0 or 1) for authoring
+  tools; before, it declared neither, so the Editor could not author an inn's kind.
 - Modal choices are buttons in every modal, in the Terminal and in graphical renderers. A select modal (the Quit
   dialog and its confirmation, the cutscene playback pause menu, event choice prompts) drew its choices as a
   navigation list: left-aligned rows with the moving list cursor. Its choices are now stacked buttons: each label
@@ -107,6 +133,10 @@
 
 ### Added
 
+- The mastery tree can hold a skill off the tree for now (`held` in `mastery.php`, `MasteryHeldSkill`), with the
+  note that records why, which may wait for its author. No node may teach a held skill, and an unknown held skill
+  is refused like an unknown node skill (`MasteryTree::describeUnknownSkill()`, shared with the Editor).
+  `MasteryTree::isSkillHeld()` tells a rule that a spell is held on purpose.
 - `SaveManager` takes `readOnly: true` for hosts that load saves without owning storage, such as
   an Editor preview. A read-only manager loads an explicitly chosen save through the normal
   compatibility pipeline. It refuses numbered saves, Quick Save, Autosave, slot deletion and

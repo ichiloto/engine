@@ -19,7 +19,8 @@ final class NpcPlacementPose
     private ?FieldSpriteRole $role = null;
     private bool $released = false;
 
-    public function __construct(private readonly NpcPlacementState $placement, private readonly string $assetRoot,
+    /** @param string|null $assetRoot The field's asset root; an NPC whose placements carry no poses is not given one. */
+    public function __construct(private readonly NpcPlacementState $placement, private readonly ?string $assetRoot,
         private readonly string $identity) {}
 
     private function getRole(): ?FieldSpriteRole
@@ -32,7 +33,8 @@ final class NpcPlacementPose
             $this->selection = $selection;
             try {
                 $definition = $this->placement->definition->getPose($selection);
-                if ($definition !== null) { $this->role = new FieldSpriteRole($definition, $this->assetRoot,
+                if ($definition !== null) { $this->role = new FieldSpriteRole($definition,
+                    $this->assetRoot ?? throw new RuntimeException('Placement art needs the field\'s asset root.'),
                     'NPC placement ' . $this->identity . '/' . $selection); }
             } catch (InvalidArgumentException | RuntimeException $error) {
                 Debug::warn('NPC placement ' . $this->identity . '/' . $selection . ' art unavailable: ' . $error->getMessage());

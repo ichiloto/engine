@@ -15,6 +15,8 @@ use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\IO\Saves\SaveFeedback;
 use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\Messaging\Dialogue\ChoiceKind;
+use Ichiloto\Engine\Messaging\Dialogue\ConfirmDialogue;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\SceneStateContext;
@@ -280,6 +282,19 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
   }
 
   /**
+   * Asks before a save replaces the one in the file. Andrew, 21 November 2026: "Add the question, on 'No'". No one
+   * asks it, so it is the party's own decision, and its wording is the project's `confirm.overwrite_save` message.
+   */
+  private function confirmOverwrite(): bool
+  {
+    $question = new ConfirmDialogue('', get_engine_message('confirm.overwrite_save'), kind: ChoiceKind::DECISION,
+      defaultChoice: 1);
+    $question->show();
+
+    return $question->selectedChoice === 0;
+  }
+
+  /**
    * Writes the current game snapshot into the active slot.
    *
    * @return void
@@ -289,6 +304,9 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
     $slot = $this->slots[$this->activeSlotIndex] ?? null;
 
     if (! $slot instanceof SaveSlot) {
+      return;
+    }
+    if (! $slot->isEmpty && ! $this->confirmOverwrite()) {
       return;
     }
 

@@ -6,6 +6,7 @@ use Assegai\Collections\ItemList;
 use Assegai\Collections\Stack;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuestsMenuCommand;
@@ -1059,6 +1060,39 @@ it('keeps the Save menu usable and reports plain feedback when local storage ref
     ->and($this->scene->state)->toBe($state);
 });
 
+it('asks before overwriting a save, starting on No, and saves an empty file at once', function (bool $occupied, int $answer, bool $saves) {
+  $slots = array_map(static fn(int $slot): SaveSlot => $occupied
+    ? new SaveSlot($slot, '', false, 'Rest Point', 'Hero', 1, 60, 1) : SaveSlot::empty($slot, ''), range(1, 5));
+  $writes = 0;
+  $manager = $this->createStub(SaveManager::class);
+  $manager->method('getSaveSlots')->willReturn($slots);
+  $manager->method('save')->willReturnCallback(function () use (&$writes, $slots): SaveSlot { $writes++; return $slots[0]; });
+  new ReflectionProperty($this->scene->sceneManager, 'saveManager')->setValue($this->scene->sceneManager, $manager);
+  $modals = new class($this->game, $answer) extends ModalManager {
+    public array $asked = [];
+    public function __construct(Game $game, private int $answer) { parent::__construct($game); }
+    public function select(string $message, array $options, string $title = '', int $default = 0,
+      ?Vector2 $position = null, int $width = DEFAULT_SELECT_DIALOG_WIDTH, int $height = DEFAULT_SELECT_DIALOG_HEIGHT): int
+    {
+      $this->asked[] = [$message, $options, $default];
+      return $this->answer;
+    }
+    public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void {}
+  };
+  $this->game->bindModalManager($modals);
+  $state = new SaveMenuState(new SceneStateContext($this->scene));
+  new ReflectionProperty($this->scene, 'state')->setValue($this->scene, $state);
+  $state->enter();
+  new ReflectionMethod($state, 'saveToActiveSlot')->invoke($state);
+
+  expect($modals->asked)->toBe($occupied ? [[get_engine_message('confirm.overwrite_save'), ['Yes', 'No'], 1]] : [])
+    ->and($writes)->toBe($saves ? 1 : 0);
+})->with([
+  'an occupied file, overwritten on Yes' => [true, 0, true],
+  'an occupied file, kept on No' => [true, 1, false],
+  'an occupied file, kept on cancel' => [true, -1, false],
+  'an empty file, saved without a question' => [false, 1, true],
+]);
 it('diagnoses unrenderable content and recovers without mutating the owner', function () {
   file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export(mainMenuPresentationTheme(false), true) . ';');
   $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);

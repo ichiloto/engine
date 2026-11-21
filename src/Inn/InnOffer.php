@@ -42,8 +42,9 @@ final readonly class InnOffer
 
   /**
    * Reads an inn's authored data: `confirmDialogue` (its `text`, and an
-   * optional `name`, `face` and `kind`: `answer` when the party answers whoever
-   * offers the stay, which is the default, or `decision` when no one asks), and optional `cost`, `spawnPoint` (`x`
+   * optional `name`, `face`, `kind`: `answer` when the party answers whoever
+   * offers the stay, which is the default, or `decision` when no one asks, and `defaultChoice`: the choice the
+   * focus starts on, 0 for Yes, which is the default, or 1 for No), and optional `cost`, `spawnPoint` (`x`
    * and `y`), `wakeFacing`, `spawnSprite`, `bgm` and `presentation`. A presentation descriptor
    * declares `treatment` (`leader` or `party`) and its corresponding `leaders`
    * or `parties` bindings; it never implicitly falls back from party to leader.
