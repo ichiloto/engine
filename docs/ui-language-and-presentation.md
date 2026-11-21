@@ -126,6 +126,13 @@ an optional owner token for this lifecycle, with `hasPendingNotices()` and
   only when a name genuinely cannot fit.
 - Graphical presentations keep at least the Terminal's tidiness: the same column model drives both, and no
   presentation joins several values into one string.
+- Navigation lists and modal choices are different things. Andrew, 21 November 2026, on the Quit dialog: "The main
+  menu and modal sellect are not.the same thing... Nav select items -> left align... Modal have buttons which
+  should be center aligned." A navigation list's items (menus, command lists) are left-aligned rows with the list
+  cursor. A modal's choices are buttons: each label is centred in its button, independently of cursors, icons and
+  hints, with a steady focus and no moving cursor, whether the buttons sit in a row or are stacked (the Quit
+  dialog). Every modal draws its choices through `ModalButtonText` in the Terminal and as theme buttons through
+  `MenuModalPresentation` in graphical renderers. The Sources below show the dialogs of the games compared.
 
 ## Text and icons
 

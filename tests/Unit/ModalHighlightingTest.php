@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\UI\Modal\Modal;
 use Ichiloto\Engine\UI\Modal\SelectModal;
@@ -142,4 +143,32 @@ it('uses the configured selection color for select modal options', function () {
   expect($rendered)->toContain(Color::LIGHT_GREEN->value)
     ->not->toContain(Color::LIGHT_BLUE->value)
     ->toContain('Phoenix Down');
+});
+
+it('draws select modal choices as stacked centred buttons without the list cursor', function () {
+  ConfigStore::put(ProjectConfig::class, new ModalArrayConfigStub(['ui' => ['menu' => ['selection_color' => Color::YELLOW]]]));
+  // The Quit dialog's choices, as OpenQuitMenuCommand offers them.
+  $choices = ['To Title', 'Exit', 'Cancel'];
+  $lines = array_slice(explode("\n", new SelectModalHighlightProxy($choices, 0)->captureOptions()), 0, 3);
+  $innerWidth = 24 - 2;
+
+  expect(array_map(TerminalText::stripAnsi(...), $lines))
+    ->toBe(array_map(fn(string $label): string => TerminalText::padCenter($label, $innerWidth), $choices));
+  foreach ($lines as $line) {
+    expect(TerminalText::stripAnsi($line))->not->toContain('>');
+  }
+  // A steady focus: the selection colour covers the focused label alone, with no blink and none of its padding.
+  expect($lines[0])->toContain(Color::YELLOW->value . 'To Title' . Color::RESET->value)
+    ->not->toContain("\033[5m")
+    ->and($lines[1])->not->toContain(Color::YELLOW->value)
+    ->and($lines[2])->not->toContain(Color::YELLOW->value);
+});
+
+it('highlights the focused modal button by its position, never by matching its text', function () {
+  ConfigStore::put(ProjectConfig::class, new ModalArrayConfigStub(['ui' => ['menu' => ['selection_color' => Color::YELLOW]]]));
+
+  expect(new ModalButtonHighlightProxy(['No', 'Not now'], 1)->captureButtons())
+    ->toBe('No ' . Color::YELLOW->value . 'Not now' . Color::RESET->value)
+    ->and(new ModalButtonHighlightProxy(['Not now', 'No'], 1)->captureButtons())
+    ->toBe('Not now ' . Color::YELLOW->value . 'No' . Color::RESET->value);
 });

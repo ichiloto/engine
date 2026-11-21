@@ -12,7 +12,10 @@ final readonly class ModalPresentation
   /** @var non-empty-list<string> */
   public array $choices;
 
-  /** @param non-empty-list<string> $choices */
+  /**
+   * @param non-empty-list<string> $choices The modal's buttons, in order.
+   * @param bool $vertical Stacks the buttons one above another instead of in a row; the choices are buttons either way.
+   */
   public function __construct(public string $title, public string $message, array $choices,
     public int $activeIndex, public bool $vertical = false, public bool $singleConfirmation = false,
     public ?QuantityPresentation $quantity = null, public ?NoticeContent $notice = null,

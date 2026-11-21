@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- Modal choices are buttons in every modal, in the Terminal and in graphical renderers. A select modal (the Quit
+  dialog and its confirmation, the cutscene playback pause menu, event and dialogue choices) drew its choices as a
+  navigation list: left-aligned rows with the moving list cursor. Its choices are now stacked buttons: each label
+  centred in its button and the focused one in a steady focus, with no cursor. In the Terminal every modal's
+  buttons come from `ModalButtonText`, which also picks the focused button by its position: a label contained in
+  another ("No" in "Not now") no longer lights up the wrong button. Graphical stacked buttons use the theme's
+  button rows, apart by the section gap (`MenuRowLayout::$rowGap`), and still scroll to keep the focused button
+  in view. Navigation lists keep their left-aligned rows and cursor.
+  Removed: `Modal::renderButtons()`, `Modal::getSelectionColor()` and `SelectModal::renderOptions()`, unused
+  direct-write paths, the last of which drew the list cursor.
+
 ### Removed
 
 - Removed acceptance of `add_state` effects with `trigger: landedHit` that can never apply.
