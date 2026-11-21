@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Messaging\Dialogue;
 
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Override;
 
 /**
@@ -27,7 +28,8 @@ class ConfirmDialogue extends ChoiceDialogue
     int $defaultChoice = 0,
   )
   {
-    parent::__construct($name, $text, $face, ['Yes', 'No'], $defaultChoice, $kind);
+    parent::__construct($name, $text, $face, [Vocabulary::getTerm('confirm.yes'), Vocabulary::getTerm('confirm.no')],
+      $defaultChoice, $kind);
   }
 
   /**

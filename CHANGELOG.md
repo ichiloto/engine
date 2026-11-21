@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Saving into a file that already holds a save asks first. Andrew, 21 November 2026: "Add the question, on 'No'".
+  The Save menu asks the project's `confirm.overwrite_save` message ("Overwrite this save?" by default) as the
+  party's own decision, through the same `ConfirmDialogue` as every confirmation, starting on No; No or Cancel keeps
+  the file as it was. An empty file saves at once, as before. A confirmation's choices are the project's
+  `confirm.yes` and `confirm.no` terms (Yes and No by default) instead of fixed text. The Quit chooser is unchanged.
 - An NPC bed takes the field's asset root as `GameScene::getFieldAssetRoot()` owns it: the attached host's, or the
   project root of the Game the scene's manager holds, or none for a scene outside both. `NpcBed` required a root
   where that owner may give none, so a bed on a field without one threw a TypeError (since `c67ab109`). `NpcManager`

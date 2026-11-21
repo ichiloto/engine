@@ -28,6 +28,7 @@ final class EngineMessageTerms
     'confirm.quit' => ['default' => 'Are you sure you want to quit?', 'placeholders' => [], 'description' => 'Confirmation before exiting the game.'],
     'confirm.unsaved_progress' => ['default' => 'Unsaved progress will be lost.', 'placeholders' => [], 'description' => 'Warning before leaving the current game.'],
     'confirm.to_title' => ['default' => 'Return to title?', 'placeholders' => [], 'description' => 'Confirmation before returning to the title screen.'],
+    'confirm.overwrite_save' => ['default' => 'Overwrite this save?', 'placeholders' => [], 'description' => 'Asked before saving into a file that already holds a save; it starts on No. An empty file saves at once.'],
     'exp_next' => ['default' => 'To Next %1', 'placeholders' => ['%1' => 'Level label'], 'description' => 'Experience required for the next level.'],
     'exp_total' => ['default' => 'Current %1', 'placeholders' => ['%1' => 'Experience label'], 'description' => 'Current experience heading; inherits vocab.shop.exp_total when present.', 'vocabularyDefault' => 'shop.exp_total'],
     'file' => ['default' => 'File', 'placeholders' => [], 'description' => 'Numbered save-slot label prefix.'],

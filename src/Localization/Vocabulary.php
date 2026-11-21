@@ -65,6 +65,9 @@ final class Vocabulary
     'battle.insight.none' => 'No element beats ordinary damage',
     // The heading of what battles have revealed about a foe, in its record.
     'records.analysis' => 'Analysis',
+    // A confirmation's two choices, on every question the party answers Yes or No.
+    'confirm.yes' => 'Yes',
+    'confirm.no' => 'No',
   ];
 
   /** A term as the game words it, else the default given, else the Engine's own ({@see DEFAULTS}), else nothing. */
