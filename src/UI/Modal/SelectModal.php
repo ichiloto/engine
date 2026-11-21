@@ -248,7 +248,8 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
 
   public function getModalPresentation(): ?ModalPresentation
   {
-    return new ModalPresentation($this->title, $this->message, array_values($this->options), $this->activeOptionIndex, true);
+    return new ModalPresentation($this->title, $this->message, array_values($this->options), $this->activeOptionIndex, true,
+      choiceStyle: $this->getChoiceStyle());
   }
 
   /**
@@ -574,6 +575,22 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
     $this->window->setContent($this->renderedOptionLines());
   }
 
+  /** What this modal's choices are. A select modal's choices are its buttons; answers in a conversation are a list. */
+  protected function getChoiceStyle(): ModalChoiceStyle
+  {
+    return ModalChoiceStyle::BUTTONS;
+  }
+
+  /**
+   * The choices inside the box: the modal's buttons, one above another, as every modal draws them.
+   *
+   * @return list<string>
+   */
+  protected function renderChoiceLines(): array
+  {
+    return ModalButtonText::renderStacked(array_values($this->options), $this->activeOptionIndex, $this->getInnerWidth());
+  }
+
   /** The width inside the borders, which the message wraps to and each button is centred in. */
   protected function getInnerWidth(): int
   {
@@ -589,9 +606,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
       $lines = [...$this->messageLines, ''];
     }
 
-    // A modal's choices are buttons, one above another, as every modal draws them; navigation lists keep the cursor.
-    array_push($lines, ...ModalButtonText::renderStacked(array_values($this->options), $this->activeOptionIndex,
-      $this->getInnerWidth()));
+    array_push($lines, ...$this->renderChoiceLines());
 
     $lines[] = '';
 

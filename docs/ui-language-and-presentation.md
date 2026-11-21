@@ -133,6 +133,10 @@ an optional owner token for this lifecycle, with `hasPendingNotices()` and
   hints, with a steady focus and no moving cursor, whether the buttons sit in a row or are stacked (the Quit
   dialog). Every modal draws its choices through `ModalButtonText` in the Terminal and as theme buttons through
   `MenuModalPresentation` in graphical renderers. The Sources below show the dialogs of the games compared.
+- Answers in a conversation are a list. Andrew, 21 November 2026, on NPC dialogue choices: "Dialogue stays a list".
+  The answers to a line of dialogue keep left-aligned rows with the cursor. `DialogueChoiceModal` owns them, and
+  `select_dialogue_answer()` asks for one; a modal's own decision uses `select()`. Each snapshot carries what its
+  choices are (`ModalChoiceStyle`), so every renderer draws buttons or a list from that and not from its class.
 
 ## Text and icons
 

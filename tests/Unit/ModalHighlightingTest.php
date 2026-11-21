@@ -3,6 +3,7 @@
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\Messaging\Dialogue\DialogueChoiceModal;
 use Ichiloto\Engine\UI\Modal\Modal;
 use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -111,6 +112,26 @@ class SelectModalHighlightProxy extends SelectModal
   }
 }
 
+class DialogueChoiceHighlightProxy extends DialogueChoiceModal
+{
+  public function __construct(array $options, int $activeIndex)
+  {
+    $this->options = $options;
+    $this->totalOptions = count($options);
+    $this->activeOptionIndex = $activeIndex;
+    $this->message = '';
+    $this->messageLines = [];
+    $this->messageContentHeight = 0;
+    $this->rect = new Rect(0, 0, 24, 3);
+    $this->borderPack = new DefaultBorderPack();
+  }
+
+  public function captureOptions(): string
+  {
+    return implode("\n", $this->renderedOptionLines());
+  }
+}
+
 it('uses the configured selection color for modal buttons', function () {
   ConfigStore::put(ProjectConfig::class, new ModalArrayConfigStub([
     'ui' => [
@@ -171,4 +192,13 @@ it('highlights the focused modal button by its position, never by matching its t
     ->toBe('No ' . Color::YELLOW->value . 'Not now' . Color::RESET->value)
     ->and(new ModalButtonHighlightProxy(['Not now', 'No'], 1)->captureButtons())
     ->toBe('Not now ' . Color::YELLOW->value . 'No' . Color::RESET->value);
+});
+
+it('keeps dialogue answers as left-aligned list rows with the cursor', function () {
+  ConfigStore::put(ProjectConfig::class, new ModalArrayConfigStub(['ui' => ['menu' => ['selection_color' => Color::YELLOW]]]));
+  // Andrew, 21 November 2026: "Dialogue stays a list".
+  $lines = array_slice(explode("\n", new DialogueChoiceHighlightProxy(['Yes, please.', 'Not now'], 0)->captureOptions()), 0, 2);
+
+  expect($lines[0])->toBe(Color::YELLOW->value . ' > Yes, please.' . Color::RESET->value)
+    ->and($lines[1])->toBe('   Not now');
 });

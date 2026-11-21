@@ -38,7 +38,9 @@ use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
 use Ichiloto\Engine\UI\Modal\AlertModal;
 use Ichiloto\Engine\UI\Modal\ConfirmModal;
 use Ichiloto\Engine\UI\Modal\ModalManager;
+use Ichiloto\Engine\UI\Modal\ModalChoiceStyle;
 use Ichiloto\Engine\UI\Modal\ModalPresentation;
+use Ichiloto\Engine\Messaging\Dialogue\ChoiceDialogue;
 use Ichiloto\Engine\UI\Modal\PromptModal;
 use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
@@ -943,3 +945,37 @@ it('pauses income for event-owned modal overlays and resumes the underlying time
   'field dialogue' => ['field', 'dialogue'], 'field choice' => ['field', 'choice'], 'field book' => ['field', 'book'],
   'battle dialogue' => ['battle', 'dialogue'], 'battle choice' => ['battle', 'choice'], 'battle book' => ['battle', 'book'],
 ]);
+
+// Andrew, 21 November 2026: "Dialogue stays a list". Answers to a line of dialogue keep the navigation list's
+// left-aligned rows and moving cursor; the Quit dialog's choices stay buttons.
+it('keeps dialogue answers as a list with the moving cursor while modal decisions stay buttons', function (bool $art) {
+  $theme = new MenuPresentationCatalog($this->root, modalMenuTheme($art));
+  $base = new PresentationCanvas(1350, 720);
+  $answers = new ModalPresentation('Mau', 'Shall I read you a story?', ['Yes, please.', 'Not now'], 0, vertical: true,
+    choiceStyle: ModalChoiceStyle::LIST);
+  $first = MenuModalPresentation::compose($base, $answers, $theme, 0);
+  $next = MenuModalPresentation::compose($base, $answers, $theme, 0.6);
+  $cursor = fn($frame) => array_find($frame->images, fn($image) => str_contains($image->id, '-cursor'));
+  expect($cursor($first))->not->toBeNull()
+    ->and($cursor($next)->destination->x)->toBeGreaterThan($cursor($first)->destination->x);
+  $padding = $theme->rows->metrics->padding;
+  foreach ([0, 1] as $index) {
+    $text = array_find($first->textLayers, fn($layer) => $layer->id === 'menu-modal-choice-' . $index . '-text');
+    expect($text->x)->toBe($text->clipRect->x + $padding);
+  }
+  $quit = MenuModalPresentation::compose($base, new ModalPresentation('Quit', 'Choose where to go.',
+    ['To Title', 'Exit', 'Cancel'], 0, vertical: true), $theme, 0);
+  expect($cursor($quit))->toBeNull();
+})->with([false, true]);
+
+it('asks a dialogue question through the answer list and keeps its cursor in the presented frame', function () {
+  ($this->startCanvas)();
+  InputManager::setInputSource(new FakeInputSource(KeyCode::DOWN, null, KeyCode::ENTER));
+  $dialogue = new ChoiceDialogue('Mau', 'Shall I read you a story?', [], ['Yes, please.', 'Not now']);
+  $dialogue->show();
+  $frames = array_values(array_filter(RetainedFrameState::replay($this->transport->sent),
+    fn($frame) => isset($frame['canvas']) && str_contains(json_encode($frame['canvas']), 'menu-modal-choice-1-text')));
+  $last = end($frames)['canvas'];
+  expect($dialogue->selectedChoice)->toBe(1)
+    ->and(array_filter(array_column($last['images'], 'id'), fn($id) => str_contains($id, 'menu-modal-choice-1-cursor')))->not->toBeEmpty();
+});

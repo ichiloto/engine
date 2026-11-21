@@ -10,6 +10,7 @@ use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\UI\Modal\ModalChoiceStyle;
 use Ichiloto\Engine\UI\Modal\ModalPresentation;
 use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
@@ -60,7 +61,7 @@ final class MenuModalPresentation
     $hintHeight = MenuActionHints::height($hints, $theme, $width);
     $quantityHeight = $modal->quantity === null ? 0 : 2 * $m->cellHeight + $gap;
     $availableBody = $base->height - 4 * $p - $titleHeight - $quantityHeight - $hintHeight
-      - 2 * $gap - ($hintHeight > 0 ? $gap : 0) - MenuLayout::getButtonHeight($theme) - $m->cellHeight;
+      - 2 * $gap - ($hintHeight > 0 ? $gap : 0) - self::getControlHeight($modal, $theme) - $m->cellHeight;
     if ($artSize > $availableBody) { throw new RuntimeException('Modal artwork exceeds its finite reading viewport.'); }
     $maximumRows = (int)floor(($availableBody - $noticeHintHeight - ($noticeHintHeight > 0 ? $gap : 0)) / $m->cellHeight);
     if ($maximumRows < 1) { throw new RuntimeException('Modal controls leave no finite reading area.'); }
@@ -100,8 +101,7 @@ final class MenuModalPresentation
     $hintHeight = MenuActionHints::height($hints, $theme, $width);
     $hintGap = $hintHeight > 0 ? $gap : 0;
     $available = $base->height - 4 * $p - $titleHeight - $bodyHeight - $quantityHeight - $hintHeight - $titleGap - $bodyGap - $hintGap;
-    // A modal's choices are buttons whether they sit in a row or are stacked; navigation lists keep their rows and cursor.
-    $controlHeight = MenuLayout::getButtonHeight($theme);
+    $controlHeight = self::getControlHeight($modal, $theme);
     if ($available < $controlHeight + $m->cellHeight) {
       throw new RuntimeException('Modal content exceeds its finite menu viewport; terminal presentation retained.');
     }
@@ -109,7 +109,7 @@ final class MenuModalPresentation
     $rows = [];
     foreach ($modal->choices as $index => $choice) {
       $rows[] = new MenuRow((string)$index, $choice,
-        kind: MenuRowKind::BUTTON,
+        kind: $modal->choiceStyle === ModalChoiceStyle::LIST ? MenuRowKind::COMMAND : MenuRowKind::BUTTON,
         selected: $index === $modal->activeIndex, focused: $index === $modal->activeIndex);
     }
     $singleButton = !$modal->vertical && count($rows) === 1;
@@ -119,9 +119,9 @@ final class MenuModalPresentation
       throw new RuntimeException('Modal buttons require a wider menu viewport.');
     }
     $measure = new CanvasRectangle(0, 0, $buttonWidth, $available);
-    $layout = MenuLayout::getButtonLayout($theme, $measure, wrapText: true, rowGap: $modal->vertical ? $gap : 0);
+    $layout = self::getChoiceLayout($modal, $theme, $measure);
     $heights = array_map(fn(MenuRow $row) => $layout->heightFor($row, $theme->rows->metrics, false), $rows);
-    $choiceHeight = $modal->vertical ? min($available, array_sum($heights) + $gap * (count($heights) - 1)) : max($heights);
+    $choiceHeight = $modal->vertical ? min($available, array_sum($heights) + $layout->rowGap * (count($heights) - 1)) : max($heights);
     if ($choiceHeight > $available) { throw new RuntimeException('Modal button text exceeds its finite menu viewport.'); }
     $height = 2 * $p + $titleHeight + $bodyHeight + $quantityHeight + $choiceHeight + $hintHeight + $titleGap + $bodyGap + $hintGap;
     $top = ($base->height - $height) / 2;
@@ -166,8 +166,8 @@ final class MenuModalPresentation
       $y += $quantityHeight;
     }
     if ($modal->vertical) {
-      $view->rows('menu-modal-choice', $rows, MenuLayout::getButtonLayout($theme, new CanvasRectangle($x, $y, $width, $choiceHeight),
-        wrapText: true, rowGap: $gap), $modal->activeIndex);
+      $view->rows('menu-modal-choice', $rows, self::getChoiceLayout($modal, $theme, new CanvasRectangle($x, $y, $width, $choiceHeight)),
+        $modal->activeIndex);
     } else {
       foreach ($rows as $index => $row) {
         $view->rows('menu-modal-choice', [$row], MenuLayout::getButtonLayout($theme,
@@ -185,5 +185,23 @@ final class MenuModalPresentation
     return $ownerLayerId === null ? $result : new PresentationCanvas($result->width, $result->height,
       $result->images, $result->indicators, $result->textLayers, $result->composites, $result->protectedAreas,
       [...$result->presentationOwners, $ownerLayerId], labels: $result->labels, viewportFit: $result->viewportFit, groups: $result->groups);
+  }
+
+  /** The height one choice needs: a list row for answers in a conversation, otherwise a button. */
+  private static function getControlHeight(ModalPresentation $modal, MenuPresentationCatalog $theme): int
+  {
+    return $modal->choiceStyle === ModalChoiceStyle::LIST ? $theme->metrics->rowHeight : MenuLayout::getButtonHeight($theme);
+  }
+
+  /**
+   * How the choices are laid out in their bounds. Answers in a conversation are a navigation list: touching rows at
+   * the list row height. A modal's own choices are buttons, stacked ones apart by the section gap.
+   */
+  private static function getChoiceLayout(ModalPresentation $modal, MenuPresentationCatalog $theme, CanvasRectangle $bounds): MenuRowLayout
+  {
+    $m = $theme->metrics;
+    return $modal->choiceStyle === ModalChoiceStyle::LIST
+      ? new MenuRowLayout($bounds, rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true)
+      : MenuLayout::getButtonLayout($theme, $bounds, wrapText: true, rowGap: $modal->vertical ? $m->sectionGap : 0);
   }
 }

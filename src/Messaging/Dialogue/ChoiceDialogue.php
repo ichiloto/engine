@@ -42,7 +42,8 @@ class ChoiceDialogue extends Dialogue
     $height = count(explode("\n", $this->text)) + count($this->choices) + 2;
     $position = config(ProjectConfig::class, 'ui.dialogue.window.position', WindowPosition::BOTTOM);
     $position = $position->getCoordinates(DEFAULT_DIALOG_WIDTH, $height);
-    $this->selectedChoice = select(
+    // The answers to a line of dialogue are a list, not the buttons of a modal decision.
+    $this->selectedChoice = select_dialogue_answer(
       $this->text,
       $this->choices,
       $this->name,
