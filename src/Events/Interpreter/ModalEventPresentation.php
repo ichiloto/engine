@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Events\Interpreter;
 
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Messaging\Dialogue\DialogueChoiceModal;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
@@ -20,7 +21,8 @@ use RuntimeException;
  * field or a battle. Graphical renderers compose the same modals over the
  * host scene's canvas.
  */
-final class ModalEventPresentation implements EventPlayedDialoguePresentationInterface, EventStorybookOutcomePresentationInterface, EventPausablePresentationInterface
+final class ModalEventPresentation implements EventPlayedDialoguePresentationInterface, EventStorybookOutcomePresentationInterface, EventPausablePresentationInterface,
+  EventAnswerPresentationInterface
 {
   protected ?ModalInterface $modal = null;
 
@@ -75,23 +77,30 @@ final class ModalEventPresentation implements EventPlayedDialoguePresentationInt
     $this->modal->show();
   }
 
+  /** The party's own decision: its choices are buttons. */
   public function beginChoice(string $prompt, array $options, string $title = ''): void
   {
     $this->reset();
-    $width = DEFAULT_SELECT_DIALOG_WIDTH;
-    $height = max(DEFAULT_SELECT_DIALOG_HEIGHT, count($options) + 4);
-    $position = new Vector2(
-      intval((get_screen_width() - $width) / 2),
-      intval((get_screen_height() - $height) / 2),
-    );
-    $this->modal = new SelectModal(
-      $this->host->getGame(),
-      $prompt,
-      $options,
-      $title,
-      rect: new Rect($position->x, $position->y, $width, $height),
-    );
+    $this->modal = new SelectModal($this->host->getGame(), $prompt, $options, $title, rect: self::placeChoices($options));
     $this->modal->show();
+  }
+
+  /** Answers to someone's question: a list with the cursor, titled with who is asking. */
+  public function beginAnswer(string $prompt, array $answers, string $speaker = ''): void
+  {
+    $this->reset();
+    $this->modal = new DialogueChoiceModal($this->host->getGame(), $prompt, $answers, $speaker, rect: self::placeChoices($answers));
+    $this->modal->show();
+  }
+
+  /** @param string[] $choices */
+  private static function placeChoices(array $choices): Rect
+  {
+    $width = DEFAULT_SELECT_DIALOG_WIDTH;
+    $height = max(DEFAULT_SELECT_DIALOG_HEIGHT, count($choices) + 4);
+    $position = new Vector2(intval((get_screen_width() - $width) / 2), intval((get_screen_height() - $height) / 2));
+
+    return new Rect($position->x, $position->y, $width, $height);
   }
 
   public function pausePlayback(float $now): void

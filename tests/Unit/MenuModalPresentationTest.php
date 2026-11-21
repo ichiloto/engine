@@ -41,6 +41,8 @@ use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Modal\ModalChoiceStyle;
 use Ichiloto\Engine\UI\Modal\ModalPresentation;
 use Ichiloto\Engine\Messaging\Dialogue\ChoiceDialogue;
+use Ichiloto\Engine\Messaging\Dialogue\ChoiceKind;
+use Ichiloto\Engine\Messaging\Dialogue\ConfirmDialogue;
 use Ichiloto\Engine\UI\Modal\PromptModal;
 use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
@@ -978,4 +980,28 @@ it('asks a dialogue question through the answer list and keeps its cursor in the
   $last = end($frames)['canvas'];
   expect($dialogue->selectedChoice)->toBe(1)
     ->and(array_filter(array_column($last['images'], 'id'), fn($id) => str_contains($id, 'menu-modal-choice-1-cursor')))->not->toBeEmpty();
+});
+
+// Andrew, 21 November 2026: the home bed's "Go to bed?" and the Waymeet field post are decisions ("Buttons"), while
+// an innkeeper's offer is answered as dialogue. The kind is authored on the confirmation, never read from its speaker.
+it('presents a confirmation by its authored kind: a decision as buttons, an answer as a list', function (array $data, ChoiceKind $kind, bool $cursor) {
+  ($this->startCanvas)();
+  InputManager::setInputSource(new FakeInputSource(null, KeyCode::ENTER));
+  $confirm = ConfirmDialogue::fromArray($data);
+  $confirm->show();
+  $frames = array_values(array_filter(RetainedFrameState::replay($this->transport->sent),
+    fn($frame) => isset($frame['canvas']) && str_contains(json_encode($frame['canvas']), 'menu-modal-choice-0-text')));
+  $choiceCursors = array_filter(array_column(end($frames)['canvas']['images'] ?? [], 'id'),
+    fn($id) => str_starts_with($id, 'menu-modal-choice-') && str_contains($id, '-cursor'));
+  expect($confirm->kind)->toBe($kind)->and($confirm->selectedChoice)->toBe(0)
+    ->and($frames)->not->toBeEmpty()->and($choiceCursors !== [])->toBe($cursor);
+})->with([
+  'home bed, a decision' => [['name' => '', 'text' => 'Go to bed?', 'kind' => 'decision'], ChoiceKind::DECISION, false],
+  'field post receptionist, a decision' => [['name' => 'Receptionist', 'text' => 'Would you like to take a break?', 'kind' => 'decision'], ChoiceKind::DECISION, false],
+  'innkeeper, an answer by default' => [['name' => 'Innkeeper', 'text' => 'Stay the night?'], ChoiceKind::ANSWER, true],
+]);
+
+it('refuses a confirmation with an unknown choice kind', function () {
+  expect(fn() => ConfirmDialogue::fromArray(['text' => 'Rest?', 'kind' => 'maybe']))
+    ->toThrow(InvalidArgumentException::class, 'Unknown choice kind "maybe"');
 });

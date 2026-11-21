@@ -137,6 +137,10 @@ an optional owner token for this lifecycle, with `hasPendingNotices()` and
   The answers to a line of dialogue keep left-aligned rows with the cursor. `DialogueChoiceModal` owns them, and
   `select_dialogue_answer()` asks for one; a modal's own decision uses `select()`. Each snapshot carries what its
   choices are (`ModalChoiceStyle`), so every renderer draws buttons or a list from that and not from its class.
+- Who is asking decides, and it is authored. Andrew, 21 November 2026: event choices "Author the kind per choice",
+  Deckers answers "List, like dialogue", and the home bed and the Waymeet field post "Buttons" ("With no one speaking,
+  they're system decisions"). Event choices and inn or bed confirmations carry an authored `ChoiceKind`; see
+  story-events.md > Choices: answers and decisions.
 
 ## Text and icons
 

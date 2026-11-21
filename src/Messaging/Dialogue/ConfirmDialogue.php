@@ -19,10 +19,11 @@ class ConfirmDialogue extends ChoiceDialogue
   public function __construct(
     string $name,
     string $text,
-    array $face = []
+    array $face = [],
+    ChoiceKind $kind = ChoiceKind::ANSWER,
   )
   {
-    parent::__construct($name, $text, $face, ['Yes', 'No'], 1);
+    parent::__construct($name, $text, $face, ['Yes', 'No'], 1, $kind);
   }
 
   /**
@@ -35,6 +36,7 @@ class ConfirmDialogue extends ChoiceDialogue
       $data['name'] ?? '',
       $data['text'] ?? throw new RequiredFieldException('text'),
       self::loadFaceData($data['face'] ?? ''),
+      ChoiceKind::readAuthored($data['kind'] ?? null, ChoiceKind::ANSWER),
     );
   }
 }

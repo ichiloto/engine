@@ -21,6 +21,8 @@ class ChoiceDialogue extends Dialogue
    * @param string[] $face The face to display.
    * @param string[] $choices The choices to display.
    * @param int $defaultChoice The default choice.
+   * @param ChoiceKind $kind Who is asking: an answer to the speaker (a list), unless authored as the party's own
+   *   decision (buttons). A dialogue is someone's line, so a choice that names no kind is an answer.
    */
   public function __construct(
     string $name,
@@ -28,6 +30,7 @@ class ChoiceDialogue extends Dialogue
     array $face = [],
     protected array $choices = [],
     protected int $defaultChoice = 0,
+    public readonly ChoiceKind $kind = ChoiceKind::ANSWER,
   )
   {
     parent::__construct($name, $text, $face);
@@ -42,12 +45,9 @@ class ChoiceDialogue extends Dialogue
     $height = count(explode("\n", $this->text)) + count($this->choices) + 2;
     $position = config(ProjectConfig::class, 'ui.dialogue.window.position', WindowPosition::BOTTOM);
     $position = $position->getCoordinates(DEFAULT_DIALOG_WIDTH, $height);
-    // The answers to a line of dialogue are a list, not the buttons of a modal decision.
-    $this->selectedChoice = select_dialogue_answer(
-      $this->text,
-      $this->choices,
-      $this->name,
-    );
+    $this->selectedChoice = $this->kind === ChoiceKind::ANSWER
+      ? select_dialogue_answer($this->text, $this->choices, $this->name)
+      : select($this->text, $this->choices, $this->name);
   }
 
   /**
@@ -62,6 +62,7 @@ class ChoiceDialogue extends Dialogue
       self::loadFaceData($data['face'] ?? ''),
       $data['choices'] ?? [],
       $data['defaultChoice'] ?? 0,
+      ChoiceKind::readAuthored($data['kind'] ?? null, ChoiceKind::ANSWER),
     );
   }
 }

@@ -33,6 +33,7 @@ use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapDoorReference;
+use Ichiloto\Engine\Messaging\Dialogue\ChoiceKind;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
 use Ichiloto\Engine\Messaging\Storybook\StorybookLibrary;
@@ -519,13 +520,21 @@ class EventInterpreter
           return EventCommandResult::COMPLETED;
         }
 
+        // An authored kind says who is asking: answers to someone are a list, the party's own decision is buttons. A
+        // choice that names no kind is a decision, as an event's choice prompt is a modal of the party's own.
+        $kind = ChoiceKind::readAuthored($command['kind'] ?? null, ChoiceKind::DECISION);
         $session->claimPresentation($lane);
         $labels = array_map(static fn(array $option): string => strval($option['text'] ?? '…'), $options);
-        $this->presentation->beginChoice(
-          strval($command['prompt'] ?? 'Choose:'),
-          $labels,
-          strval($command['title'] ?? ''),
-        );
+        $prompt = strval($command['prompt'] ?? 'Choose:');
+        $title = strval($command['title'] ?? '');
+        if ($kind === ChoiceKind::ANSWER) {
+          if (!$this->presentation instanceof EventAnswerPresentationInterface) {
+            throw new RuntimeException('This presentation cannot show answers to a question as a list.');
+          }
+          $this->presentation->beginAnswer($prompt, $labels, $title);
+        } else {
+          $this->presentation->beginChoice($prompt, $labels, $title);
+        }
         $lane->yieldFor($command, ['kind' => 'choice']);
         return EventCommandResult::YIELDED;
 
