@@ -582,13 +582,14 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
   }
 
   /**
-   * The choices inside the box: the modal's buttons, one above another, as every modal draws them.
+   * The choices inside the box, drawn as their style draws them on every Terminal surface.
    *
    * @return list<string>
    */
-  protected function renderChoiceLines(): array
+  private function renderChoiceLines(): array
   {
-    return ModalButtonText::renderStacked(array_values($this->options), $this->activeOptionIndex, $this->getInnerWidth());
+    return $this->getChoiceStyle()->renderTerminalLines(array_values($this->options), $this->activeOptionIndex,
+      $this->getInnerWidth());
   }
 
   /** The width inside the borders, which the message wraps to and each button is centred in. */

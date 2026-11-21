@@ -15,7 +15,10 @@
 - Answers to a line of dialogue stay a list with the cursor ("Dialogue stays a list"). They have their own owner,
   `DialogueChoiceModal`, asked through `select_dialogue_answer()` (`ChoiceDialogue`, `DialogueTree`), and each
   modal snapshot now says what its choices are (`ModalChoiceStyle`: buttons or a list), which every renderer
-  draws from.
+  draws from. In the Terminal each style draws its own lines (`ModalChoiceStyle::renderTerminalLines()`), for the
+  game's modals and for any other surface that shows them, such as the Editor's cutscene preview. Removed:
+  `SelectModal::renderChoiceLines()` is private and no longer an extension point; a subclass names its style
+  through `getChoiceStyle()`.
 - A choice says who is asking. The event `choice` command and an inn's or bed's `confirmDialogue` take an authored
   `kind` (`ChoiceKind`: `answer`, a list, or `decision`, buttons). A `choice` with no kind is a decision and a
   confirmation with no kind is an answer; an unknown kind is refused before the script runs. Answers reach a
