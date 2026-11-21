@@ -32,6 +32,7 @@ final class NamedNpcPlacementScene extends GameScene
     public function __construct()
     {
         $this->fixtureGame = new PassiveGame();
+        $this->sceneManager = makeTestSceneManager($this->fixtureGame);
         $this->gameState = new GameState(); $this->party = new Party(); $this->currentMapId = 'synthetic/arrival';
         $this->mapManager = new NamedNpcPlacementMap(); $this->npcManager = new NpcManager($this);
         $this->cinematicStage = new CinematicStageManager($this);

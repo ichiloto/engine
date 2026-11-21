@@ -124,3 +124,20 @@ it('loads the next drawing while a resident drawing plays and crosses a warmed b
       ->and($stream->getPendingRequests())->toBe([]);
   } finally { $stream->release(); $scene->release(); }
 });
+
+it('prepares no command resources for a battle whose Game runs no renderer', function () {
+  $game = new class extends \Ichiloto\Engine\Core\Game { public function __construct() {} public function __destruct() {} };
+  $scene = new class($game) extends \Ichiloto\Engine\Scenes\Battle\BattleScene {
+    public function __construct(private \Ichiloto\Engine\Core\Game $fixtureGame) {}
+    public function getGame(): \Ichiloto\Engine\Core\Game { return $this->fixtureGame; }
+  };
+  $screen = new class($scene) extends \Ichiloto\Engine\Battle\UI\BattleScreen {
+    public function __construct(\Ichiloto\Engine\Scenes\Battle\BattleScene $scene) { $this->battleScene = $scene; }
+    public function usesGraphicalField(): bool { return true; }
+  };
+  $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1)),
+    new Character('Hero', 1, new Stats()), [], BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+
+  expect($game->getRendererRuntime())->toBeNull()
+    ->and($screen->createCommandResourceStream($playback, 0.0))->toBeNull();
+});

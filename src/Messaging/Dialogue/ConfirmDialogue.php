@@ -13,7 +13,10 @@ use Override;
 class ConfirmDialogue extends ChoiceDialogue
 {
   /**
-   * Creates a new ConfirmDialogue instance.
+   * Creates a new ConfirmDialogue instance. Andrew, 21 November 2026: the starting choice is "Authored per
+   * confirmation"; one that names none starts on Yes, as confirmations always have.
+   *
+   * @param int $defaultChoice The choice the focus starts on: 0 for Yes, 1 for No.
    * @inheritDoc
    */
   public function __construct(
@@ -21,9 +24,10 @@ class ConfirmDialogue extends ChoiceDialogue
     string $text,
     array $face = [],
     ChoiceKind $kind = ChoiceKind::ANSWER,
+    int $defaultChoice = 0,
   )
   {
-    parent::__construct($name, $text, $face, ['Yes', 'No'], 1, $kind);
+    parent::__construct($name, $text, $face, ['Yes', 'No'], $defaultChoice, $kind);
   }
 
   /**
@@ -37,6 +41,7 @@ class ConfirmDialogue extends ChoiceDialogue
       $data['text'] ?? throw new RequiredFieldException('text'),
       self::loadFaceData($data['face'] ?? ''),
       ChoiceKind::readAuthored($data['kind'] ?? null, ChoiceKind::ANSWER),
+      self::readDefaultChoice($data['defaultChoice'] ?? 0),
     );
   }
 }

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Events\Interpreter\Commands;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Messaging\Dialogue\ChoiceKind;
 
 /**
  * The script commands the Engine registers for every project, declared in
@@ -59,6 +60,21 @@ final class EngineScriptCommands
       'fields' => [
         ['key' => 'confirmDialogue.text', 'label' => 'Question', 'kind' => 'text', 'required' => true],
         ['key' => 'confirmDialogue.name', 'label' => 'Speaker', 'kind' => 'text'],
+        [
+          'key' => 'confirmDialogue.kind',
+          'label' => 'Kind',
+          'kind' => 'option',
+          'options' => [ChoiceKind::ANSWER->value, ChoiceKind::DECISION->value],
+          'description' => 'Who is asking: answer, a list, when the speaker offers the stay, which is the default; decision, buttons, when no one asks.',
+        ],
+        [
+          'key' => 'confirmDialogue.defaultChoice',
+          'label' => 'Starts On',
+          'kind' => 'integer',
+          'minimum' => 0,
+          'maximum' => 1,
+          'description' => 'The choice the focus starts on: 0 for Yes, which is the default, or 1 for No.',
+        ],
         ['key' => 'cost', 'label' => 'Cost', 'kind' => 'integer', 'minimum' => 0],
         [
           'key' => 'spawnPoint',

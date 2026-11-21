@@ -207,7 +207,7 @@ class BattleScreen implements CanRender, CanUpdate
     $this->fieldWindow = new BattleFieldWindow($this);
     $this->fieldWindow->setConditionEffects(\Ichiloto\Engine\Battle\Presentation\BattleConditionEffects::createFromConfig(
       new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary(
-        $this->battleScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets')));
+        $this->battleScene->getGame()->getProjectAssetRoot())));
     $this->messageWindow = new BattleMessageWindow($this);
     $this->commandWindow = new BattleCommandWindow($this);
     $this->commandContextWindow = new BattleCommandContextWindow($this);

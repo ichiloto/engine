@@ -457,3 +457,29 @@ it('places unplaced nodes down the middle of their region in the tree\'s order, 
     ->and($places['b'])->toBe(['x' => 0.25, 'y' => 2 / 6, 'placed' => false])
     ->and($places['c'])->toBe(['x' => 0.9, 'y' => 0.1, 'placed' => true]);
 });
+
+it('holds a skill off the tree with why, and names a held skill the project does not have', function () {
+  $tree = MasteryTree::fromArray(['regions' => [['id' => 'r', 'name' => 'R', 'nodes' => [
+    ['id' => 'a', 'kind' => 'application', 'skill' => 'A']]]],
+    'held' => [['skill' => 'Ward', 'note' => 'Kept for a later chapter.']]]);
+  $known = SkillCatalog::fromSkills(['Skills/a.php' => new MagicSkill('A', '', '', 2, 0),
+    'Skills/ward.php' => new MagicSkill('Ward', '', '', 6, 0)]);
+
+  expect($tree->isSkillHeld('Ward'))->toBeTrue()
+    ->and($tree->isSkillHeld('A'))->toBeFalse()
+    ->and($tree->heldSkills[0]->note)->toBe('Kept for a later chapter.')
+    ->and($tree->describeUnknownSkill($known))->toBeNull()
+    ->and($tree->describeUnknownSkill(SkillCatalog::fromSkills(['Skills/a.php' => new MagicSkill('A', '', '', 2, 0)])))
+      ->toBe('The mastery tree holds unknown skill "Ward".');
+});
+
+it('refuses a hold on a skill a node teaches, a skill held twice, and a hold that names no skill', function (array $held, string $message) {
+  expect(fn() => MasteryTree::fromArray(['regions' => [['id' => 'r', 'name' => 'R', 'nodes' => [
+    ['id' => 'a', 'kind' => 'application', 'skill' => 'A']]]], 'held' => $held]))
+    ->toThrow(InvalidArgumentException::class, $message);
+})->with([
+  'taught by a node' => [[['skill' => 'A', 'note' => 'Later.']], 'which node a teaches'],
+  'held twice' => [[['skill' => 'W', 'note' => 'Later.'], ['skill' => 'W', 'note' => 'Again.']], 'holds W twice'],
+  'no skill named' => [[['note' => 'Later.']], 'names its skill'],
+  'an unknown key' => [[['skill' => 'W', 'note' => 'Later.', 'until' => 'chapter 5']], 'only its skill and note'],
+]);

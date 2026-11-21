@@ -790,9 +790,13 @@ class MapManager implements CanRenderAt
     $this->presentationWorldProjection = [];
   }
 
-  /** Project live object display cells without changing authored layers, occupancy or save data. */
+  /**
+   * Project live object display cells without changing authored layers, occupancy or save data. Until a map is
+   * installed there is no terminal picture to update, so nothing is published.
+   */
   public function refreshTerminalPresentation(): void
   {
+    if ($this->tileMap === []) { return; }
     $cells = [];
     foreach ($this->worldObjects as $object) {
       foreach ($object->getTerminalCells() as $y => $row) {

@@ -2181,3 +2181,33 @@ it('withholds a staged bed occupant image while keeping the bed canvas and real 
     $this->scene->cinematicStage->clear();
     expect(array_column($object->getPresentationWorldCanvas()->canvas->images, 'id'))->toBe(['base', 'occupant', 'cover']);
 });
+
+it('publishes no terminal picture before a map is installed', function () {
+    $scene = new WorldObjectTestScene($this->root);
+    $installed = $scene->camera->worldSpace;
+    $scene->mapManager->refreshTerminalPresentation();
+
+    expect($scene->camera->worldSpace)->toBe($installed)
+        ->and($scene->mapManager->tileMap)->toBe([]);
+});
+
+it('takes the field asset root from an attached host, or from the Game its scene manager holds', function () {
+    $scene = new WorldObjectTestScene($this->root);
+    $grid = new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig(12, 6, 10, 20);
+    $supports = static fn(string $capability): bool => false;
+
+    expect($scene->getFieldAssetRoot())->toBe($scene->getGame()->getProjectAssetRoot());
+    $scene->setPresentationContext(new \Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext($grid, $supports,
+        assetRoot: $this->root . '/host-assets'));
+    expect($scene->getFieldAssetRoot())->toBe($this->root . '/host-assets');
+    // A host that offers no assets gives the field none.
+    $scene->setPresentationContext(new \Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext($grid, $supports));
+    expect($scene->getFieldAssetRoot())->toBeNull();
+});
+
+it('refuses a graphical NPC without its project asset root, and keeps a glyph-only NPC without one', function () {
+    expect(fn() => new \Ichiloto\Engine\Field\Npc('Guide', '@', new Vector2(1, 1),
+        graphicalSprites: \Ichiloto\Engine\Rendering\Sprites\CharacterSheet::fromArray(\Tests\Support\Rendering\characterSheetData())))
+        ->toThrow(InvalidArgumentException::class, 'needs its project asset root')
+        ->and(new \Ichiloto\Engine\Field\Npc('Guide', '@', new Vector2(1, 1))->getGraphicalSpriteDefinition())->toBeNull();
+});

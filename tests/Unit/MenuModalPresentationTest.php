@@ -1001,6 +1001,27 @@ it('presents a confirmation by its authored kind: a decision as buttons, an answ
   'innkeeper, an answer by default' => [['name' => 'Innkeeper', 'text' => 'Stay the night?'], ChoiceKind::ANSWER, true],
 ]);
 
+it('starts a confirmation on its authored choice, Yes when it names none', function (array $data, int $start) {
+  ($this->startCanvas)();
+  // Confirming at once takes the choice the focus started on.
+  InputManager::setInputSource(new FakeInputSource(null, KeyCode::ENTER));
+  $confirm = ConfirmDialogue::fromArray($data);
+  $confirm->show();
+  expect($confirm->selectedChoice)->toBe($start);
+})->with([
+  'a decision that starts on No' => [['text' => 'Leave without saving?', 'kind' => 'decision', 'defaultChoice' => 1], 1],
+  'an answer that starts on No' => [['name' => 'Innkeeper', 'text' => 'Sell the heirloom?', 'defaultChoice' => 1], 1],
+  'an answer that names no start' => [['name' => 'Innkeeper', 'text' => 'Stay the night?'], 0],
+]);
+
+it('refuses a starting choice that is not one of the choices', function (mixed $start, string $message) {
+  expect(fn() => ConfirmDialogue::fromArray(['text' => 'Rest?', 'defaultChoice' => $start]))
+    ->toThrow(InvalidArgumentException::class, $message);
+})->with([
+  'past the last choice' => [2, 'not one of the 2 choices'],
+  'spelled as text' => ['No', 'number of a choice'],
+]);
+
 it('refuses a confirmation with an unknown choice kind', function () {
   expect(fn() => ConfirmDialogue::fromArray(['text' => 'Rest?', 'kind' => 'maybe']))
     ->toThrow(InvalidArgumentException::class, 'Unknown choice kind "maybe"');

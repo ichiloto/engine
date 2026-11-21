@@ -291,3 +291,22 @@ it('captures concealed flight and starts nearest-first results when the arena re
   expect($hits)->toBe(1)->and($captures)->toBe(1)->and($results)->toHaveCount(2)
     ->and($bystander->stats->currentHp)->toBe(0);
 })->with([false, true])->with([false, true]);
+
+it('protects what a stage image paints when its retained source crosses the canvas edge', function (bool $retained) {
+  $source = makeBattleActionStageSource('source.png');
+  // No background or cover: the stage protects its images, one of which rises past the top of the canvas.
+  $source['stage']['background'] = null;
+  $source['stage']['covers'] = [['id' => 'clear', 'frame' => 0, 'color' => 'black', 'opacity' => 0],
+    ['id' => 'exit', 'frame' => 7, 'color' => 'black', 'opacity' => 0]];
+  $source['tracks'][0]['placement'] = ['position' => ['x' => 160, 'y' => 40], 'size' => ['width' => 80, 'height' => 80]];
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .2, .1, .1, .1, .1, .1),
+    $this->validator->compile('edge-stage', $source, forBattle: true));
+  $tick = $plan->getCommandFrameForAuthoredFrame('source', 2);
+  $canvas = CinematicStagePresentation::compose($plan->getCinematicStageFrame($tick), $plan->getCinematicStageSegments($tick),
+    $this->root, 640, 360, retainSourceAtViewport: $retained);
+  [$image] = $canvas->images;
+
+  expect($image->destination->y < 0)->toBe($retained)
+    ->and($canvas->getOverlayProtection())->toEqual([$image->getPaintBounds()]);
+  foreach ($canvas->getOverlayProtection() as $area) { $area->assertWithin(640, 360); }
+})->with(['retained behind the viewport clip' => true, 'cropped at the edge' => false]);

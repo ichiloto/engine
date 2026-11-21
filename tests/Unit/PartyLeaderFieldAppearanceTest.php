@@ -48,7 +48,7 @@ final class LeaderFieldAppearanceTestGame extends Game
 
 final class LeaderFieldAppearanceScene extends GameScene
 {
-  public function __construct(private Game $testGame) {}
+  public function __construct(private Game $testGame) { $this->sceneManager = makeTestSceneManager($testGame); }
   public function getGame(): Game { return $this->testGame; }
 }
 
@@ -145,7 +145,7 @@ beforeEach(function () {
   new ReflectionProperty(GameScene::class, 'npcManager')->setValue($this->scene, new NpcManager($this->scene));
   new ReflectionProperty(GameScene::class, 'cinematicStage')->setValue($this->scene, new CinematicStageManager($this->scene));
   $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(20, 10, 48, 48),
-    static fn(string $capability): bool => true, graphical: true));
+    static fn(string $capability): bool => true, graphical: true, assetRoot: $this->root . '/assets'));
 });
 
 afterEach(function () {
