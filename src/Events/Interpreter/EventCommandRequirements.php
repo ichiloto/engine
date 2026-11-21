@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Events\Interpreter;
 
+use Ichiloto\Engine\Messaging\Dialogue\ChoiceKind;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicFramingDefinition;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
@@ -79,6 +80,13 @@ final class EventCommandRequirements
       $commandPath = sprintf('%s[%s]', $path, is_int($index) ? $index + 1 : $index);
       if ($validateScope) { self::assertAvailable($type, $context, $commandPath); }
       else { self::assertRequiredContext($type, $context, $commandPath); }
+      if ($type === 'choice') {
+        try {
+          ChoiceKind::readAuthored($command['kind'] ?? null, ChoiceKind::DECISION);
+        } catch (InvalidArgumentException $error) {
+          throw new InvalidArgumentException($commandPath . ': ' . $error->getMessage(), previous: $error);
+        }
+      }
       if ($type === 'framing') {
         try {
           if (!is_array($command['subjects'] ?? null)) {

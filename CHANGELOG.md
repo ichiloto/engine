@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### Fixed
+
+- Modal choices are buttons in every modal, in the Terminal and in graphical renderers. A select modal (the Quit
+  dialog and its confirmation, the cutscene playback pause menu, event choice prompts) drew its choices as a
+  navigation list: left-aligned rows with the moving list cursor. Its choices are now stacked buttons: each label
+  centred in its button and the focused one in a steady focus, with no cursor. In the Terminal every modal's
+  buttons come from `ModalButtonText`, which also picks the focused button by its position: a label contained in
+  another ("No" in "Not now") no longer lights up the wrong button. Graphical stacked buttons use the theme's
+  button rows, apart by the section gap (`MenuRowLayout::$rowGap`), and still scroll to keep the focused button
+  in view. Navigation lists keep their left-aligned rows and cursor.
+- Answers to a line of dialogue stay a list with the cursor ("Dialogue stays a list"). They have their own owner,
+  `DialogueChoiceModal`, asked through `select_dialogue_answer()` (`ChoiceDialogue`, `DialogueTree`), and each
+  modal snapshot now says what its choices are (`ModalChoiceStyle`: buttons or a list), which every renderer
+  draws from. In the Terminal each style draws its own lines (`ModalChoiceStyle::renderTerminalLines()`), for the
+  game's modals and for any other surface that shows them, such as the Editor's cutscene preview. Removed:
+  `SelectModal::renderChoiceLines()` is private and no longer an extension point; a subclass names its style
+  through `getChoiceStyle()`.
+- A choice says who is asking. The event `choice` command and an inn's or bed's `confirmDialogue` take an authored
+  `kind` (`ChoiceKind`: `answer`, a list, or `decision`, buttons). A `choice` with no kind is a decision and a
+  confirmation with no kind is an answer; an unknown kind is refused before the script runs. Answers reach a
+  presentation through `EventAnswerPresentationInterface::beginAnswer()`; one without it refuses the answer rather
+  than showing buttons. See story-events.md > Choices: answers and decisions.
+- `RetainedPresentation` slices a world upload by an injectable work clock (`workClock`, `hrtime()` by default) and
+  no longer reads `hrtime()` itself, so tests give it a declared clock and never depend on machine load
+  (`RetainedPresentationTest` failed when a busy machine made the upload yield early).
+  Removed: `Modal::renderButtons()`, `Modal::getSelectionColor()` and `SelectModal::renderOptions()`, unused
+  direct-write paths, the last of which drew the list cursor.
+
 ### Removed
 
 - Removed acceptance of `add_state` effects with `trigger: landedHit` that can never apply.

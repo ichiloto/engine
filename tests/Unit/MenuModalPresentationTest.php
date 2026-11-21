@@ -38,7 +38,11 @@ use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
 use Ichiloto\Engine\UI\Modal\AlertModal;
 use Ichiloto\Engine\UI\Modal\ConfirmModal;
 use Ichiloto\Engine\UI\Modal\ModalManager;
+use Ichiloto\Engine\UI\Modal\ModalChoiceStyle;
 use Ichiloto\Engine\UI\Modal\ModalPresentation;
+use Ichiloto\Engine\Messaging\Dialogue\ChoiceDialogue;
+use Ichiloto\Engine\Messaging\Dialogue\ChoiceKind;
+use Ichiloto\Engine\Messaging\Dialogue\ConfirmDialogue;
 use Ichiloto\Engine\UI\Modal\PromptModal;
 use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
@@ -251,11 +255,8 @@ it('layers supported modals above the complete four-party menu through either th
   }
   foreach ($modalText as $text) {
     if (!preg_match('/menu-modal-choice-\d+-text/', $text->id)) { continue; }
-    if ($modal->getModalPresentation()->vertical) {
-      expect($text->x)->toBe($text->clipRect->x + MenuPresentationCatalog::load($this->root)->rows->metrics->padding);
-    } else {
-      expect($text->x + $text->bounds->width / 2)->toEqualWithDelta($text->clipRect->x + $text->clipRect->width / 2, 0.000001);
-    }
+    // Every modal choice is a button, stacked or in a row: its label is centred in the button.
+    expect($text->x + $text->bounds->width / 2)->toEqualWithDelta($text->clipRect->x + $text->clipRect->width / 2, 0.000001);
   }
   expect(array_filter(array_column($modalText, 'id'), fn($id) => str_contains($id, 'separator')))->toBeEmpty();
   expect(array_filter([...array_column($modalText, 'id'), ...array_column($frame->images, 'id')],
@@ -517,24 +518,33 @@ it('collapses only the hidden hint footer without changing Confirm or Select con
     ->and($button->clipRect->width)->toBe($snapshot->vertical ? $contentWidth : ($contentWidth - $hiddenTheme->metrics->sectionGap) / 2);
 })->with([false, true])->with(['confirm', 'select', 'single-select']);
 
-it('reserves moving cursors for vertical choice lists rather than alert or confirmation buttons', function (bool $art) {
+// Modal choices are buttons and never list rows: centred labels, a steady focus and no moving cursor, whether the
+// buttons sit in a row or are stacked like the Quit dialog's. Navigation lists keep their cursor (MainMenuPresentationTest).
+it('draws every modal choice as a steady centred button without the list cursor, in a row or stacked', function (bool $art) {
   $theme = new MenuPresentationCatalog($this->root, modalMenuTheme($art));
   $base = new PresentationCanvas(1350, 720);
   foreach ([new ModalPresentation('', 'Complete.', ['OK'], 0, singleConfirmation: true),
-    new ModalPresentation('Confirm', 'Continue?', ['Cancel', 'Continue'], 0)] as $snapshot) {
+    new ModalPresentation('Confirm', 'Continue?', ['Cancel', 'Continue'], 0),
+    new ModalPresentation('Quit', 'Choose where to go.', ['To Title', 'Exit', 'Cancel'], 0, vertical: true)] as $snapshot) {
     $first = MenuModalPresentation::compose($base, $snapshot, $theme, 0);
     $next = MenuModalPresentation::compose($base, $snapshot, $theme, 0.6);
     expect($first->toArray())->toBe($next->toArray())
       ->and(array_filter($first->images, fn($image) => str_contains($image->id, '-cursor')))->toBeEmpty();
     $layers = [...$first->images, ...$first->textLayers];
     expect(array_filter($layers, fn($layer) => str_starts_with($layer->id, 'menu-modal-choice-0-focus')))->not->toBeEmpty();
+    foreach ($snapshot->choices as $index => $label) {
+      $text = array_find($first->textLayers, fn($layer) => $layer->id === 'menu-modal-choice-' . $index . '-text');
+      expect(implode('', array_column($text->runs, 'text')))->toBe($label)
+        ->and($text->x + $text->bounds->width / 2)->toEqualWithDelta($text->clipRect->x + $text->clipRect->width / 2, 0.000001);
+    }
   }
-  $list = new ModalPresentation('Choose', '', ['To Title', 'Exit'], 0, vertical: true);
-  $first = MenuModalPresentation::compose($base, $list, $theme, 0);
-  $next = MenuModalPresentation::compose($base, $list, $theme, 0.6);
-  $cursor = fn($frame) => array_find($frame->images, fn($image) => str_contains($image->id, '-cursor'));
-  expect($cursor($first))->not->toBeNull()
-    ->and($cursor($next)->destination->x)->toBeGreaterThan($cursor($first)->destination->x);
+  $stacked = MenuModalPresentation::compose($base, new ModalPresentation('Quit', 'Choose where to go.',
+    ['To Title', 'Exit', 'Cancel'], 1, vertical: true), $theme);
+  $boxes = array_map(fn($index) => array_find($stacked->textLayers, fn($layer) => $layer->id === 'menu-modal-choice-' . $index . '-text')->clipRect, [0, 1, 2]);
+  // Stacked buttons share one width and stand apart by the theme's section gap.
+  expect(array_unique(array_map(fn($box) => $box->width, $boxes)))->toHaveCount(1)
+    ->and($boxes[1]->y - ($boxes[0]->y + $boxes[0]->height))->toEqualWithDelta($theme->metrics->sectionGap, 0.000001)
+    ->and($boxes[2]->y - ($boxes[1]->y + $boxes[1]->height))->toEqualWithDelta($theme->metrics->sectionGap, 0.000001);
 })->with([false, true]);
 
 it('batches only fully visible nonoverlapping text without changing paint positions or clipping', function () {
@@ -937,3 +947,61 @@ it('pauses income for event-owned modal overlays and resumes the underlying time
   'field dialogue' => ['field', 'dialogue'], 'field choice' => ['field', 'choice'], 'field book' => ['field', 'book'],
   'battle dialogue' => ['battle', 'dialogue'], 'battle choice' => ['battle', 'choice'], 'battle book' => ['battle', 'book'],
 ]);
+
+// Andrew, 21 November 2026: "Dialogue stays a list". Answers to a line of dialogue keep the navigation list's
+// left-aligned rows and moving cursor; the Quit dialog's choices stay buttons.
+it('keeps dialogue answers as a list with the moving cursor while modal decisions stay buttons', function (bool $art) {
+  $theme = new MenuPresentationCatalog($this->root, modalMenuTheme($art));
+  $base = new PresentationCanvas(1350, 720);
+  $answers = new ModalPresentation('Mau', 'Shall I read you a story?', ['Yes, please.', 'Not now'], 0, vertical: true,
+    choiceStyle: ModalChoiceStyle::LIST);
+  $first = MenuModalPresentation::compose($base, $answers, $theme, 0);
+  $next = MenuModalPresentation::compose($base, $answers, $theme, 0.6);
+  $cursor = fn($frame) => array_find($frame->images, fn($image) => str_contains($image->id, '-cursor'));
+  expect($cursor($first))->not->toBeNull()
+    ->and($cursor($next)->destination->x)->toBeGreaterThan($cursor($first)->destination->x);
+  $padding = $theme->rows->metrics->padding;
+  foreach ([0, 1] as $index) {
+    $text = array_find($first->textLayers, fn($layer) => $layer->id === 'menu-modal-choice-' . $index . '-text');
+    expect($text->x)->toBe($text->clipRect->x + $padding);
+  }
+  $quit = MenuModalPresentation::compose($base, new ModalPresentation('Quit', 'Choose where to go.',
+    ['To Title', 'Exit', 'Cancel'], 0, vertical: true), $theme, 0);
+  expect($cursor($quit))->toBeNull();
+})->with([false, true]);
+
+it('asks a dialogue question through the answer list and keeps its cursor in the presented frame', function () {
+  ($this->startCanvas)();
+  InputManager::setInputSource(new FakeInputSource(KeyCode::DOWN, null, KeyCode::ENTER));
+  $dialogue = new ChoiceDialogue('Mau', 'Shall I read you a story?', [], ['Yes, please.', 'Not now']);
+  $dialogue->show();
+  $frames = array_values(array_filter(RetainedFrameState::replay($this->transport->sent),
+    fn($frame) => isset($frame['canvas']) && str_contains(json_encode($frame['canvas']), 'menu-modal-choice-1-text')));
+  $last = end($frames)['canvas'];
+  expect($dialogue->selectedChoice)->toBe(1)
+    ->and(array_filter(array_column($last['images'], 'id'), fn($id) => str_contains($id, 'menu-modal-choice-1-cursor')))->not->toBeEmpty();
+});
+
+// Andrew, 21 November 2026: the home bed's "Go to bed?" and the Waymeet field post are decisions ("Buttons"), while
+// an innkeeper's offer is answered as dialogue. The kind is authored on the confirmation, never read from its speaker.
+it('presents a confirmation by its authored kind: a decision as buttons, an answer as a list', function (array $data, ChoiceKind $kind, bool $cursor) {
+  ($this->startCanvas)();
+  InputManager::setInputSource(new FakeInputSource(null, KeyCode::ENTER));
+  $confirm = ConfirmDialogue::fromArray($data);
+  $confirm->show();
+  $frames = array_values(array_filter(RetainedFrameState::replay($this->transport->sent),
+    fn($frame) => isset($frame['canvas']) && str_contains(json_encode($frame['canvas']), 'menu-modal-choice-0-text')));
+  $choiceCursors = array_filter(array_column(end($frames)['canvas']['images'] ?? [], 'id'),
+    fn($id) => str_starts_with($id, 'menu-modal-choice-') && str_contains($id, '-cursor'));
+  expect($confirm->kind)->toBe($kind)->and($confirm->selectedChoice)->toBe(0)
+    ->and($frames)->not->toBeEmpty()->and($choiceCursors !== [])->toBe($cursor);
+})->with([
+  'home bed, a decision' => [['name' => '', 'text' => 'Go to bed?', 'kind' => 'decision'], ChoiceKind::DECISION, false],
+  'field post receptionist, a decision' => [['name' => 'Receptionist', 'text' => 'Would you like to take a break?', 'kind' => 'decision'], ChoiceKind::DECISION, false],
+  'innkeeper, an answer by default' => [['name' => 'Innkeeper', 'text' => 'Stay the night?'], ChoiceKind::ANSWER, true],
+]);
+
+it('refuses a confirmation with an unknown choice kind', function () {
+  expect(fn() => ConfirmDialogue::fromArray(['text' => 'Rest?', 'kind' => 'maybe']))
+    ->toThrow(InvalidArgumentException::class, 'Unknown choice kind "maybe"');
+});

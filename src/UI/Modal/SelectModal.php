@@ -26,7 +26,6 @@ use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
 use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
 use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
 use Ichiloto\Engine\UI\UIManager;
-use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -177,7 +176,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
    */
   protected function wrapMessage(): void
   {
-    $innerWidth = max(1, $this->rect->getWidth() - 2);
+    $innerWidth = $this->getInnerWidth();
     $lines = [];
 
     foreach (explode("\n", $this->message) as $paragraph) {
@@ -249,7 +248,8 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
 
   public function getModalPresentation(): ?ModalPresentation
   {
-    return new ModalPresentation($this->title, $this->message, array_values($this->options), $this->activeOptionIndex, true);
+    return new ModalPresentation($this->title, $this->message, array_values($this->options), $this->activeOptionIndex, true,
+      choiceStyle: $this->getChoiceStyle());
   }
 
   /**
@@ -531,58 +531,6 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
   }
 
   /**
-   * Renders the modal options.
-   *
-   * @param int $x The x-position of the options.
-   * @param int $y The y-position of the top of the options.
-   * @return void
-   */
-  protected function renderOptions(int $x, int $y): void
-  {
-    $topMargin = $y;
-    $vSpacingSize = 0;
-    $contentWidth = max(0, $this->rect->getWidth() - 2);
-    $optionWidth = max(0, $contentWidth - 3);
-    $blankLine = $this->borderPack->getVerticalBorder()
-      . str_repeat(' ', $contentWidth)
-      . $this->borderPack->getVerticalBorder();
-
-    if ($this->message) {
-      foreach ($this->messageLines as $lineIndex => $line) {
-        $output = $this->borderPack->getVerticalBorder();
-        $output .= TerminalText::padRight($line, $contentWidth);
-        $output .= $this->borderPack->getVerticalBorder();
-        Console::write($output, $x, $y + $lineIndex);
-      }
-      $vSpacingSize = 1;
-      Console::write($blankLine, $x, $y + $this->messageContentHeight);
-    }
-
-    foreach ($this->options as $optionIndex => $option) {
-      $output = $this->borderPack->getVerticalBorder();
-      $prefix = $optionIndex === $this->activeOptionIndex ? '>' : ' ';
-      $content = " {$prefix} " . TerminalText::padRight($option, $optionWidth);
-
-      if ($optionIndex === $this->activeOptionIndex) {
-        $content = SelectionStyle::apply($content);
-      }
-      $output .= $content;
-      $output .= $this->borderPack->getVerticalBorder();
-      Console::write(
-        $output,
-        $x,
-        $y + $this->messageContentHeight + $vSpacingSize + $optionIndex,
-      );
-    }
-
-    Console::write(
-      $blankLine,
-      $x,
-      $y + $this->messageContentHeight + $vSpacingSize + $this->totalOptions,
-    );
-  }
-
-  /**
    * Render the bottom border.
    *
    * @param int $x The x-position of the bottom border.
@@ -627,7 +575,30 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
     $this->window->setContent($this->renderedOptionLines());
   }
 
-  /** @return string[] The prompt, options, and spacing inside the box. */
+  /** What this modal's choices are. A select modal's choices are its buttons; answers in a conversation are a list. */
+  protected function getChoiceStyle(): ModalChoiceStyle
+  {
+    return ModalChoiceStyle::BUTTONS;
+  }
+
+  /**
+   * The choices inside the box, drawn as their style draws them on every Terminal surface.
+   *
+   * @return list<string>
+   */
+  private function renderChoiceLines(): array
+  {
+    return $this->getChoiceStyle()->renderTerminalLines(array_values($this->options), $this->activeOptionIndex,
+      $this->getInnerWidth());
+  }
+
+  /** The width inside the borders, which the message wraps to and each button is centred in. */
+  protected function getInnerWidth(): int
+  {
+    return max(1, $this->rect->getWidth() - 2);
+  }
+
+  /** @return string[] The prompt, the choice buttons, and spacing inside the box. */
   protected function renderedOptionLines(): array
   {
     $lines = [];
@@ -636,13 +607,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface, Modal
       $lines = [...$this->messageLines, ''];
     }
 
-    foreach ($this->options as $optionIndex => $option) {
-      $prefix = $optionIndex === $this->activeOptionIndex ? '>' : ' ';
-      $line = " {$prefix} {$option}";
-      $lines[] = $optionIndex === $this->activeOptionIndex
-        ? SelectionStyle::apply($line)
-        : $line;
-    }
+    array_push($lines, ...$this->renderChoiceLines());
 
     $lines[] = '';
 

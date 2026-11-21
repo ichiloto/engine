@@ -126,6 +126,21 @@ an optional owner token for this lifecycle, with `hasPendingNotices()` and
   only when a name genuinely cannot fit.
 - Graphical presentations keep at least the Terminal's tidiness: the same column model drives both, and no
   presentation joins several values into one string.
+- Navigation lists and modal choices are different things. Andrew, 21 November 2026, on the Quit dialog: "The main
+  menu and modal sellect are not.the same thing... Nav select items -> left align... Modal have buttons which
+  should be center aligned." A navigation list's items (menus, command lists) are left-aligned rows with the list
+  cursor. A modal's choices are buttons: each label is centred in its button, independently of cursors, icons and
+  hints, with a steady focus and no moving cursor, whether the buttons sit in a row or are stacked (the Quit
+  dialog). Every modal draws its choices through `ModalButtonText` in the Terminal and as theme buttons through
+  `MenuModalPresentation` in graphical renderers. The Sources below show the dialogs of the games compared.
+- Answers in a conversation are a list. Andrew, 21 November 2026, on NPC dialogue choices: "Dialogue stays a list".
+  The answers to a line of dialogue keep left-aligned rows with the cursor. `DialogueChoiceModal` owns them, and
+  `select_dialogue_answer()` asks for one; a modal's own decision uses `select()`. Each snapshot carries what its
+  choices are (`ModalChoiceStyle`), so every renderer draws buttons or a list from that and not from its class.
+- Who is asking decides, and it is authored. Andrew, 21 November 2026: event choices "Author the kind per choice",
+  Deckers answers "List, like dialogue", and the home bed and the Waymeet field post "Buttons" ("With no one speaking,
+  they're system decisions"). Event choices and inn or bed confirmations carry an authored `ChoiceKind`; see
+  story-events.md > Choices: answers and decisions.
 
 ## Text and icons
 

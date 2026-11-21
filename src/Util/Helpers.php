@@ -186,6 +186,23 @@ if (! function_exists('select') ) {
   }
 }
 
+if (! function_exists('select_dialogue_answer') ) {
+  /**
+   * Asks for an answer to a line of dialogue. Dialogue answers are a list; a modal's own decision uses select().
+   *
+   * @param string $message The line the answers reply to.
+   * @param string[] $answers The answers, in order.
+   * @param string $speaker Who is speaking.
+   * @param int $default The answer focused first.
+   * @return int The chosen answer's index, or -1 when cancelled.
+   * @throws Exception
+   */
+  function select_dialogue_answer(string $message, array $answers, string $speaker = '', int $default = 0): int
+  {
+    return Console::selectDialogueAnswer($message, $answers, $speaker, $default);
+  }
+}
+
 if (! function_exists('show_text') ) {
   /**
    * Shows a text dialog with the given message and title.

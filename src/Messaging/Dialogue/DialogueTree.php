@@ -39,7 +39,7 @@ class DialogueTree
       $choices[] = sprintf("%d. %s", $index + 1, $choice->dialogue->text);
     }
 
-    return select("Choose an option:", $choices);
+    return select_dialogue_answer("Choose an option:", $choices);
   }
 
   /**

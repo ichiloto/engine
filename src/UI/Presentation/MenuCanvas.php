@@ -407,7 +407,7 @@ final class MenuCanvas
     if ($rows === []) { return null; }
     $heights = array_map(fn(MenuRow $row) => $layout->heightFor($row, $this->theme->rows->metrics,
       MenuRowPainter::canShowIcon($row, $this->theme->icons)), $rows);
-    [$first, $last] = $this->visibleRange($id, $heights, $layout->viewport, $activeIndex);
+    [$first, $last] = $this->visibleRange($id, $heights, $layout->viewport, $activeIndex, rowGap: $layout->rowGap);
     $visible = array_slice($rows, $first, $last - $first + 1);
     $canvas = MenuRowPainter::compose($this->width, $this->height, $id,
       $visible, $layout, $this->theme->rows, $this->theme->icons, $this->time);
@@ -493,19 +493,20 @@ final class MenuCanvas
    * @return array{int, int} Inclusive first/last indexes.
    */
   public function visibleRange(string $id, array $heights, CanvasRectangle $viewport, ?int $activeIndex,
-    ?CanvasRectangle $rangeBounds = null): array
+    ?CanvasRectangle $rangeBounds = null, int $rowGap = 0): array
   {
     $first = 0;
     $last = count($heights) - 1;
-    if (array_sum($heights) > $viewport->height) {
+    if (array_sum($heights) + $rowGap * $last > $viewport->height) {
       if ($activeIndex === null) { throw new RuntimeException("Menu records {$id} exceed their finite viewport."); }
       $activeIndex = max(0, min($last, $activeIndex));
       $available = $viewport->height - $this->theme->metrics->cellHeight;
       $height = $heights[$activeIndex];
       if ($height > $available) { throw new RuntimeException("Menu record {$id} at {$activeIndex} exceeds its finite viewport."); }
       $first = $last = $activeIndex;
-      while ($first > 0 && $height + $heights[$first - 1] <= $available) { $height += $heights[--$first]; }
-      while ($last < count($heights) - 1 && $height + $heights[$last + 1] <= $available) { $height += $heights[++$last]; }
+      // Each further row brings the gap that keeps it apart from the rows already shown.
+      while ($first > 0 && $height + $rowGap + $heights[$first - 1] <= $available) { $height += $rowGap + $heights[--$first]; }
+      while ($last < count($heights) - 1 && $height + $rowGap + $heights[$last + 1] <= $available) { $height += $rowGap + $heights[++$last]; }
       $this->prose($id . '-range', sprintf('%d-%d / %d', $first + 1, $last + 1, count($heights)),
         $rangeBounds ?? new CanvasRectangle($viewport->x, $viewport->y + $available,
           $viewport->width, $this->theme->metrics->cellHeight), 'disabled',

@@ -10,6 +10,7 @@ use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Messaging\Dialogue\DialogueChoiceModal;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Presentation\CreditsContent;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -286,20 +287,31 @@ class ModalManager implements CanUpdate, CanRender
     int $height = DEFAULT_SELECT_DIALOG_HEIGHT
   ): int
   {
-    $position = $position ?? new Vector2(intval((get_screen_width() - $width) / 2), intval((get_screen_height() - DEFAULT_DIALOG_HEIGHT) / 2));
-    return (int)$this->runModal(new SelectModal(
-      $this->game,
-      $message,
-      $options,
-      $title,
-      $default,
-      new Rect(
-        $position->x,
-        $position->y,
-        $width,
-        $height
-      )
-    ));
+    return (int)$this->runModal(new SelectModal($this->game, $message, $options, $title, $default,
+      self::placeSelectDialog($position, $width, $height)));
+  }
+
+  /**
+   * Asks for an answer to a line of dialogue. The answers are a list, not the buttons of a modal decision.
+   *
+   * @param string $message The line the answers reply to.
+   * @param string[] $answers The answers, in order.
+   * @param string $speaker Who is speaking.
+   * @param int $default The answer focused first.
+   * @return int The chosen answer's index, or -1 when cancelled.
+   */
+  public function selectDialogueAnswer(string $message, array $answers, string $speaker = '', int $default = 0): int
+  {
+    return (int)$this->runModal(new DialogueChoiceModal($this->game, $message, $answers, $speaker, $default,
+      self::placeSelectDialog(null, DEFAULT_SELECT_DIALOG_WIDTH, DEFAULT_SELECT_DIALOG_HEIGHT)));
+  }
+
+  /** Where a choice dialog sits: at the position given, or centred on the screen. */
+  private static function placeSelectDialog(?Vector2 $position, int $width, int $height): Rect
+  {
+    $position ??= new Vector2(intval((get_screen_width() - $width) / 2), intval((get_screen_height() - DEFAULT_DIALOG_HEIGHT) / 2));
+
+    return new Rect($position->x, $position->y, $width, $height);
   }
 
   /**

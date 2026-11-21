@@ -348,7 +348,7 @@ it('retains track identities and updates only source frames, then removes tracks
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
     'capabilities' => ['sprite_source_rect', ...($rotation ? ['sprite_quarter_turns'] : [])]], JSON_THROW_ON_ERROR))];
   $client->pump();
-  $sender = new RetainedPresentation($client);
+  $sender = makeRetainedTestPresentation($client);
   $session = new FieldEffectSession('energy', FieldEffectAnchor::fromArray(['cell' => ['x' => 2, 'y' => 3]]), $this->library->load('energy'));
   $projector = new GraphicalSpriteProjector();
   $camera = new Camera(makeCameraTestScene(), 30, 15);

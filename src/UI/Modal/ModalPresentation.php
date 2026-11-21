@@ -12,14 +12,23 @@ final readonly class ModalPresentation
   /** @var non-empty-list<string> */
   public array $choices;
 
-  /** @param non-empty-list<string> $choices */
+  /**
+   * @param non-empty-list<string> $choices The modal's choices, in order.
+   * @param bool $vertical Stacks the choices one above another instead of in a row.
+   * @param ModalChoiceStyle $choiceStyle What the choices are: the modal's buttons, or answers in a conversation
+   *   drawn as a list (always stacked).
+   */
   public function __construct(public string $title, public string $message, array $choices,
     public int $activeIndex, public bool $vertical = false, public bool $singleConfirmation = false,
     public ?QuantityPresentation $quantity = null, public ?NoticeContent $notice = null,
-    public ?string $sourceMessage = null, public ?StorybookPresentation $storybook = null)
+    public ?string $sourceMessage = null, public ?StorybookPresentation $storybook = null,
+    public ModalChoiceStyle $choiceStyle = ModalChoiceStyle::BUTTONS)
   {
     if (!array_is_list($choices) || $choices === [] || !isset($choices[$activeIndex])) {
       throw new InvalidArgumentException('Modal presentation requires choices and a valid owner-selected index.');
+    }
+    if ($choiceStyle === ModalChoiceStyle::LIST && (!$vertical || $quantity !== null || $notice !== null || $storybook !== null)) {
+      throw new InvalidArgumentException('A choice list is stacked and holds only its answers.');
     }
     if ($singleConfirmation && ($vertical || count($choices) !== 1)) {
       throw new InvalidArgumentException('A single-confirmation presentation requires one horizontal choice.');
