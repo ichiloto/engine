@@ -59,7 +59,7 @@ it('negotiates pivot uploads and clears a replaced pivot without changing the gr
     $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
       'capabilities' => $supported ? ['sprite_pivot'] : []], JSON_THROW_ON_ERROR))];
     $client->pump();
-    $sender = new RetainedPresentation($client);
+    $sender = makeRetainedTestPresentation($client);
     $image = new PresentationSprite('image', 'test.png', 3, 4, 144, 48, pivot: new PresentationSpritePivot(.25, .625));
     $sender->present(new ConsolePresentationChanges(20, 10, true, order: []), [$image], null);
     $puts = array_values(array_filter(end($transport->sent)->payload['operations'], static fn($op) => ($op['kind'] ?? '') === 'sprite'));

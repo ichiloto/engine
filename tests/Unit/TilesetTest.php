@@ -524,7 +524,7 @@ it('names the gameplay layer each tile layer covers only for renderers that nego
     $client->start(new RendererSessionConfig('Covers', $this->root, new RendererGridConfig(20, 10), RendererProtocolVersion::V2));
     $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))];
     $client->pump();
-    new RetainedPresentation($client)->present(new ConsolePresentationChanges(20, 10, true, order: []), [], null, $world);
+    makeRetainedTestPresentation($client)->present(new ConsolePresentationChanges(20, 10, true, order: []), [], null, $world);
     $put = array_values(array_filter(end($transport->sent)->payload['operations'],
       static fn(array $operation): bool => $operation['op'] === 'put' && $operation['kind'] === 'world'));
     expect(array_column($covers($put), 1, 0)['tiles:furniture'])->toBe($expected);
@@ -795,7 +795,7 @@ it('sends shadows only to a renderer that negotiated tile shadows', function () 
     $client->start(new RendererSessionConfig('Shadows', $this->root, new RendererGridConfig(20, 10), RendererProtocolVersion::V2));
     $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))];
     $client->pump();
-    new RetainedPresentation($client)->present(new ConsolePresentationChanges(20, 10, true, order: []), [], null, $world);
+    makeRetainedTestPresentation($client)->present(new ConsolePresentationChanges(20, 10, true, order: []), [], null, $world);
     $sent = json_encode(end($transport->sent)->payload['operations']);
     expect(str_contains($sent, 'tiles:walls:shadows'))->toBe($expected)->and(str_contains($sent, '"fill"'))->toBe($expected);
   }

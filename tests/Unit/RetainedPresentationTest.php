@@ -56,7 +56,7 @@ function retainedTestViewport(int $x = 0, int $y = 0, int $width = 200, int $hei
 
 it('uploads a world once and emits only a viewport for every scrolling direction', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $world = retainedTestWorld();
     $text = new ConsolePresentationChanges(200, 50, true, order: []);
     expect($sender->present($text, [], retainedTestViewport(), $world))->toBeTrue();
@@ -80,7 +80,7 @@ it('reconciles world row edits against delivered state and rebuilds the world af
     $client->start(new RendererSessionConfig('test', \getTestTemporaryDirectory(), protocol: RendererProtocolVersion::V2));
     $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["world_row_diffs"]}')];
     $client->pump();
-    $sender = new RetainedPresentation($client);
+    $sender = makeRetainedTestPresentation($client);
     $text = new ConsolePresentationChanges(20, 4, false);
     $world = static fn(string $rows) => PresentationWorld::getFromLayers(
         new MapLayerSet([new MapLayer('floor', 0, false, 'floor', $rows)]));
@@ -115,7 +115,7 @@ it('keeps scroll operations and payload independent of world size window size an
     // Keep numeric field digit counts equal; no cell or layer data may scale the packet.
     foreach ([[10, 4, 1, 130, 50], [221, 81, 3, 200, 50], [400, 100, 12, 200, 50]] as [$w, $h, $count, $cw, $ch]) {
         $transport = new FakeRendererTransport();
-        $sender = new RetainedPresentation(new RendererClient($transport));
+        $sender = makeRetainedTestPresentation(new RendererClient($transport));
         $world = retainedTestWorld($w, $h, $count);
         $sender->present(new ConsolePresentationChanges($cw, $ch, true, order: []), [], retainedTestViewport(0, 0, $cw, $ch), $world);
         finishRetainedTestUpload($sender, $transport, fn() => $sender->present(new ConsolePresentationChanges($cw, $ch, false), [], retainedTestViewport(0, 0, $cw, $ch), $world));
@@ -133,7 +133,7 @@ it('keeps scroll operations and payload independent of world size window size an
 
 it('sends changed text rows only and explicitly removes vanished layers and sprites', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $layer = fn(string $text) => ['id' => 'dialogue', 'layer' => 1000,
         'rows' => [['row' => 1, 'runs' => [new PresentationTextRun(1, 0, $text)]]]];
     $sprite = new PresentationSprite('actor', 'actor.png', 0, 0, 10, 20);
@@ -151,7 +151,7 @@ it('sends changed text rows only and explicitly removes vanished layers and spri
 
 it('retains canvas elements through edits and removes field state across battle or menu entry', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $world = retainedTestWorld();
     $sender->present(new ConsolePresentationChanges(20, 4, true, order: []), [], retainedTestViewport(), $world);
     $transport->acknowledgeLatestFrame($sender);
@@ -175,7 +175,7 @@ it('retains canvas elements through edits and removes field state across battle 
 
 it('retains a field world camera sprites and notifications while dialogue overlays change and close', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $world = retainedTestWorld();
     $viewport = retainedTestViewport();
     $sprite = new PresentationSprite('actor', 'actor.png', 0, 0, 10, 20);
@@ -200,7 +200,7 @@ it('retains a field world camera sprites and notifications while dialogue overla
 
 it('batches dense scene text with a live notice without accumulating overlays or losing retained content', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $grid = new RendererGridConfig(12, 1, 8, 8);
     $layers = array_map(fn($i) => new CanvasTextLayer('scene-' . $i, 30,
         ($i % 8) * 100, intdiv($i, 8) * 16, $grid,
@@ -235,7 +235,7 @@ it('batches dense scene text with a live notice without accumulating overlays or
 
 it('resends retained state once after rejection resize and a new renderer session', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $world = retainedTestWorld();
     $text = new ConsolePresentationChanges(20, 4, true, order: []);
     $sender->present($text, [], retainedTestViewport(), $world);
@@ -255,7 +255,7 @@ it('interrupts a staged upload on resynchronization and retries an atomic reset'
     $client = new RendererClient($transport);
     $sender = null;
     $interrupt = true;
-    $sender = new RetainedPresentation($client, function () use (&$sender, &$interrupt): void {
+    $sender = makeRetainedTestPresentation($client, function () use (&$sender, &$interrupt): void {
         if ($interrupt) { $interrupt = false; $sender->invalidate(); }
     });
     $world = retainedTestWorld(221, 81);
@@ -275,7 +275,7 @@ it('interrupts a staged upload on resynchronization and retries an atomic reset'
 it('recovers a dropped final packet without requiring another changed frame and ignores delayed acknowledgements', function () {
     $transport = new FakeRendererTransport();
     $time = 0.0;
-    $sender = new RetainedPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
+    $sender = makeRetainedTestPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
     $text = new ConsolePresentationChanges(20, 4, true, order: []);
     $sender->present($text, [], null);
     $text = new ConsolePresentationChanges(20, 4, false);
@@ -294,7 +294,7 @@ it('recovers a dropped final packet without requiring another changed frame and 
 it('exhausts recovery when the replacement frame also goes unacknowledged', function () {
     $transport = new FakeRendererTransport();
     $time = 0.0;
-    $sender = new RetainedPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
+    $sender = makeRetainedTestPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
     $text = new ConsolePresentationChanges(20, 4, true, order: []);
     expect($sender->present($text, [], null))->toBeTrue();
     $text = new ConsolePresentationChanges(20, 4, false);
@@ -310,7 +310,7 @@ it('exhausts recovery when the pipe cannot accept even the first packet', functi
     $transport = new FakeRendererTransport();
     $transport->acceptWrites = false;
     $time = 0.0;
-    $sender = new RetainedPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
+    $sender = makeRetainedTestPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
     $text = new ConsolePresentationChanges(20, 4, true, order: []);
     expect($sender->present($text, [], null))->toBeFalse()->and($sender->hasPendingUpload())->toBeTrue();
     $text = new ConsolePresentationChanges(20, 4, false);
@@ -323,7 +323,7 @@ it('exhausts recovery when the pipe cannot accept even the first packet', functi
 
 it('bounds unacknowledged cold packets and coalesces changing text sprites and viewport without starving completion', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $world = retainedTestWorld(256, 256);
     $text = fn(string $value) => new ConsolePresentationChanges(200, 50, false, [
         ['id' => 'dialogue', 'layer' => 1000, 'rows' => [['row' => 1, 'runs' => [new PresentationTextRun(1, 0, $value)]]]],
@@ -347,7 +347,7 @@ it('bounds unacknowledged cold packets and coalesces changing text sprites and v
 
 it('coalesces a surface replacement during an upload and removes the old world at atomic commit', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $sender->present(new ConsolePresentationChanges(200, 50, true, order: []), [], retainedTestViewport(), retainedTestWorld(256, 128));
     $canvas = new PresentationCanvas(320, 180, [new CanvasImage('panel', 'panel.png', new CanvasRectangle(0, 0, 64, 64))]);
     $sender->presentCanvas($canvas);
@@ -361,7 +361,7 @@ it('coalesces a surface replacement during an upload and removes the old world a
 
 it('defers temporary capacity pressure without losing desired changes or advancing generation', function () {
     $transport = new FakeRendererTransport(); $transport->acceptWrites = false;
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $text = new ConsolePresentationChanges(20, 4, true, order: []);
     expect($sender->present($text, [], null))->toBeFalse()->and($sender->hasPendingUpload())->toBeTrue()->and($transport->sent)->toBe([]);
     $transport->acceptWrites = true;
@@ -372,7 +372,7 @@ it('defers temporary capacity pressure without losing desired changes or advanci
 it('counts partial pipe writes as progress but resets a stalled upload without growing the queue', function () {
     $transport = new FakeRendererTransport(); $time = 0.0;
     $transport->onSend = static function (FakeRendererTransport $peer): void { $peer->pendingWriteBytes = 100; };
-    $sender = new RetainedPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
+    $sender = makeRetainedTestPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
     $text = new ConsolePresentationChanges(20, 4, true, order: []);
     expect($sender->present($text, [], null))->toBeTrue();
     foreach ([70, 30, 0] as $remaining) {
@@ -396,7 +396,7 @@ it('counts partial pipe writes as progress but resets a stalled upload without g
 
 it('rebases one reset above an ahead receiver and ignores acknowledgements from before that reset', function () {
     $transport = new FakeRendererTransport(); $time = 0.0;
-    $sender = new RetainedPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
+    $sender = makeRetainedTestPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
     $text = new ConsolePresentationChanges(20, 4, true, order: []);
     $sender->present($text, [], null);
     $sender->invalidate(expectedGeneration: 100);
@@ -409,7 +409,7 @@ it('rebases one reset above an ahead receiver and ignores acknowledgements from 
 
 it('restarts partially sent work after an actual send failure without losing newer desired state', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $world = retainedTestWorld(256, 128);
     $text = new ConsolePresentationChanges(20, 4, true, order: []);
     $sender->present($text, [], null, $world);
@@ -427,7 +427,7 @@ it('restarts partially sent work after an actual send failure without losing new
 
 it('abandons an old staged transaction on session restart and starts generation one with current desired state', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $world = retainedTestWorld(256, 128);
     $text = new ConsolePresentationChanges(20, 4, true, order: []);
     $sender->present($text, [], null, $world);
@@ -441,7 +441,7 @@ it('abandons an old staged transaction on session restart and starts generation 
 
 it('captures accumulated rows world camera and sprites without sending or advancing delivery', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $world = retainedTestWorld();
     $text = fn(int $row, string $value, bool $reset = false) => new ConsolePresentationChanges(20, 4, $reset, [
         ['id' => 'field-hud', 'layer' => 1000, 'rows' => [['row' => $row, 'runs' => [new PresentationTextRun($row, 0, $value)]]]],
@@ -473,7 +473,7 @@ it('captures accumulated rows world camera and sprites without sending or advanc
 
 it('prepares an incoming canvas without exposing it until the covered atomic replacement', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $sender->present(new ConsolePresentationChanges(20, 4, true, order: []), [], retainedTestViewport(), retainedTestWorld());
     $transport->acknowledgeLatestFrame($sender);
     $outgoing = $sender->captureFrame();
@@ -490,13 +490,13 @@ it('prepares an incoming canvas without exposing it until the covered atomic rep
     $transport->acknowledgeLatestFrame($sender);
     $sender->presentFrame($incoming);
     expect(RetainedFrameState::getLatestFrame($transport->sent)['canvas'])->not->toHaveKey('composites');
-    $foreign = new RetainedPresentation(new RendererClient(new FakeRendererTransport()));
+    $foreign = makeRetainedTestPresentation(new RendererClient(new FakeRendererTransport()));
     expect(fn() => $foreign->presentFrame($incoming))->toThrow(LogicException::class, 'belongs');
 });
 
 it('prepares retained incoming rows without consuming the outgoing desired state', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $text = fn(string $value) => new ConsolePresentationChanges(20, 4, false, [
         ['id' => 'incoming', 'layer' => 1000, 'rows' => [['row' => 1, 'runs' => [new PresentationTextRun(1, 0, $value)]]]],
     ], order: ['incoming']);
@@ -511,7 +511,7 @@ it('prepares retained incoming rows without consuming the outgoing desired state
 
 it('holds superseded frames while the renderer owes acknowledgements and sends only the newest state once it catches up', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $sprite = fn(int $x) => [new PresentationSprite('hero', 'hero.png', $x, 0, 10, 20)];
     $sent = range(0, RetainedPresentation::MAX_FRAMES_IN_FLIGHT - 1);
     foreach ($sent as $x) {
@@ -532,7 +532,7 @@ it('holds superseded frames while the renderer owes acknowledgements and sends o
 
 it('sends nothing after catching up when held changes returned to the delivered state', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $text = new ConsolePresentationChanges(20, 4, false);
     $sprite = fn(int $x) => [new PresentationSprite('hero', 'hero.png', $x, 0, 10, 20)];
     $sender->present(new ConsolePresentationChanges(20, 4, true, order: []), $sprite(0), null);
@@ -548,7 +548,7 @@ it('sends nothing after catching up when held changes returned to the delivered 
 
 it('never holds recovery behind unacknowledged frames after a rejection or an acknowledgement timeout', function () {
     $transport = new FakeRendererTransport(); $time = 0.0;
-    $sender = new RetainedPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
+    $sender = makeRetainedTestPresentation(new RendererClient($transport), clock: function () use (&$time): float { return $time; });
     $text = new ConsolePresentationChanges(20, 4, false);
     $sprite = fn(int $x) => [new PresentationSprite('hero', 'hero.png', $x, 0, 10, 20)];
     $sender->present(new ConsolePresentationChanges(20, 4, true, order: []), $sprite(0), null);
@@ -565,7 +565,7 @@ it('never holds recovery behind unacknowledged frames after a rejection or an ac
 
 it('re-sends only an inserted or removed record, never the unchanged records painted after it', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     $canvas = fn(bool $bird) => new PresentationCanvas(100, 100, [
         ...($bird ? [new CanvasImage('bird', 'bird.png', new CanvasRectangle(0, 0, 8, 8))] : []),
         ...array_map(fn(int $n) => new CanvasImage("panel-$n", 'panel.png', new CanvasRectangle($n * 8, 8, 8, 8)), range(0, 9)),
@@ -591,7 +591,7 @@ it('re-sends only an inserted or removed record, never the unchanged records pai
     $transport->acknowledgeLatestFrame($sender);
     expect($sender->presentCanvas($canvas(false)))->toBeFalse();
 
-    $field = new RetainedPresentation(new RendererClient($peer = new FakeRendererTransport()));
+    $field = makeRetainedTestPresentation(new RendererClient($peer = new FakeRendererTransport()));
     $field->present(new ConsolePresentationChanges(20, 4, true, [$layer('hud'), $layer('notice')], order: ['hud', 'notice']), $sprites(false), null);
     $peer->acknowledgeLatestFrame($field);
     $field->present(new ConsolePresentationChanges(20, 4, false, [$layer('dialogue')], order: ['hud', 'dialogue', 'notice']), $sprites(true), null);
@@ -607,7 +607,7 @@ it('re-sends only an inserted or removed record, never the unchanged records pai
 
 it('never stages both screens\' text at once while a replacement is split across packets', function () {
     $transport = new FakeRendererTransport();
-    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender = makeRetainedTestPresentation(new RendererClient($transport));
     // Two screens of 40 text layers each: either fits the receiver's 64, both together do not.
     $screen = static fn(string $name): PresentationCanvas => new PresentationCanvas(1350, 720, textLayers: array_map(
         static fn(int $n): CanvasTextLayer => new CanvasTextLayer("{$name}-{$n}", 30, 0, ($n % 40) * 16, new RendererGridConfig(100, 4, 8, 16),
@@ -633,4 +633,22 @@ it('never stages both screens\' text at once while a replacement is split across
     expect(count($packets))->toBeGreaterThan(1)
         ->and(max(array_map($apply, $packets)))->toBeLessThanOrEqual(40)
         ->and(array_keys($staged))->toBe(array_map(static fn(int $n): string => "mastery-{$n}", range(0, 39)));
+});
+
+it('slices a world upload by its work clock, never by how much real time the machine took', function () {
+    $world = retainedTestWorld(256, 256);
+    $text = new ConsolePresentationChanges(200, 50, false, [
+        ['id' => 'dialogue', 'layer' => 1000, 'rows' => [['row' => 1, 'runs' => [new PresentationTextRun(1, 0, 'initial')]]]],
+    ], order: ['dialogue']);
+    $sent = function (Closure $workClock) use ($world, $text): int {
+        $transport = new FakeRendererTransport();
+        $sender = new RetainedPresentation(new RendererClient($transport), workClock: $workClock);
+        $sender->present($text, [], retainedTestViewport(), $world);
+        return count($transport->sent);
+    };
+    $elapsed = 0;
+    // Each reading of this clock lands past the per-frame budget, so the upload yields as soon as it checks.
+    $busy = $sent(function () use (&$elapsed): int { return $elapsed += 7_000_000; });
+    expect($sent(static fn(): int => 0))->toBe(RetainedPresentation::MAX_IN_FLIGHT)
+        ->and($busy)->toBeLessThan(RetainedPresentation::MAX_IN_FLIGHT);
 });

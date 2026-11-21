@@ -83,8 +83,14 @@ final class RetainedPresentation
     private int $pendingWriteBytes = 0;
     private bool $warnedUnsupportedPivot = false;
 
+    /**
+     * @param (Closure(): float)|null $clock Runtime seconds for acknowledgement timeouts; the runtime clock by default.
+     * @param (Closure(): int)|null $workClock Physical monotonic nanoseconds that slice a world upload across frames,
+     *   the clock of every upload deadline given to continueWorldUpload(); hrtime() by default, as the game loop paces
+     *   frames with it. Tests give a declared clock so an upload never depends on how busy the machine is.
+     */
     public function __construct(private readonly RendererClient $client, private readonly ?Closure $serviceTransport = null,
-        private readonly ?Closure $clock = null) { $this->frameOwner = new \stdClass(); }
+        private readonly ?Closure $clock = null, private readonly ?Closure $workClock = null) { $this->frameOwner = new \stdClass(); }
 
     public function captureFrame(): RetainedFrame
     {
@@ -217,6 +223,8 @@ final class RetainedPresentation
     }
 
     private function getTime(): float { return $this->clock === null ? RuntimeClock::getSeconds() : ($this->clock)(); }
+
+    private function getWorkNanoseconds(): int { return $this->workClock === null ? hrtime(true) : ($this->workClock)(); }
 
     /** Only feedback for work sent in the current window can start another recovery. */
     public function isAwaitingGeneration(int $generation): bool
@@ -570,8 +578,8 @@ final class RetainedPresentation
                 $this->coalesced = false;
             }
             $invalidation = $this->invalidation;
-            $deadline ??= hrtime(true) + self::WORLD_UPLOAD_BUDGET_NS;
-            $shouldYield = $this->upload->world === null ? null : static fn(): bool => hrtime(true) >= $deadline;
+            $deadline ??= $this->getWorkNanoseconds() + self::WORLD_UPLOAD_BUDGET_NS;
+            $shouldYield = $this->upload->world === null ? null : fn(): bool => $this->getWorkNanoseconds() >= $deadline;
             while ($this->upload !== null && $sent < self::SEND_BUDGET_BYTES && $packets < self::MAX_SEND_PACKETS
                 && $passes < self::MAX_SEND_PACKETS) {
                 if ($passes > 0 && ($shouldYield?->__invoke() ?? false)) { break; }

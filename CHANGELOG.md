@@ -16,6 +16,14 @@
   `DialogueChoiceModal`, asked through `select_dialogue_answer()` (`ChoiceDialogue`, `DialogueTree`), and each
   modal snapshot now says what its choices are (`ModalChoiceStyle`: buttons or a list), which every renderer
   draws from.
+- A choice says who is asking. The event `choice` command and an inn's or bed's `confirmDialogue` take an authored
+  `kind` (`ChoiceKind`: `answer`, a list, or `decision`, buttons). A `choice` with no kind is a decision and a
+  confirmation with no kind is an answer; an unknown kind is refused before the script runs. Answers reach a
+  presentation through `EventAnswerPresentationInterface::beginAnswer()`; one without it refuses the answer rather
+  than showing buttons. See story-events.md > Choices: answers and decisions.
+- `RetainedPresentation` slices a world upload by an injectable work clock (`workClock`, `hrtime()` by default) and
+  no longer reads `hrtime()` itself, so tests give it a declared clock and never depend on machine load
+  (`RetainedPresentationTest` failed when a busy machine made the upload yield early).
   Removed: `Modal::renderButtons()`, `Modal::getSelectionColor()` and `SelectModal::renderOptions()`, unused
   direct-write paths, the last of which drew the list cursor.
 

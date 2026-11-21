@@ -26,7 +26,7 @@ beforeEach(function () {
   $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["asset_holds","graphical_canvas"]}')];
   $this->client->pump();
   $this->client->drainEvents();
-  $this->sender = new RetainedPresentation($this->client);
+  $this->sender = makeRetainedTestPresentation($this->client);
   $this->owner = new stdClass();
   $this->request = $this->client->assetHolds->replaceResources($this->owner,
     ['return' => new AssetHoldResource('fixtures/return.png')])[0];
@@ -81,7 +81,7 @@ it('rejects invalid resources and foreign frames before changing desired state',
   $this->sender->presentCanvas($this->canvas, assetHolds: [$this->request]);
   $before = $this->sender->captureFrame();
   expect(fn() => $this->sender->presentAssetHolds([$this->request, $this->request]))->toThrow(InvalidArgumentException::class);
-  $foreign = new RetainedPresentation($this->client)->prepareCanvas(new PresentationCanvas(80, 60));
+  $foreign = makeRetainedTestPresentation($this->client)->prepareCanvas(new PresentationCanvas(80, 60));
   expect(fn() => $this->sender->presentFrame($foreign))->toThrow(LogicException::class, 'belongs');
   expect($this->sender->captureFrame())->toEqual($before);
 });
