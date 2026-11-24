@@ -405,6 +405,12 @@ contain 1 to 32 members, can nest up to four group levels, and can contain
 up to 256 descendant entries in total. The Engine validates every member
 before evaluating the group.
 
+A `map_visited` condition reads the campaign's saved visit history by map ID.
+For example, `['type' => 'map_visited', 'name' => 'town/market', 'negate' => true]`
+is true before the party has entered that market. A map visit is recorded when
+its transfer or initial load commits. Use the destination beyond an area
+to gate a first-arrival scene that runs before the party enters that destination.
+
 ### NPC pages
 
 An NPC's ordered `dialogue` variants are its interaction pages, as RPG

@@ -37,6 +37,7 @@ it('publishes the complete stable condition vocabulary', function () {
     'event',
     'any',
     'map_event',
+    'map_visited',
     'variable',
     'play_statistic',
     'item',
@@ -323,4 +324,28 @@ it('shares any group validation and evaluation with summon availability', functi
     ->and($availability->isSatisfied($state))->toBeFalse();
   $state->recordStoryEvent('second');
   expect($availability->isSatisfied($state))->toBeTrue();
+});
+
+it('uses saved map visits for conditions, with negation and group support', function () {
+  $state = new GameState();
+  $visited = ['type' => 'map_visited', 'name' => 'town/market'];
+  $unvisited = [...$visited, 'negate' => true];
+  $group = ['type' => 'any', 'conditions' => [$unvisited, ['type' => 'event', 'name' => 'other']]];
+  WorldConditionEvaluator::validateAll([$group]);
+
+  $state->markMapVisited('town/road');
+  $state->markEventComplete('town/market', 'A');
+  expect(WorldConditionEvaluator::allHold([$visited], $state))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([$group], $state))->toBeTrue();
+
+  $state->markMapVisited('town/market');
+  $restored = GameState::fromArray($state->toArray());
+  expect(WorldConditionEvaluator::allHold([$visited], $restored))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold([$unvisited], $restored))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([$group], $restored))->toBeFalse();
+
+  $invalid = [...$unvisited, 'marker' => 'A'];
+  expect(fn() => WorldConditionEvaluator::validateAll([$invalid]))->toThrow(InvalidArgumentException::class)
+    ->and(WorldConditionEvaluator::allHold([$invalid], $state))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([['type' => 'map_visited', 'name' => '', 'negate' => true]], $state))->toBeFalse();
 });

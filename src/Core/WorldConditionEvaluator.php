@@ -22,6 +22,7 @@ use InvalidArgumentException;
  * - `['type' => 'event',    'name' => 'met_the_king']`
  * - `['type' => 'any',      'conditions' => [$first, $second]]`
  * - `['type' => 'map_event', 'name' => 'town/home', 'marker' => 'A']`
+ * - `['type' => 'map_visited', 'name' => 'town/home']`
  * - `['type' => 'variable', 'name' => 'donations', 'op' => '>=', 'value' => 100]`
  * - `['type' => 'play_statistic', 'name' => 'battles_won', 'op' => '>=', 'value' => 1]`
  * - `['type' => 'item',     'name' => 'Potion', 'quantity' => 2]`
@@ -90,6 +91,10 @@ class WorldConditionEvaluator
 
       if (array_key_exists('negate', $condition) && ! is_bool($condition['negate'])) {
         throw new InvalidArgumentException(sprintf('%s field "negate" must be boolean.', $conditionSource));
+      }
+
+      if ($type === WorldConditionType::MAP_VISITED && !self::isMapVisitedConditionValid($condition)) {
+        throw new InvalidArgumentException(sprintf('%s map_visited requires a map name and optional boolean negate.', $conditionSource));
       }
 
       if ($type === WorldConditionType::MAP_EVENT
@@ -230,6 +235,11 @@ class WorldConditionEvaluator
         return false;
       }
 
+      if ($type === WorldConditionType::MAP_VISITED && !self::isMapVisitedConditionValid($condition)) {
+        Debug::warn('A map_visited condition requires a map name and optional boolean negate.');
+        return false;
+      }
+
       $name = trim(strval($condition['name'] ?? ''));
 
       if ($type === WorldConditionType::MAP_EVENT
@@ -254,6 +264,14 @@ class WorldConditionEvaluator
     }
 
     return true;
+  }
+
+  /** @param array<string, mixed> $condition */
+  public static function isMapVisitedConditionValid(array $condition): bool
+  {
+    return array_diff(array_keys($condition), ['type', 'name', 'negate']) === []
+      && is_string($condition['name'] ?? null) && trim($condition['name']) !== ''
+      && (!array_key_exists('negate', $condition) || is_bool($condition['negate']));
   }
 
   /** @param array<string, mixed> $condition */
@@ -311,6 +329,7 @@ class WorldConditionEvaluator
         ->isUnlocked($name, $gameState, $party, $questLog),
       WorldConditionType::SWITCH => $gameState->getSwitch($name) === (bool) ($condition['value'] ?? true),
       WorldConditionType::EVENT => $gameState->hasStoryEvent($name),
+      WorldConditionType::MAP_VISITED => $gameState->hasVisitedMap($name),
       WorldConditionType::MAP_EVENT => is_string($condition['marker'] ?? null)
         && trim($condition['marker']) !== '' && $gameState->isEventComplete($name, trim($condition['marker'])),
       WorldConditionType::VARIABLE => self::compare(

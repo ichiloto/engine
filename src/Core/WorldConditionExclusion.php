@@ -145,6 +145,7 @@ final class WorldConditionExclusion
         $holdsOn = ! (bool) ($condition['negate'] ?? false);
         $parameters = match ($type) {
             WorldConditionType::SWITCH, WorldConditionType::EVENT, WorldConditionType::KEY_ITEM, WorldConditionType::WORLD_ABILITY => [],
+            WorldConditionType::MAP_VISITED => WorldConditionEvaluator::isMapVisitedConditionValid($condition) ? [] : null,
             WorldConditionType::MAP_EVENT => is_string($condition['marker'] ?? null) && trim($condition['marker']) !== ''
                 ? [trim($condition['marker'])]
                 : null,
