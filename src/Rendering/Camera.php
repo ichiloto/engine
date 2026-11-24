@@ -567,13 +567,15 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
   /** Fit current drawn bounds into a logical-cell safe area, preserving camera/gameplay ownership. */
   public function frameBounds(object $owner, FieldSpriteBounds $subjects, FieldSpriteBounds $safeArea,
-    float $motionSeconds = 0.0, CameraMotionEasing $easing = CameraMotionEasing::SMOOTHSTEP): bool
+    float $motionSeconds = 0.0, CameraMotionEasing $easing = CameraMotionEasing::SMOOTHSTEP,
+    ?FieldSpriteBounds $visibleArea = null): bool
   {
     $this->assertMotionSeconds($motionSeconds);
     $before = $this->getWorldOrigin();
     $authoredMovement = $this->framingPositionRevision !== null
       && $this->framingPositionRevision !== $this->positionRevision;
-    foreach ([$subjects, $safeArea] as $bounds) {
+    $visibleArea ??= new FieldSpriteBounds(0, 0, $this->screen->getWidth(), $this->screen->getHeight());
+    foreach ([$subjects, $safeArea, $visibleArea] as $bounds) {
       foreach ([$bounds->left, $bounds->top, $bounds->right, $bounds->bottom] as $value) {
         if (!is_finite($value)) { throw new InvalidArgumentException('Camera framing bounds must be finite.'); }
       }
@@ -581,8 +583,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
         throw new InvalidArgumentException('Camera framing bounds need positive extents.');
       }
     }
-    if ($safeArea->left < 0 || $safeArea->top < 0 || $safeArea->right > $this->screen->getWidth()
-      || $safeArea->bottom > $this->screen->getHeight()) {
+    if ($safeArea->left < $visibleArea->left || $safeArea->top < $visibleArea->top
+      || $safeArea->right > $visibleArea->right || $safeArea->bottom > $visibleArea->bottom) {
       throw new InvalidArgumentException('The camera safe area must fit its current viewport.');
     }
     $minX = ceil($subjects->right - $safeArea->right); $maxX = floor($subjects->left - $safeArea->left);

@@ -24,6 +24,8 @@ final class DialogueCameraFraming
   private array $notes = [];
   private ?object $scope = null;
   private ?FieldSpriteBounds $safeArea = null;
+  /** @var array{?FieldViewport, int, int}|array{} */
+  private array $viewportLayout = [];
   private string $diagnosticKey = '';
   /** @var array<string,array{position: \Ichiloto\Engine\Core\Vector2, sweep: ?FieldSpriteBounds}> */
   private array $samples = [];
@@ -40,7 +42,7 @@ final class DialogueCameraFraming
 
   public function reset(): void
   {
-    $this->clear(); $this->samples = []; $this->scope = null;
+    $this->clear(); $this->samples = []; $this->scope = null; $this->viewportLayout = [];
   }
 
   /** Capture the admitted cast before the first cinematic command can move it. */
@@ -108,6 +110,14 @@ final class DialogueCameraFraming
       return;
     }
     $view = $scene->getFieldViewport();
+    $screenWidth = $scene->camera->screen->getWidth();
+    $screenHeight = $scene->camera->screen->getHeight();
+    $layout = [$view, $screenWidth, $screenHeight];
+    if ($layout != $this->viewportLayout) {
+      $this->clear();
+      $this->viewportLayout = $layout;
+    }
+    $visible = $view?->getVisibleBounds() ?? new FieldSpriteBounds(0, 0, $screenWidth, $screenHeight);
     if ($view !== null && $scene->cinematicController->getCurrentFramingScope() !== null
       && array_any($subjects, static fn($subject): bool => $subject instanceof StagedActor && !$subject->isGraphicallyVisible)) {
       $this->reportFailure('A required cinematic framing subject has no visible graphical presentation.');
@@ -129,9 +139,9 @@ final class DialogueCameraFraming
     $hasOverlay = $scene->cinematicPresentation?->overlayPresentation !== null;
     if ($line === null && !$hasOverlay) {
       if ($scene->cinematicController->getCurrentFramingScope() !== null && $this->safeArea === null) {
-        $this->safeArea = new FieldSpriteBounds(0, 0, $scene->camera->screen->getWidth(), $scene->camera->screen->getHeight());
+        $this->safeArea = $visible;
       }
-      if ($this->safeArea !== null) { $this->frameSubjects($bounds, $this->safeArea); }
+      if ($this->safeArea !== null) { $this->frameSubjects($bounds, $this->safeArea, $visible); }
       return;
     }
     if ($line !== null) { $this->diagnosticKey .= ':' . $line->speaker; }
@@ -152,10 +162,11 @@ final class DialogueCameraFraming
       array_push($protected, ...($scene->cinematicPresentation?->getProtectedOverlayBounds(
         $width, $height, $root, $view->grid) ?? []));
       $tile = FieldViewport::TILE_SIZE * $view->zoom;
-      $offsetY = ($height - $view->rows * $tile) / 2;
       $safe = self::findSafeArea($protected, $width, $height);
-      $top = $safe === null ? 0 : max(0, ceil(($safe->y - $offsetY) / $tile));
-      $bottom = $safe === null ? 0 : min($view->rows, floor(($safe->y + $safe->height - $offsetY) / $tile));
+      // Keep the pixel edges. Camera::frameBounds chooses an integer origin
+      // against the real artwork bounds, which can straddle whole field rows.
+      $top = $safe === null ? 0 : ($safe->y - $view->surfaceOffsetY) / $tile;
+      $bottom = $safe === null ? 0 : ($safe->y + $safe->height - $view->surfaceOffsetY) / $tile;
 
     } else {
       // Terminal text footprints are independent of graphical assets and scale.
@@ -163,15 +174,14 @@ final class DialogueCameraFraming
         $rect = $owner->getPresentationBounds();
         return new CanvasRectangle($rect->getX(), $rect->getY(), $rect->getWidth(), $rect->getHeight());
       }, $owners);
-      $width = $scene->camera->screen->getWidth(); $height = $scene->camera->screen->getHeight();
-      array_push($protected, ...($scene->cinematicPresentation?->getProtectedOverlayBounds($width, $height) ?? []));
-      $safe = self::findSafeArea($protected, $width, $height);
+      array_push($protected, ...($scene->cinematicPresentation?->getProtectedOverlayBounds($screenWidth, $screenHeight) ?? []));
+      $safe = self::findSafeArea($protected, $screenWidth, $screenHeight);
       $top = $safe?->y ?? 0; $bottom = $safe === null ? 0 : $safe->y + $safe->height;
 
     }
     if ($bottom <= $top) { $this->reportFailure(); return; }
-    $this->safeArea = new FieldSpriteBounds(0, $top, $scene->camera->screen->getWidth(), $bottom);
-    $this->frameSubjects($bounds, $this->safeArea);
+    $this->safeArea = new FieldSpriteBounds($visible->left, $top, $visible->right, $bottom);
+    $this->frameSubjects($bounds, $this->safeArea, $visible);
   }
 
   private function getMotionSeconds(): float
@@ -179,10 +189,11 @@ final class DialogueCameraFraming
     return $this->scene->canPresentCameraMotion() ? self::TRANSITION_SECONDS : 0.0;
   }
 
-  private function frameSubjects(array $bounds, FieldSpriteBounds $safeArea): void
+  private function frameSubjects(array $bounds, FieldSpriteBounds $safeArea, FieldSpriteBounds $visible): void
   {
     $group = FieldSpriteBounds::join($bounds);
-    if ($group === null || !$this->scene->camera->frameBounds($this, $group, $safeArea, $this->getMotionSeconds())) {
+    if ($group === null || !$this->scene->camera->frameBounds($this, $group, $safeArea, $this->getMotionSeconds(),
+        visibleArea: $visible)) {
       $this->reportFailure();
     } else { $this->diagnostic = null; }
   }

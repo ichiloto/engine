@@ -1936,6 +1936,51 @@ it('keeps explicit described subjects clear of actual narration without requirin
     ->and($this->stage->find('distant')->isVisible)->toBeTrue();
 })->with([false, true]);
 
+it('fits raised field artwork into the visible partial row below compact narration', function (): void {
+  mkdir($this->assetRoot . '/Data/Presentation', 0777, true);
+  file_put_contents($this->assetRoot . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+    'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1',
+      'metrics' => ['cellHeight' => 32, 'panelPadding' => 28]],
+  ], true) . ';');
+  $grid = new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig(28, 15, 10, 20);
+  $view = new FieldViewport($grid);
+  new ReflectionProperty(GameScene::class, 'fieldViewport')->setValue($this->scene, $view);
+  new ReflectionProperty(GameScene::class, 'presentationContext')->setValue($this->scene,
+    new \Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext($grid, static fn() => true,
+      collectPresentations: fn() => $this->scene->getUI()->getActivePresentations(), assetRoot: $this->assetRoot));
+  $this->scene->camera->resizeViewport($view->columns, $view->rows);
+  new ReflectionProperty($this->npc, 'position')->setValue($this->npc, new Vector2(7, 10));
+  $this->scene->cinematicController->start(subjectOwnershipDefinition([
+    ['type' => 'framing', 'subjects' => [['kind' => 'npc', 'id' => 'guide']],
+      'commands' => [['type' => 'wait', 'seconds' => 10]]],
+  ], ['cast' => [['id' => 'guide-look', 'subject' => ['kind' => 'npc', 'id' => 'guide'],
+    'sprites2d' => characterSheetData()]]]));
+  $line = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot('', 'Narration.', 'Narration.',
+    false, 0, 1, false, \Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition::TOP, interactive: false);
+  $owner = new class($line) implements \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface,
+    \Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface {
+    public function __construct(private readonly \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot $line) {}
+    public function getDialogueSnapshot(): \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot { return $this->line; }
+    public function getPresentationBounds(): Rect { return new Rect(0, 0, 28, 12); }
+    public function getPresentationPriority(): \Ichiloto\Engine\UI\Enumerations\PresentationPriority {
+      return \Ichiloto\Engine\UI\Enumerations\PresentationPriority::MODAL;
+    }
+  };
+  $this->scene->getUI()->present($owner);
+  $this->scene->getUI()->commitPresentationChanges();
+  $subject = $this->stage->find('guide-look');
+  expect($subject->getGraphicalSpriteDefinition()->lift)->toBeGreaterThan(0);
+  $framing = new \Ichiloto\Engine\Cutscenes\Cinematics\DialogueCameraFraming($this->scene);
+  $framing->update();
+  $protected = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation($this->assetRoot)
+    ->getProtectedBounds($line, 280, 300);
+  $dialogueBottom = max(array_map(static fn($bounds): float => $bounds->y + $bounds->height, $protected));
+  $painted = \Ichiloto\Engine\Animations\Field\FieldSpriteBounds::findSurfaceBounds($subject, $this->scene->camera, $view);
+  expect($framing->diagnostic)->toBeNull()->and($this->scene->camera->isFramed)->toBeTrue()
+    ->and($painted->top)->toBeGreaterThanOrEqual($dialogueBottom)
+    ->and($painted->bottom)->toBeLessThanOrEqual(300);
+});
+
 it('restores nested framing phases through the real cooperative interpreter', function (): void {
   $this->scene->cinematicController->start(subjectOwnershipDefinition([
     ['type' => 'framing', 'subjects' => [['kind' => 'player']], 'commands' => [

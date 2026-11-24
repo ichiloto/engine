@@ -12,6 +12,8 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\UI\Presentation\ControlGlyphPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
 use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
 use Ichiloto\Engine\UI\Presentation\MenuRow;
@@ -19,7 +21,6 @@ use Ichiloto\Engine\UI\Presentation\MenuRowLayout;
 use Ichiloto\Engine\UI\Presentation\MenuRowKind;
 use Ichiloto\Engine\UI\Presentation\MenuTextWrap;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
-use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use RuntimeException;
 
 /** Pure composition: the modal still owns typing, pages, input and voice. */
@@ -36,9 +37,8 @@ final class DialogueCanvasPresentation
         $skit = $line->context->skitId !== null;
         $layout = new DialoguePageLayout($catalogue, $line->speaker, $line->context, $line->help, $width, $line->interactive);
         $margin = $layout->margin;
-        $padding = $m->panelPadding;
+        $padding = $layout->padding;
         $portrait = $layout->portrait;
-        $gutter = $layout->gutter;
         $geometry = new DialoguePageGeometry($layout, $catalogue, $line->speaker, $line->position, $width, $height, $skit);
         $textWidth = $geometry->textWidth;
         $columns = $layout->columns;
@@ -106,20 +106,25 @@ final class DialogueCanvasPresentation
                 required: true, cell: $cell);
             $view->renderControl('skit-advance', ActionHints::resolveControl('confirm'),
                 new CanvasRectangle($x + $half, $footerY, $half, $m->rowHeight), HorizontalAlignment::RIGHT, $cell);
+        } elseif ($layout->narrowField) {
+            self::renderCompactFieldControls($view, $theme, $line, new CanvasRectangle($margin + $padding, $footerY,
+                $width - 2 * ($margin + $padding), $m->rowHeight));
         } elseif ($line->interactive) {
             $view->surface('dialogue-footer-rule', new CanvasRectangle($x, $footerY - 8, $textWidth, 1), 'edge', 20);
-            $autoWidth = max(120, 9 * $m->cellWidth + 2 * $theme->rows->metrics->padding);
+            $autoWidth = $layout->autoButtonWidth;
             $view->rows('dialogue-auto', [new MenuRow('auto', 'Auto ' . ($line->auto ? 'On' : 'Off'), kind: MenuRowKind::BUTTON,
                 selected: $line->auto, showCursor: false)],
                 new MenuRowLayout(new CanvasRectangle($x, $footerY, $autoWidth, $m->rowHeight),
                     rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight));
             // Each control sits on the footer row's centre line, as the Auto button's label does.
             $autoHint = $view->renderControl('dialogue-auto-hint', ActionHints::resolveControl('dialogue_auto'),
-                new CanvasRectangle($x + $autoWidth + 8, $footerY, $textWidth - $autoWidth - 8, $m->rowHeight), HorizontalAlignment::LEFT);
+                new CanvasRectangle($x + $autoWidth + DialoguePageLayout::AUTO_HINT_GAP, $footerY,
+                    $textWidth - $autoWidth - DialoguePageLayout::AUTO_HINT_GAP, $m->rowHeight), HorizontalAlignment::LEFT);
             // The advance key alone: it reads the same while typing and when waiting, so nothing in the footer changes.
-            $advanceLeft = $autoHint->x + $autoHint->width + 16;
+            $advanceLeft = $autoHint->x + $autoHint->width + DialoguePageLayout::ADVANCE_GAP;
             $view->renderControl('dialogue-advance', ActionHints::resolveControl('confirm'),
-                new CanvasRectangle($advanceLeft, $footerY, $x + $textWidth - 24 - $advanceLeft, $m->rowHeight), HorizontalAlignment::RIGHT);
+                new CanvasRectangle($advanceLeft, $footerY, $x + $textWidth - DialoguePageLayout::READY_SPACE - $advanceLeft,
+                    $m->rowHeight), HorizontalAlignment::RIGHT);
         }
         if ($line->interactive && !$line->isPrinting) {
             $view->icon('dialogue-ready', 'navigation.continue', new CanvasRectangle($width - $margin - $padding - 18,
@@ -135,6 +140,25 @@ final class DialogueCanvasPresentation
         }
         return new PresentationCanvas($width, $height, [...$images, ...$canvas->images], textLayers: $text,
             protectedAreas: $canvas->getOverlayProtection(), labels: $labels);
+    }
+
+    private static function renderCompactFieldControls(MenuCanvas $view, MenuPresentationCatalog $theme,
+        DialogueSnapshot $line, CanvasRectangle $bounds): void
+    {
+        $m = $theme->metrics;
+        $cell = [max(1, intdiv($m->cellWidth * 3, 4)), min($m->cellHeight, $m->rowHeight, 16)];
+        $advance = ActionHints::resolveControl('confirm');
+        $controls = new ControlGlyphPresentation($theme, 'dialogue-advance', $cell);
+        $advanceWidth = $controls->measureCells($advance) * $cell[0];
+        $advanceX = $bounds->x + $bounds->width - DialoguePageLayout::READY_SPACE - $advanceWidth;
+        $hintWidth = $advanceX - DialoguePageLayout::AUTO_HINT_GAP - $bounds->x;
+        if ($hintWidth <= 0) { throw new RuntimeException('Dialogue controls require more reading width.'); }
+        $view->hints('dialogue-auto', [
+            new ActionHint('dialogue_auto', $line->auto ? 'Auto On' : 'Auto Off', ActionHints::resolveControl('dialogue_auto')),
+        ], new CanvasRectangle($bounds->x, $bounds->y + ($bounds->height - $cell[1]) / 2, $hintWidth, $cell[1]),
+            required: true, cell: $cell);
+        $view->renderControl('dialogue-advance', $advance,
+            new CanvasRectangle($advanceX, $bounds->y, $advanceWidth, $bounds->height), HorizontalAlignment::RIGHT, $cell);
     }
 
     /** Wrap the completed page once, then reveal its prefix without moving partially typed words. */
