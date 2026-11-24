@@ -158,8 +158,17 @@ it('uses the reduced camera for real field projection while UI and menu frames s
         ->onlyMethods(['getGame', 'getPresentationWorld'])->getStub();
     $scene->method('getGame')->willReturn($game);
     // The field cell size travels with its retained world.
-    $scene->method('getPresentationWorld')->willReturn(PresentationWorld::getFromLayers(
-        new MapLayerSet([new MapLayer('terrain', 0, false, 'terrain', implode("\n", array_fill(0, 40, str_repeat('.', 100))))])));
+    $world = PresentationWorld::getFromLayers(
+        new MapLayerSet([new MapLayer('terrain', 0, false, 'terrain', implode("\n", array_fill(0, 40, str_repeat('.', 100))))]));
+    $scene->method('getPresentationWorld')->willReturn($world);
+    $presentField = function () use ($scene, $transport, $world): array {
+        $this->runtime->present($scene);
+        // A world upload can span several frames. Service it as the game loop does during idle time.
+        $this->runtime->serviceWorldDeliveryUntil(hrtime(true) + 1_000_000_000);
+        $this->runtime->pump();
+        expect($this->runtime->presentedWorld)->toBe($world);
+        return RetainedFrameState::getLatestFrame($transport->sent);
+    };
     new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene,
         makeBareScene(\Ichiloto\Engine\Scenes\SceneManager::class));
     $camera = new Camera($scene, 135, 36, worldSpace: array_fill(0, 40, str_repeat('.', 100)));
@@ -185,9 +194,7 @@ it('uses the reduced camera for real field projection while UI and menu frames s
         $camera->renderMap();
         Console::withLayer('dialogue', fn() => Console::write('Still normal size', 10, 30), PresentationLayerPolicy::UI);
     });
-    $this->runtime->present($scene);
-    $frames = RetainedFrameState::replay($transport->sent);
-    $payload = $frames[array_key_last($frames)];
+    $payload = $presentField();
     expect($payload['viewport']['scale'])->toBe(2.0)
         ->and($payload['viewport']['worldId'])->toBe('map')
         ->and($payload['viewport']['textLayerIds'])->toBe(['world']);
@@ -196,23 +203,18 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     new ReflectionProperty(GameScene::class, 'state')->setValue($scene, makeBareScene(MainMenuState::class));
     Console::recomposeFrame(fn() => Console::write('Menu', 0, 0));
     $this->runtime->present($scene);
-    $frames = RetainedFrameState::replay($transport->sent);
-    expect($frames[array_key_last($frames)])->not->toHaveKey('viewport');
+    expect(RetainedFrameState::getLatestFrame($transport->sent))->not->toHaveKey('viewport');
     new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
     $scene->synchronizeFieldViewport();
     Console::recomposeFrame($camera->renderMap(...));
-    $this->runtime->present($scene);
-    $frames = RetainedFrameState::replay($transport->sent);
-    expect($frames[array_key_last($frames)]['viewport']['scale'])->toBe(2.0);
+    expect($presentField()['viewport']['scale'])->toBe(2.0);
     // At 1x a field cell is still 48 x 48 pixels, not a 10 x 20 text cell: the camera shows 28 x 15 cells
     // and the field text needs the viewport transform to be drawn at the field pitch.
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 1.0]]]));
     $scene->synchronizeFieldViewport();
     expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([28, 15]);
     Console::recomposeFrame($camera->renderMap(...));
-    $this->runtime->present($scene);
-    $frames = RetainedFrameState::replay($transport->sent);
-    $payload = $frames[array_key_last($frames)];
+    $payload = $presentField();
     expect($payload['viewport']['scale'] ?? null)->toBe(1.0)
         ->and($payload['viewport']['textLayerIds'] ?? null)->toBe(['world']);
 })->with([false, true]);
