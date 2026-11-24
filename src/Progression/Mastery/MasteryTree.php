@@ -29,6 +29,9 @@ use InvalidArgumentException;
  * foundation too. Nodes on a region's trunk build on nothing. A node's own
  * `requires` add to its chain step.
  *
+ * A skill the author keeps off the tree for now is listed under `held` with why (see MasteryHeldSkill); no node may
+ * teach it.
+ *
  * @package Ichiloto\Engine\Progression\Mastery
  */
 final readonly class MasteryTree
@@ -41,10 +44,12 @@ final readonly class MasteryTree
   /**
    * @param list<MasteryRegion> $regions The regions, in the order maps show them.
    * @param list<MasteryBranch> $branches The branches, in the order their regions list them.
+   * @param list<MasteryHeldSkill> $heldSkills The skills the author keeps off the tree for now.
    * @throws InvalidArgumentException When ids repeat, a branch's region, outer branch or a required node is unknown, a branch grows within
-   *   one of another region or within itself through others, a skill is taught twice, or requirements loop.
+   *   one of another region or within itself through others, a skill is taught twice, requirements loop, or a held skill
+   *   is held twice or taught by a node.
    */
-  public function __construct(public array $regions = [], array $branches = [])
+  public function __construct(public array $regions = [], array $branches = [], public array $heldSkills = [])
   {
     $regionIds = [];
     foreach ($regions as $region) {
@@ -94,6 +99,16 @@ final readonly class MasteryTree
         $nodes[$node->id] = $node;
       }
     }
+    $held = [];
+    foreach ($heldSkills as $heldSkill) {
+      if (isset($held[$heldSkill->skill])) {
+        throw new InvalidArgumentException(sprintf('The mastery tree holds %s twice.', $heldSkill->skill));
+      }
+      if (isset($skills[$heldSkill->skill])) {
+        throw new InvalidArgumentException(sprintf('The mastery tree holds %s, which node %s teaches.', $heldSkill->skill, $skills[$heldSkill->skill]));
+      }
+      $held[$heldSkill->skill] = true;
+    }
     $this->nodes = $nodes;
     $this->branches = $byBranch;
     foreach ($nodes as $node) {
@@ -112,7 +127,7 @@ final readonly class MasteryTree
    */
   public static function fromArray(array $data): self
   {
-    foreach (['regions', 'branches'] as $key) {
+    foreach (['regions', 'branches', 'held'] as $key) {
       if (array_key_exists($key, $data) && (! is_array($data[$key]) || ! array_is_list($data[$key]))) {
         throw new InvalidArgumentException(sprintf('The mastery tree\'s %s must be a list.', $key));
       }
@@ -121,7 +136,33 @@ final readonly class MasteryTree
     return new self(
       array_map(static fn(mixed $region): MasteryRegion => MasteryRegion::fromArray(is_array($region) ? $region : []), $data['regions'] ?? []),
       array_map(static fn(mixed $branch): MasteryBranch => MasteryBranch::fromArray(is_array($branch) ? $branch : []), $data['branches'] ?? []),
+      array_map(static fn(mixed $held): MasteryHeldSkill => MasteryHeldSkill::fromArray(is_array($held) ? $held : []), $data['held'] ?? []),
     );
+  }
+
+  /**
+   * What names a skill the project has neither as a skill nor as a draft, in words: a node teaching it, or a hold on it.
+   * Null when the tree names only the project's skills.
+   */
+  public function describeUnknownSkill(\Ichiloto\Engine\Entities\Skills\SkillCatalog $skills): ?string
+  {
+    $isKnown = static fn(string $skill): bool => $skills->findSkill($skill) !== null || $skills->findDraft($skill) !== null;
+    foreach ($this->nodes as $node) {
+      if ($node->skill !== null && ! $isKnown($node->skill)) {
+        return sprintf('Mastery node %s teaches unknown skill "%s".', $node->id, $node->skill);
+      }
+    }
+    foreach ($this->heldSkills as $held) {
+      if (! $isKnown($held->skill)) { return sprintf('The mastery tree holds unknown skill "%s".', $held->skill); }
+    }
+
+    return null;
+  }
+
+  /** Whether the author keeps this skill off the tree for now. */
+  public function isSkillHeld(string $skill): bool
+  {
+    return array_any($this->heldSkills, static fn(MasteryHeldSkill $held): bool => $held->skill === $skill);
   }
 
   /** @return list<string> The region ids, in map order. */

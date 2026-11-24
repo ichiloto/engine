@@ -2179,6 +2179,17 @@ class Console
   }
 
   /**
+   * Asks for an answer to a line of dialogue, shown as a list ({@see ModalManager::selectDialogueAnswer()}).
+   *
+   * @param string[] $answers The answers, in order.
+   * @return int The chosen answer's index, or -1 when cancelled.
+   */
+  public static function selectDialogueAnswer(string $message, array $answers, string $speaker = '', int $default = 0): int
+  {
+    return ModalManager::getInstance(self::$game)->selectDialogueAnswer($message, $answers, $speaker, $default);
+  }
+
+  /**
    * Shows a text dialog with the given message and title.
    *
    * @param string $message The message to show.

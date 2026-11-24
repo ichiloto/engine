@@ -13,6 +13,8 @@ use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
+use Ichiloto\Engine\Events\Interpreter\EventAnswerPresentationInterface;
+use Ichiloto\Engine\Events\Interpreter\EventCommandRequirements;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
@@ -70,11 +72,13 @@ use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
 use Ichiloto\Engine\Scenes\Game\States\ShopState;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 
-final class EventTestPresentation implements EventPresentationInterface
+final class EventTestPresentation implements EventAnswerPresentationInterface
 {
   public bool $complete = false;
   public ?int $choice = null;
   public ?string $kind = null;
+  /** @var array{string, list<string>, string}|null What the last prompt asked: its text, labels and title or speaker. */
+  public ?array $asked = null;
   public int $updates = 0;
   public int $resets = 0;
 
@@ -87,6 +91,14 @@ final class EventTestPresentation implements EventPresentationInterface
   public function beginChoice(string $prompt, array $options, string $title = ''): void
   {
     $this->kind = 'choice';
+    $this->asked = [$prompt, $options, $title];
+    $this->complete = false;
+  }
+
+  public function beginAnswer(string $prompt, array $answers, string $speaker = ''): void
+  {
+    $this->kind = 'answer';
+    $this->asked = [$prompt, $answers, $speaker];
     $this->complete = false;
   }
 
@@ -3927,4 +3939,47 @@ it('keeps an authored sound lane duration when sound is unavailable', function (
   $interpreter->update(.75);
   expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and($scene->gameState->hasStoryEvent('after-cue'))->toBeTrue();
+});
+
+// Andrew, 21 November 2026: each choice is authored "as an NPC answer (list) or a decision (buttons)".
+it('presents an authored answer as answers to whoever asks and an unmarked choice as a decision', function () {
+  [$scene, $interpreter, $presentation] = makeEventRuntime();
+  $options = [['text' => 'Sing', 'then' => [['type' => 'set_variable', 'name' => 'picked', 'value' => 'sing']]], ['text' => 'Decline']];
+
+  $interpreter->run([['type' => 'choice', 'kind' => 'answer', 'title' => 'Stagehand', 'prompt' => 'Fancy a turn?', 'options' => $options]]);
+  expect($presentation->kind)->toBe('answer')->and($presentation->asked)->toBe(['Fancy a turn?', ['Sing', 'Decline'], 'Stagehand']);
+  $presentation->resolveChoice(0);
+  $interpreter->update(0.016);
+  expect($scene->gameState->getVariable('picked'))->toBe('sing');
+
+  foreach ([['kind' => 'decision'], []] as $kind) {
+    $interpreter->run([['type' => 'choice', 'title' => 'The Two Bottles', 'prompt' => 'Which?', 'options' => $options, ...$kind]]);
+    expect($presentation->kind)->toBe('choice')->and($presentation->asked)->toBe(['Which?', ['Sing', 'Decline'], 'The Two Bottles']);
+    $presentation->resolveChoice(1);
+    $interpreter->update(0.016);
+  }
+});
+
+it('refuses an unknown choice kind before the script runs', function () {
+  expect(fn() => EventCommandRequirements::validateRuntimeRequirements(
+    [['type' => 'choice', 'kind' => 'question', 'options' => [['text' => 'Yes']]]], \Ichiloto\Engine\Events\Interpreter\EventScriptContext::FIELD))
+    ->toThrow(InvalidArgumentException::class, 'Unknown choice kind "question"');
+});
+
+it('refuses an answer on a presentation that cannot show answers as a list rather than showing buttons', function () {
+  $scene = new EventTestGameScene();
+  $decisionsOnly = new class implements EventPresentationInterface {
+    public ?string $begun = null;
+    public function beginText(string $text, string $speaker): void {}
+    public function beginChoice(string $prompt, array $options, string $title = ''): void { $this->begun = 'choice'; }
+    public function update(): void {}
+    public function render(): void {}
+    public function isComplete(): bool { return false; }
+    public function choiceResult(): ?int { return null; }
+    public function reset(): void {}
+  };
+  $interpreter = new EventInterpreter($scene, $decisionsOnly);
+  $scene->installInterpreter($interpreter);
+  $session = $interpreter->run([['type' => 'choice', 'kind' => 'answer', 'prompt' => 'Stay the night?', 'options' => [['text' => 'Yes']]]]);
+  expect($decisionsOnly->begun)->toBeNull()->and($session?->status)->toBe(EventExecutionStatus::FAILED);
 });

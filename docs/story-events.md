@@ -456,6 +456,31 @@ selected phase continues until the next explicit selection or cinematic cleanup.
 Editor group fields select the current cinematic's declared group ids. This
 supports disappearances, private exchanges and map travel within one timeline.
 
+### Choices: answers and decisions
+
+Andrew, 21 November 2026: each choice is marked "as an NPC answer (list) or a decision (buttons) in its data", set
+"by who is asking". A `choice` command takes an optional `kind`:
+
+```php
+['type' => 'choice', 'kind' => 'answer', 'title' => 'Stagehand', 'prompt' => 'Stage is free. Fancy a turn?',
+  'options' => [['text' => 'Sing', 'then' => [/* ... */]], ['text' => 'Decline']]],
+```
+
+- `answer`: the party answers whoever asks. The answers are a list with the cursor, titled with the `title`, which
+  names who is asking. A presentation that cannot show answers as a list refuses the choice.
+- `decision`: the party decides for itself. The choices are buttons. A `choice` with no `kind` is a decision, because
+  an event's choice prompt is a modal of the party's own.
+
+An inn's or bed's `confirmDialogue` takes the same `kind`. A confirmation is someone's line, so one with no `kind` is
+an answer, as an innkeeper's offer is. A question no one asks is authored as a decision, such as a bed's
+`['name' => '', 'text' => 'Go to bed?', 'kind' => 'decision']`. The kind is always authored, never read from a title
+or a speaker's name. An unknown `kind` is refused before the script runs.
+
+A confirmation also takes the choice its focus starts on, `defaultChoice`: `0` for Yes, `1` for No. Andrew, 21
+November 2026: it is "Authored per confirmation". Inns and beds start on Yes; a confirmation of something that
+cannot be undone starts on No. One with no `defaultChoice` starts on Yes, as confirmations always have. A starting
+choice that is not one of the choices is refused.
+
 ### Bed occupants and posture changes
 
 An ordinary map NPC can bind a bed world object and its resource's named logical

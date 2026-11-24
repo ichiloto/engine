@@ -279,7 +279,11 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         }
     }
 
-    /** An attached field host owns its optional assets; runtime scenes use their bound Game. */
+    /**
+     * The asset root the field's artwork resolves against. An attached host owns its assets, and null means it
+     * offers none; otherwise the scene's Game, which its scene manager holds, owns the project's root. A scene
+     * outside any Game and host has no assets to resolve.
+     */
     public function getFieldAssetRoot(): ?string
     {
         if ($this->presentationContext !== null) { return $this->presentationContext->assetRoot; }

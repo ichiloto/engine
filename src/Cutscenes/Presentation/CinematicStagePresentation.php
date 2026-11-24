@@ -78,7 +78,8 @@ final class CinematicStagePresentation
     return new PresentationCanvas($width, $height, $images, composites: $composites,
       protectedAreas: $hasBackground || $frame->cover['opacity'] > 0
         ? [new CanvasRectangle(0, 0, $width, $height)]
-        : array_map(static fn(CanvasImage $image): CanvasRectangle => $image->destination, $images));
+        // An image protects what it paints: a source retained behind the viewport clip paints only its visible part.
+        : array_map(static fn(CanvasImage $image): CanvasRectangle => $image->getPaintBounds(), $images));
   }
 
   /** A one-pixel solid surface avoids allocating a viewport-sized temporary raster. */

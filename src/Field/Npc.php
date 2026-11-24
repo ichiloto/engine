@@ -22,6 +22,7 @@ use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\ThicketSubjectInterface;
 use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use InvalidArgumentException;
 
 /**
  * A field NPC: a sprite on the map the player can talk to.
@@ -65,7 +66,8 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
   public private(set) ?NpcBed $bed = null;
   public private(set) ?NpcPlacementState $placementState = null;
   private ?NpcPlacementPose $placementPose = null;
-  private readonly string $assetRoot;
+  /** The project asset root its graphical presentation resolves against; null for an NPC drawn only as glyphs. */
+  private readonly ?string $assetRoot;
 
   public function bindPlacementState(NpcPlacementState $state): void
   {
@@ -156,7 +158,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
    * @param array<string, string> $directionalSprites Optional cardinal sprite glyphs.
    * @param CharacterSheet|null $graphicalSprites Optional RPG Maker character sheet.
    * @param string|null $graphicalSpriteId Map-scoped presentation identity, independent of script/save identity.
-   * @param string|null $assetRoot Project asset root for graphical preflight.
+   * @param string|null $assetRoot Project asset root for graphical preflight; required with graphical sprites.
    * @param bool $directionFix True keeps the heading when the player talks to it (RPG Maker's Direction Fix).
    * @param MovementHeading $facing The heading it stands with until something turns it.
    */
@@ -185,10 +187,10 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
       $this->face($facing->getDirection());
     }
     $this->graphicalSpriteId = $graphicalSpriteId ?? 'npc:object:' . spl_object_id($this);
-    $this->assetRoot = $assetRoot ?? getcwd() . '/assets';
+    $this->assetRoot = $assetRoot;
     $this->walkAnimation = new CharacterWalkAnimation();
     $this->graphicalAssetGuard = $graphicalSprites === null ? null : new CharacterSheetAssetGuard(
-      $assetRoot ?? getcwd() . '/assets', $this->graphicalSpriteId,
+      $assetRoot ?? throw new InvalidArgumentException('A graphical NPC needs its project asset root.'), $this->graphicalSpriteId,
     );
   }
 

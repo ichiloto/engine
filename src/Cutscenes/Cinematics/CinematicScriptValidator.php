@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Ichiloto\Engine\Messaging\Dialogue\ChoiceKind;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
@@ -234,6 +235,12 @@ final class CinematicScriptValidator
 
     if (! is_array($options) || ! array_is_list($options)) {
       throw self::failure($cinematicId, "$path/choice", 'options must be a list.');
+    }
+
+    try {
+      ChoiceKind::readAuthored($command['kind'] ?? null, ChoiceKind::DECISION);
+    } catch (\InvalidArgumentException $error) {
+      throw self::failure($cinematicId, "$path/choice", $error->getMessage());
     }
 
     foreach ($options as $index => $option) {

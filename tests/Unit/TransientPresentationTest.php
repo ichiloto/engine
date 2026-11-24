@@ -548,8 +548,15 @@ it('presents fresh direct modal select and typewriter content in a sparse modal 
   $layers = RetainedFrameState::replay($this->transport->sent)[0]['textLayers'];
   expect($layers)->toHaveCount(2)->and($layers[1]['layer'])->toBe(PresentationLayerPolicy::UI + PresentationPriority::MODAL->value)
     ->and(implode('', array_column($layers[1]['runs'], 'text')))->toContain($expected);
+  if ($kind === 'select') {
+    // The fresh focus is on Second: a modal button carries it in the selection colour, never a list cursor.
+    $run = fn(string $text) => array_find($layers[1]['runs'], fn(array $run) => trim($run['text']) === $text);
+    expect($run('Second')['foreground'])->not->toBeNull()
+      ->and($run('First')['foreground'] ?? null)->not->toBe($run('Second')['foreground'])
+      ->and(implode('', array_column($layers[1]['runs'], 'text')))->not->toContain('>');
+  }
   expect(Console::presentationSnapshot()->textLayers)->toHaveCount(1);
-})->with([['modal', 'Fresh modal'], ['select', '> Second'], ['text', 'Fresh dialogue']]);
+})->with([['modal', 'Fresh modal'], ['select', 'Second'], ['text', 'Fresh dialogue']]);
 
 it('presents final animation callback state after background updates without another simulation tick', function () {
   $order = [];

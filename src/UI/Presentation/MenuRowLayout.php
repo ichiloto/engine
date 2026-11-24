@@ -24,9 +24,11 @@ final readonly class MenuRowLayout
     public int $cellHeight = 24,
     public bool $wrapText = false,
     public bool $ellipsis = false,
+    /** Space between consecutive rows, which stacked buttons keep apart; list rows touch. */
+    public int $rowGap = 0,
   ) {
     new RendererGridConfig(1, 1, $cellWidth, $cellHeight);
-    if ($rowHeight < $cellHeight || $rowHeight > RendererGridConfig::MAX_CELL_SIZE || !array_is_list($columns)) {
+    if ($rowHeight < $cellHeight || $rowHeight > RendererGridConfig::MAX_CELL_SIZE || !array_is_list($columns) || $rowGap < 0) {
       throw new InvalidArgumentException('Menu row geometry must fit its Canvas text height.');
     }
     $copy = [];
@@ -39,7 +41,7 @@ final readonly class MenuRowLayout
 
   public function capacity(): int
   {
-    return (int)floor($this->viewport->height / $this->rowHeight);
+    return (int)floor(($this->viewport->height + $this->rowGap) / ($this->rowHeight + $this->rowGap));
   }
 
   /**

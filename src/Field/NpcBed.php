@@ -39,7 +39,7 @@ final class NpcBed
     public function __construct(public readonly NpcBedDefinition $definition, private readonly Npc $npc,
         public readonly WorldObjectDefinition $objectDefinition, public readonly WorldObjectAttachment $attachment,
         private readonly Vector2 $standingExit, private readonly GameState $state, public readonly string $mapId,
-        private readonly string $assetRoot, private readonly GameScene $scene)
+        private readonly ?string $assetRoot, private readonly GameScene $scene)
     {
         if ($npc->id === null) { throw new RuntimeException('An NPC with a bed requires a stable id.'); }
         $this->stateKey = 'npc-bed:' . rawurlencode($mapId) . ':' . rawurlencode($npc->id);
@@ -81,12 +81,18 @@ final class NpcBed
         }
     }
 
+    /** A bed's artwork resolves against the field's asset root, which a bed without artwork is not given. */
+    private function requireAssetRoot(): string
+    {
+        return $this->assetRoot ?? throw new RuntimeException('Bed artwork for ' . $this->stateKey . ' needs the field\'s asset root.');
+    }
+
     public function beginTransition(BedPosture $target): void
     {
         if ($this->transitionActive) { throw new RuntimeException('Only one posture transition may own an NPC.'); }
         $this->transitionActive = true;
         $definition = $this->definition->transitions[$target->value] ?? null;
-        $this->transition = $definition === null ? null : new FieldSpriteRole($definition, $this->assetRoot, 'Bed transition ' . $this->stateKey);
+        $this->transition = $definition === null ? null : new FieldSpriteRole($definition, $this->requireAssetRoot(), 'Bed transition ' . $this->stateKey);
     }
 
     public function advanceTransition(float $seconds): void { $this->transition?->advance($seconds); }
@@ -115,7 +121,7 @@ final class NpcBed
             $this->pose?->release();
             $this->selectedPosture = $this->posture;
             $definition = $this->definition->poses[$this->posture->value] ?? null;
-            $this->pose = $definition === null ? null : new FieldSpriteRole($definition, $this->assetRoot, 'Bed occupant ' . $this->stateKey);
+            $this->pose = $definition === null ? null : new FieldSpriteRole($definition, $this->requireAssetRoot(), 'Bed occupant ' . $this->stateKey);
         }
         return $this->pose?->getFrame(new PresentationSpritePivot(), $this->npc->heading);
     }

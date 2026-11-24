@@ -39,10 +39,10 @@ final class MenuLayout
   }
 
   public static function getButtonLayout(MenuPresentationCatalog $theme, CanvasRectangle $bounds,
-    ?int $preferredHeight = null, bool $wrapText = false): MenuRowLayout
+    ?int $preferredHeight = null, bool $wrapText = false, int $rowGap = 0): MenuRowLayout
   {
     return new MenuRowLayout($bounds, rowHeight: min((int)floor($bounds->height), self::getButtonHeight($theme, $preferredHeight)),
       cellWidth: $theme->metrics->getButtonCellWidth(), cellHeight: $theme->metrics->getButtonCellHeight(),
-      wrapText: $wrapText);
+      wrapText: $wrapText, rowGap: $rowGap);
   }
 }

@@ -82,11 +82,8 @@ final class MasteryCatalog
       try {
         $data = require $settings;
         $read = MasteryTree::fromArray(is_array($data) ? $data : []);
-        foreach ($read->nodes as $node) {
-          if ($skills !== null && $node->skill !== null && $skills->findSkill($node->skill) === null && $skills->findDraft($node->skill) === null) {
-            throw new InvalidArgumentException(sprintf('node %s teaches unknown skill %s', $node->id, $node->skill));
-          }
-        }
+        $unknown = $skills === null ? null : $read->describeUnknownSkill($skills);
+        if ($unknown !== null) { throw new InvalidArgumentException($unknown); }
         $tree = $read;
       } catch (Throwable $error) {
         $problems[] = sprintf('%s: %s', self::SETTINGS, $error->getMessage());

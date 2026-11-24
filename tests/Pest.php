@@ -18,6 +18,7 @@ require_once __DIR__ . '/Support/PassiveGame.php';
 require_once __DIR__ . '/Support/GameLoaderFixtures.php';
 require_once __DIR__ . '/Support/BattleStageFixtures.php';
 require_once __DIR__ . '/Support/AudioTestDoubles.php';
+require_once __DIR__ . '/Support/Rendering/RetainedTestPresentation.php';
 
 /*
 |--------------------------------------------------------------------------
@@ -375,6 +376,14 @@ function makeFieldAudioScene(): array
 function makeBareScene(string $sceneClass): object
 {
   return (new ReflectionClass($sceneClass))->newInstanceWithoutConstructor();
+}
+
+/** A scene manager holding a test scene's Game, as every played scene's manager does: the scene reaches its Game, and its field the project's assets, through it. */
+function makeTestSceneManager(\Ichiloto\Engine\Core\Game $game): \Ichiloto\Engine\Scenes\SceneManager
+{
+  return new class($game) extends \Ichiloto\Engine\Scenes\SceneManager {
+    public function __construct(\Ichiloto\Engine\Core\Game $game) { $this->game = $game; }
+  };
 }
 
 function putSceneAudioConfig(array $values): void

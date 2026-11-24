@@ -73,7 +73,7 @@ final class MenuRowPainter
       }
       $view->row($id . '-' . $row->id, $row, $bounds, $layout, $skin, $icons, $time, $reducedMotion, $recordBounds);
       $areas[] = $recordBounds ?? $bounds;
-      $y += $rowHeight;
+      $y += $rowHeight + $layout->rowGap;
     }
     return new PresentationCanvas($width, $height, $view->images, textLayers: $view->text, protectedAreas: $areas);
   }
