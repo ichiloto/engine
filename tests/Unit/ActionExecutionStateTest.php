@@ -35,6 +35,7 @@ use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedBattleConfig;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -376,19 +377,18 @@ it('replaces scene-owned summon assets between battles even when the action stat
     chdir($root);
     file_put_contents($data, "<?php return ['id' => 'call', 'name' => 'Before', 'linkedActionId' => 'Call'];");
     file_put_contents($timeline, "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
-    [$engine] = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
+    [$engine, $context, $screen] = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
     $state = $engine->actionExecutionState;
     $resolve = new ReflectionMethod(ActionExecutionState::class, 'resolveSummonCutscene');
     $action = new SkillBattleAction(new SpecialSkill('Call', '', '', 0, 0));
-    BattleCommandCatalog::beginBattle();
+    $first = $engine->battleConfig;
     expect($resolve->invoke($state, $action)?->defaults['name'])->toBe('Before');
     file_put_contents($data, "<?php return ['id' => 'call', 'name' => 'After', 'linkedActionId' => 'Call'];");
     expect($resolve->invoke($state, $action)?->defaults['name'])->toBe('Before');
-    BattleCommandCatalog::endBattle();
-    BattleCommandCatalog::beginBattle();
-    expect($resolve->invoke($state, $action)?->defaults['name'])->toBe('After');
+    $engine->configure(new TurnBasedBattleConfig($context->party, $context->troop, $screen));
+    expect($first->getContent())->toBeNull()
+      ->and($resolve->invoke($state, $action)?->defaults['name'])->toBe('After');
   } finally {
-    BattleCommandCatalog::endBattle();
     chdir($previous);
     unlink($data); unlink($timeline);
     rmdir($directory);

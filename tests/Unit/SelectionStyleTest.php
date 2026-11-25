@@ -28,8 +28,11 @@ it('preserves the highlight hue and changes its intensity for persistent marked 
     ->and(TerminalText::stripAnsi($marked))->toBe('Choice')
     ->and($marked)->not->toContain("\033[5m")
     ->and($marked)->toEndWith(Color::RESET->value);
-})->with(array_map(static fn(Color $color): array => [$color],
-  array_filter(Color::cases(), static fn(Color $color): bool => $color !== Color::RESET)));
+})->with(array_column(
+  array_filter(Color::cases(), static fn(Color $color): bool => $color !== Color::RESET),
+  null,
+  'name',
+));
 
 it('resolves marked colours from current menu settings and the existing battle fallback', function () {
   foreach ([['menu' => ['selection_color' => 'light cyan']], ['battle' => ['selection_color' => Color::LIGHT_CYAN->value]]] as $ui) {

@@ -40,6 +40,7 @@ class QuestManager
   /** @var \WeakReference<self>|null */
   private ?\WeakReference $previousManager = null;
   private bool $released = false;
+  private ?GameState $worldState = null;
 
   public bool $isReleased { get => $this->released; }
 
@@ -61,11 +62,19 @@ class QuestManager
       }
     }
     $inventory = $this->gameScene->party?->inventory ?? null;
+    $previousWorldOwner = null;
+    $previousInventoryOwner = null;
     $previous = $this->previousManager?->get();
-    while ($previous !== null && ($previous->isReleased || ($previous->gameScene->party?->inventory ?? null) !== $inventory)) {
+    while ($previous !== null) {
+      if (!$previous->isReleased) {
+        if ($previous->worldState === $this->worldState) { $previousWorldOwner ??= $previous; }
+        if (($previous->gameScene->party?->inventory ?? null) === $inventory) { $previousInventoryOwner ??= $previous; }
+      }
+      if ($previousWorldOwner !== null && $previousInventoryOwner !== null) { break; }
       $previous = $previous->previousManager?->get();
     }
-    $inventory?->releaseQuestManager($this, $previous);
+    $this->worldState?->releaseQuestManager($this, $previousWorldOwner);
+    $inventory?->releaseQuestManager($this, $previousInventoryOwner);
     $this->previousManager = null;
     $this->released = true;
   }
@@ -95,11 +104,13 @@ class QuestManager
     $this->quests = self::loadQuestDefinitions($assetRoot);
     $this->previousManager = self::$current === null ? null : \WeakReference::create(self::$current);
     self::$current = $this;
+    $this->worldState = $this->gameScene->gameState;
+    $this->worldState->bindQuestManager($this);
     $this->gameScene->party?->inventory?->bindQuestManager($this);
   }
 
   /**
-   * Returns the manager bound to the running game scene, if any.
+   * Returns the most recently bound manager for legacy callers. Runtime operations use their campaign state.
    *
    * @return QuestManager|null The current manager.
    */
@@ -592,7 +603,7 @@ class QuestManager
     $experience = max(0, intval($quest->rewards['experience'] ?? 0));
     $skillPoints = max(0, intval($quest->rewards['skillPoints'] ?? 0));
     $progressionResults = $experience > 0 || $skillPoints > 0
-      ? ExperienceAwarder::awardParty($party, $experience, $skillPoints)
+      ? ExperienceAwarder::awardParty($party, $experience, $skillPoints, $this->game->getBoundGameLoader()?->getProgressionSettings())
       : [];
 
     $itemReferences = array_values(array_filter(

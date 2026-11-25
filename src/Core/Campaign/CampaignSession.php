@@ -22,6 +22,7 @@ use Ichiloto\Engine\Progression\TutorialCatalog;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialProjectReferences;
 use Ichiloto\Engine\Progression\TutorialStartContext;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Throwable;
@@ -51,7 +52,8 @@ final class CampaignSession implements CampaignContextInterface
         public readonly string $assetRoot,
         private readonly ProjectStateScope $projectState,
     ) {
-        $this->gameState = GameState::fromArray($config->gameState);
+        $this->gameState = GameState::fromArray($config->gameState,
+            $game->getWorldAbilities() ?? WorldAbilityCatalog::fromProject($assetRoot));
         $this->party = $config->party;
         $this->currentMapId = $config->mapId;
     }
@@ -78,7 +80,7 @@ final class CampaignSession implements CampaignContextInterface
     {
         $tutorials = TutorialCatalog::fromProject($this->assetRoot);
         if ($tutorials->definitions !== []) {
-            (new TutorialProjectReferences($this->assetRoot))->validateCatalog($tutorials);
+            new TutorialProjectReferences($this->assetRoot, $this->game->getProjectScriptCommands())->validateCatalog($tutorials);
             $this->tutorialDirector = new TutorialDirector($tutorials, $this->gameState, $this->game->getTutorialStartConditions());
         }
         $this->party->assertSummonAssignments((new SummonCutsceneLibrary(

@@ -13,6 +13,8 @@ use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Progression\PowerUnlockShowcase;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 
 function crisisTestData(array $overrides = []): array
 {
@@ -227,4 +229,50 @@ it('reports missing skill references against the source configuration', function
   $ability = CrisisAbility::fromArray(crisisTestData());
   expect(fn() => $ability->validateSkills(SkillCatalog::fromSkills([])))
     ->toThrow(InvalidArgumentException::class, 'Test finisher');
+});
+
+it('uses the actor project for the showcase, battle choice and queued crisis check', function () {
+  $owner = createTestDirectory('crisis-actor-project');
+  $other = createTestDirectory('crisis-other-project');
+  writeSkillRecords($owner, new SpecialSkill('Test finisher', 'The actor project technique.', '', 0, 0),
+    new SpecialSkill('Second form', 'The actor project second technique.', '', 0, 0));
+  writeSkillRecords($other, new SpecialSkill('Test finisher', 'The other project technique.', '', 0, 0));
+  file_put_contents($owner . '/assets/Data/super-moves.php', '<?php return ' . var_export([
+    ['id' => 'test-surge', ...crisisTestData(['variants' => [
+      ['skill' => 'Test finisher', 'conditions' => [['type' => 'variable', 'name' => 'form', 'value' => 'first']]],
+      ['skill' => 'Second form', 'conditions' => [['type' => 'variable', 'name' => 'form', 'value' => 'second']]],
+    ]])],
+  ], true) . ';');
+
+  $previous = getcwd();
+  try {
+    chdir($other);
+    $actor = ActorDefinition::fromArray([
+      'id' => 'synthetic-actor', 'name' => 'Test actor', 'currentExp' => 1,
+      'stats' => crisisTestActor()->stats->jsonSerialize(), 'superMove' => 'test-surge',
+    ])->createCharacter(assetRoot: $owner . '/assets');
+    $party = new Party();
+    $party->addMember($actor);
+    $state = new GameState();
+    $state->setVariable('form', 'first');
+    $actor->stats->currentHp = 100;
+    $notice = PowerUnlockShowcase::getNotices(new WorldAbilityCatalog(), [], $state, $party, $actor,
+      includeCrisis: true)[0];
+    expect($notice->title)->toBe('Test finisher')
+      ->and($notice->message)->toBe('The actor project technique.')
+      ->and(BattleCommandCatalog::getAvailableCrisisOption($actor, $party, $state))->toBeNull();
+
+    $actor->stats->currentHp = 9;
+    $option = BattleCommandCatalog::getAvailableCrisisOption($actor, $party, $state);
+    expect($option?->action)->toBeInstanceOf(CrisisSkillBattleAction::class)
+      ->and($option->action->skill->description)->toBe($notice->message)
+      ->and($option->action->getExecutionRefusal($actor))->toBeNull();
+
+    $state->setVariable('form', 'second');
+    expect($option->action->getExecutionRefusal($actor))->not->toBeNull()
+      ->and(BattleCommandCatalog::getAvailableCrisisOption($actor, $party, $state)?->label)->toBe('Second form')
+      ->and($actor->toArray())->not->toHaveKey('projectAssetRoot');
+  } finally {
+    chdir($previous);
+  }
 });

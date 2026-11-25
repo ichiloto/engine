@@ -8,7 +8,6 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\EventManager;
-use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -136,7 +135,7 @@ function createFieldHudLifecycleOutcome(): SceneExcursionOutcome
 beforeEach(function () {
     $this->statics = [];
     foreach ([Console::class, ConfigStore::class, InputManager::class, EventManager::class, UIManager::class,
-        ModalManager::class, MapManager::class, QuestManager::class, AchievementManager::class,
+        ModalManager::class, QuestManager::class, AchievementManager::class,
         Time::class, Debug::class] as $class) {
         $this->statics[$class] = new ReflectionClass($class)->getStaticProperties();
     }
@@ -147,8 +146,6 @@ beforeEach(function () {
     putSceneAudioConfig(['audio' => ['music' => false, 'sfx' => false], 'ui' => ['hud' => ['location' => true]]]);
     ConfigStore::put(PlaySettings::class, new PlaySettings(['screenDimensions' => ['width' => 80, 'height' => 24]]));
     ConfigStore::put(KnowledgeCatalog::class, KnowledgeCatalog::empty());
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
-    new ReflectionProperty(MapManager::class, 'instance')->setValue(null, null);
     InputManager::setInputSource(new class implements InputSourceInterface {
         public function poll(): ?KeyCode { return null; }
         public function reset(bool $drainBufferedInput = false): void {}

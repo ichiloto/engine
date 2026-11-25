@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Core;
 
-use Ichiloto\Engine\Quests\QuestManager;
 use InvalidArgumentException;
 
 /**
@@ -58,7 +57,7 @@ final class WorldStateWriter
         'variable' => strval($set['op'] ?? 'set') === 'add'
           ? $gameState->addToVariable($name, is_numeric($set['value'] ?? 1) ? $set['value'] + 0 : 1)
           : $gameState->setVariable($name, $set['value'] ?? 0),
-        'quest' => QuestManager::current()?->acceptQuest($name, ($set['confirm'] ?? true) !== false),
+        'quest' => $gameState->getQuestManager()?->acceptQuest($name, ($set['confirm'] ?? true) !== false),
         default => null,
       };
     }

@@ -29,10 +29,10 @@ final readonly class InitialEquipment
     return new self($items, $source);
   }
 
-  public function equipCharacter(Character $character): void
+  public function equipCharacter(Character $character, ?ItemStore $store = null): void
   {
     if ($this->items === []) { return; }
-    $store = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
+    $store ??= ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
     if (!$store instanceof ItemStore) { throw new InvalidArgumentException("{$this->source} initialEquipment requires the project item catalogue."); }
     foreach ($this->items as $slotId => $reference) {
       $item = $store->instantiate($reference, context: "equipping {$this->source} initial {$slotId}")[0];

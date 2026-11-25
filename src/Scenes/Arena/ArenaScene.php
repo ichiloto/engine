@@ -33,11 +33,7 @@ use Ichiloto\Engine\UI\Presentation\ToolColor;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\UI\Windows\BorderPacks\SlimBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
-use Ichiloto\Engine\Util\Stores\ActorStore;
-use Ichiloto\Engine\Util\Stores\EnemyStore;
-use Ichiloto\Engine\Util\Stores\ItemStore;
 use Throwable;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Navigation\{ToolNavigationAction, ToolNavigationBindings};
@@ -280,11 +276,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     }
 
     try {
-      $this->getGame()->sceneManager->loadBattleScene(
-        $setup->createParty(ConfigStore::get(ActorStore::class), ConfigStore::get(ItemStore::class)),
-        Troop::fromArray($data),
-        extraSettings: $setup->getBattleSettings(),
-      );
+      $this->startFight($setup, $data);
     } catch (Throwable $exception) {
       Debug::error(sprintf('The arena could not start a battle: %s', $exception->getMessage()));
     }
@@ -301,14 +293,21 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     }
 
     try {
-      $this->getGame()->sceneManager->loadBattleScene(
-        $setup->createParty(ConfigStore::get(ActorStore::class), ConfigStore::get(ItemStore::class)),
-        Troop::fromArray($troop->toTroopData(self::TEST_TROOP_NAME)),
-        extraSettings: $setup->getBattleSettings(),
-      );
+      $this->startFight($setup, $troop->toTroopData(self::TEST_TROOP_NAME));
     } catch (Throwable $exception) {
       Debug::error(sprintf('The arena could not start a battle with the test troop: %s', $exception->getMessage()));
     }
+  }
+
+  private function startFight(BattleTestSetup $setup, array $troopData): void
+  {
+    $game = $this->getGame();
+    $loader = $game->getGameLoader();
+    $game->sceneManager->loadBattleScene(
+      $setup->createParty($loader->actorStore, $loader->itemStore, assetRoot: $loader->assetRoot),
+      $loader->createTroop($troopData),
+      extraSettings: $setup->getBattleSettings($loader->getWorldAbilities()),
+    );
   }
 
   /** Keeps the composed test troop as one of the game's troops, through the keeper, and lists the troops again. */
@@ -338,7 +337,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
    */
   protected function createComposer(): ?TestTroopComposer
   {
-    $enemies = ConfigStore::has(EnemyStore::class) ? ConfigStore::get(EnemyStore::class)->all() : [];
+    $enemies = $this->getGame()->getGameLoader()->getEnemyStore()->all();
     if ($enemies === []) {
       return null;
     }
@@ -351,8 +350,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       return [(int) $place->x, (int) $place->y];
     };
     $catalog = $this->battleCatalog;
-    $assetRoot = $this->getGame()->getRendererRuntime()?->getAssetRoot();
-    $placesFor = $catalog?->ui === null || $assetRoot === null ? null
+    $assetRoot = $this->getGame()->getProjectAssetRoot();
+    $placesFor = $catalog?->ui === null ? null
       : static fn(BattleTestTroop $troop): array => BattleFormationLayout::arrangeTroop($catalog, $troop->getEnemies(),
         $troop->getPlaces(), $assetRoot);
 
@@ -369,13 +368,10 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $this->troopData = [];
     $this->troops = [];
 
-    foreach ((array) asset('Data/troops.php', true) as $data) {
-      if (! is_array($data)) {
-        continue;
-      }
-
+    $loader = $this->getGame()->getGameLoader();
+    foreach ($loader->loadTroopData() as $data) {
       try {
-        $this->troops[] = Troop::fromArray($data);
+        $this->troops[] = $loader->createTroop($data);
         $this->troopData[] = $data;
       } catch (Throwable $exception) {
         Debug::warn(sprintf('The arena skipped a troop: %s', $exception->getMessage()));
@@ -395,14 +391,18 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     $this->loadArenaChoices();
 
     try {
-      $actors = ConfigStore::get(ActorStore::class);
-      $choices = new BattleTestChoices($actors, ConfigStore::get(ItemStore::class), BattleTestLoadoutCatalog::getProjectCatalog());
+      $game = $this->getGame();
+      $loader = $game->getGameLoader();
+      $actors = $loader->actorStore;
+      $choices = new BattleTestChoices($actors, $loader->itemStore, BattleTestLoadoutCatalog::getProjectCatalog($loader->assetRoot),
+        $loader->assetRoot);
       $this->battleTestChoices = $choices;
-      $this->projectBattleTest = $this->getGame()->consumeLaunchBattleTest() ?? ProjectBattleTest::loadFromProject();
+      $systemData = $loader->loadSystemData();
+      $this->projectBattleTest = $game->consumeLaunchBattleTest() ?? ProjectBattleTest::fromSystemData($systemData);
       $setup = $this->getGame()->options[self::SETUP_OPTION] ?? null;
       $setup = $setup instanceof BattleTestSetup
         ? $setup
-        : $this->projectBattleTest->createSetup($actors);
+        : $loader->createBattleTestSetup($this->projectBattleTest, $systemData);
       $keeper = $this->getGame()->options[self::KEEPER_OPTION] ?? null;
       $this->troopKeeper = $keeper instanceof BattleTestTroopKeeper ? $keeper : $this->getGame()->consumeLaunchTroopKeeper();
 
@@ -447,7 +447,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     }
 
     try {
-      $catalog = BattlePresentationCatalog::load($runtime->getAssetRoot());
+      $catalog = BattlePresentationCatalog::load($this->getGame()->getProjectAssetRoot());
     } catch (Throwable $exception) {
       Debug::error(sprintf('The arena could not read the battle presentation: %s', $exception->getMessage()));
 
@@ -467,7 +467,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
   protected function refreshPreview(): void
   {
     try {
-      $this->previewParty = $this->editor?->setup->createParty(ConfigStore::get(ActorStore::class), ConfigStore::get(ItemStore::class));
+      $loader = $this->getGame()->getGameLoader();
+      $this->previewParty = $this->editor?->setup->createParty($loader->actorStore, $loader->itemStore, assetRoot: $loader->assetRoot);
     } catch (Throwable $exception) {
       Debug::error(sprintf('The arena could not build its party: %s', $exception->getMessage()));
       $this->previewParty = null;
@@ -722,7 +723,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       $outlined = $focus !== ArenaSetupEditor::COMPOSER ? null
         : ($composer?->focus === TestTroopComposer::ENEMIES ? count($composer->troop->members) : $composer?->memberIndex);
       ['stage' => $stage, 'issue' => $issue] = $this->composeStage($runtime->supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
-        $runtime->getAssetRoot(), $composing);
+        $this->getGame()->getProjectAssetRoot(), $composing);
 
       return BattleTestMenuPresentation::compose($this->toolMenuTheme, $this->describeList(),
         $focus !== ArenaSetupEditor::PARTY, $this->listPartyPanelRows(),
@@ -784,9 +785,9 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
       }
     }
     // Each enemy stands where its habitat lives, as in battle.
-    $store = ConfigStore::has(EnemyStore::class) ? ConfigStore::get(EnemyStore::class) : null;
+    $store = $this->getGame()->getGameLoader()->getEnemyStore();
     $enemies = array_map(static fn(array $entry): array => [...$entry,
-      'habitat' => $store?->all()[$entry['enemyId']]->habitat ?? EnemyHabitat::LAND], $enemies);
+      'habitat' => $store->all()[$entry['enemyId']]->habitat ?? EnemyHabitat::LAND], $enemies);
     $party = array_map(static fn(BattleTestMember $member): string => $member->actorId,
       array_slice($editor->setup->members, 0, $editor->setup->battleSize));
     $key = serialize([$enemies, $party, $editor->setup->arena]);
@@ -866,7 +867,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     if ($editor === null || $member === null) {
       return new BattleTestMenuList('Member', [], null);
     }
-    $items = ConfigStore::get(ItemStore::class);
+    $items = $this->getGame()->getGameLoader()->itemStore;
+    $assetRoot = $this->getGame()->getProjectAssetRoot();
     $rows = [];
     foreach ($editor->fields as $field) {
       $rows[] = match (true) {
@@ -879,7 +881,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
         $field === 'form' => ['Form', [sprintf('< %s >', array_find($this->battleTestChoices?->getFormChoices($member->actorId) ?? [],
           fn(array $choice): bool => $editor->isChoiceSelected($choice['id']))['technique'] ?? 'None')]],
         $field === 'states' => ['States', [$member->states === [] ? '(None)'
-          : implode(', ', array_map(static fn(string $id): string => StateRegistry::get($id)?->name ?? $id, $member->states))]],
+          : implode(', ', array_map(static fn(string $id): string => StateRegistry::get($id, $assetRoot)?->name ?? $id, $member->states))]],
         $field === 'remove' => ['Remove from the party', ['']],
         $field === 'commands' => ['Commands', [$member->commands === null ? '(Normal)' : implode(', ', array_column($member->commands, 'value'))]],
         $field === 'skills' || $field === 'magic' => [ucfirst($field), ['Choose extra learned actions']],
@@ -920,7 +922,8 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
     if ($ability->isActive($character)) {
       try {
         // The same story facts the fight is given: the members' chosen forms, or none.
-        $skill = $ability->getAvailableSkill($character, $this->editor?->setup->createWorldState(), $this->previewParty);
+        $state = $this->editor?->setup->createWorldState($this->getGame()->getWorldAbilities());
+        $skill = $ability->getAvailableSkill($character, $state, $this->previewParty);
       } catch (Throwable $error) {
         return sprintf('%s cannot be used: %s', $ability->name, $error->getMessage());
       }
@@ -1000,7 +1003,7 @@ class ArenaScene extends AbstractScene implements CanvasProviderInterface
 
   protected function getActorName(string $actorId): string
   {
-    return ConfigStore::get(ActorStore::class)->get($actorId)?->data()['name'] ?? $actorId;
+    return $this->getGame()->getGameLoader()->actorStore->get($actorId)?->data()['name'] ?? $actorId;
   }
 
   /**

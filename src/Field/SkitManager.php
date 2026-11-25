@@ -11,9 +11,7 @@ use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
-use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
-use Ichiloto\Engine\Util\Stores\ActorStore;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
@@ -61,17 +59,17 @@ class SkitManager
    */
   public function __construct(protected GameScene $gameScene)
   {
-    $this->skits = self::loadSkits();
+    $this->skits = self::loadSkits($gameScene->getGame()->getProjectAssetRoot());
   }
 
   /**
-   * Loads every authored skit.
+   * Loads every authored skit. Standalone callers may supply a project asset root.
    *
    * @return array<string, array<string, mixed>> The skits, keyed by id.
    */
-  public static function loadSkits(): array
+  public static function loadSkits(?string $assetRoot = null): array
   {
-    $directory = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Data', 'Skits');
+    $directory = Path::join($assetRoot ?? Path::join(Path::getCurrentWorkingDirectory(), 'assets'), 'Data', 'Skits');
 
     if (! is_dir($directory)) {
       return [];
@@ -169,7 +167,7 @@ class SkitManager
         } finally {
           $this->isPlaying = false;
         }
-      });
+      }, game: $game);
     $this->isPlaying = true;
     return $operation;
   }
@@ -178,15 +176,12 @@ class SkitManager
   {
     $definition = SkitPlaybackDefinition::fromArray($skit, "Skit {$skitId}");
     $sounds = $definition->sounds;
-    $speed = is_numeric($skit['speed'] ?? null) ? floatval($skit['speed']) : dialogue_speed();
-    $assets = Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+    $game = $this->gameScene->getGame();
+    $speed = is_numeric($skit['speed'] ?? null) ? floatval($skit['speed']) : dialogue_speed($game);
+    $assets = $game->getProjectAssetRoot();
     $catalogue = $this->loadDialoguePresentation($assets);
-    $actors = ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null;
-    if (! $actors instanceof ActorStore) {
-      $actors = new ActorStore(Path::join($assets, 'Data', 'Actors'));
-    }
-    $duck = ConfigStore::has(ProjectConfig::class)
-      ? ConfigStore::get(ProjectConfig::class)->get('audio.voice_music_duck', 1.0) : 1.0;
+    $actors = $game->getProjectActorStore();
+    $duck = ProjectConfig::findForGame($game)?->get('audio.voice_music_duck', 1.0);
     $duck = is_numeric($duck) ? (float) $duck : 1.0;
 
     $participants = [];

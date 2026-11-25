@@ -27,6 +27,7 @@ use Ichiloto\Engine\Battle\CounterAttack;
 use Ichiloto\Engine\Battle\CounterAttackResolver;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\BattleConfusion;
 use Ichiloto\Engine\Battle\Insight\RevealFact;
 use Ichiloto\Engine\Battle\Presentation\BattlerInsight;
@@ -187,14 +188,20 @@ class ActionExecutionState extends TurnState
       $turn->targetAnchor = null;
     }
 
-    if ($confused === null && $turn->action instanceof SkillBattleAction
-      && BattleCommandCatalog::isSummonActionId($turn->action->skill->name)
+    $content = $this->engine->battleConfig->getContent();
+    if ($turn->action instanceof SkillBattleAction && $content !== null) {
+      $turn->action->bindSummonLibrary($content->getSummons());
+    }
+    $isSummon = BattleCommandCatalog::getActionType($turn->action) === BattleCommandType::SUMMON;
+
+    if ($confused === null && $isSummon && $turn->action instanceof SkillBattleAction
       && (! $turn->battler instanceof Character
         || ! BattleCommandCatalog::canUseSummonAction(
           $turn->battler,
           $context->party,
           $turn->action->skill->name,
           $context->getGameState(),
+          $content,
         ))
     ) {
       $context->ui->alert('That summon is no longer available to this character.');
@@ -232,7 +239,7 @@ class ActionExecutionState extends TurnState
       $targets,
       $turn->action,
       $actionName,
-      function () use ($turn, $context, $isPartyActor, $confused, $responseAction, $responseWindows): void {
+      function () use ($turn, $context, $isPartyActor, $confused, $responseAction, $responseWindows, $isSummon): void {
         $turn->execute(new TurnExecutionContext(
           $this->engine,
           $this->engine->battleConfig,
@@ -245,7 +252,7 @@ class ActionExecutionState extends TurnState
           $responseWindows->consumeExecutedAction($turn->battler, $responseAction);
         }
         if ($isPartyActor && $confused === null && $turn->action instanceof SkillBattleAction
-          && $turn->action->lastResult !== null && BattleCommandCatalog::isSummonActionId($turn->action->skill->name)) {
+          && $turn->action->lastResult !== null && $isSummon) {
           $context->getTutorialDirector()?->reportOutcome(
             PlayerActionState::TUTORIAL_SCREEN, PlayerActionState::TUTORIAL_COMMAND_VIEW,
             PlayerActionState::TUTORIAL_SUMMON_EXECUTED,
@@ -478,31 +485,19 @@ class ActionExecutionState extends TurnState
         \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline::FPS,
         secondsPerFrame: max(.01, $timings->effectAnimation) / max(1, $actionAnimation->maxFrames));
     $targetEffect = $summonCutscene ?? $legacyTarget;
-    $terminalTarget = $legacyTarget;
     $sourceEffect = null;
+    $presentation = $context->ui->usesGraphicalField() ? EffectPresentation::GRAPHICAL : EffectPresentation::TERMINAL;
     if ($actionAnimation !== null) {
       $library = $context->getEffectTimelineLibrary();
       foreach (['source' => $actionAnimation->sourceEffect, 'target' => $actionAnimation->targetEffect] as $stage => $id) {
         if ($id === null) { continue; }
         try {
-          $presentation = $context->ui->usesGraphicalField() ? EffectPresentation::GRAPHICAL : EffectPresentation::TERMINAL;
           $effect = $library->load($id, true, $presentation);
           if ($effect->playbackSegments === [] && $effect->cueSchedule === []) { continue; }
           if ($stage === 'source') { $sourceEffect = $effect; }
-          else {
-            $targetEffect = $effect;
-            if ($presentation === EffectPresentation::GRAPHICAL && !$effect->hasTerminalContent) {
-              try {
-                $terminal = $library->load($id, true, EffectPresentation::TERMINAL);
-                if ($terminal->hasTerminalContent) { $terminalTarget = $terminal; }
-              } catch (\Throwable $error) {
-                Debug::warn('Battle terminal effect could not be loaded; retaining legacy terminal presentation: '
-                  . $id . ': ' . $error->getMessage());
-              }
-            }
-          }
+          else { $targetEffect = $effect; }
         } catch (\Throwable $error) {
-          if ($context->ui->usesGraphicalField()
+          if ($presentation === EffectPresentation::GRAPHICAL
             && ($context->game->getRendererRuntime()?->supports(\Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS) ?? false)) {
             throw new \Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException(
               'Selected battle effect could not be prepared: ' . $id . ': ' . $error->getMessage(), previous: $error);
@@ -538,15 +533,16 @@ class ActionExecutionState extends TurnState
         } elseif ($cue['type'] !== 'commandPhase') {
           $this->handleSummonCue($context, $primaryTarget, $cue, $cue['frame'], Accessibility::prefersReducedMotion());
         }
-      }, terminalTarget: $targetEffect !== $terminalTarget ? $terminalTarget : null,
+      },
       targetScale: $actionAnimation === null ? \Ichiloto\Engine\Animations\EffectScale::DEFAULT
         : ActionAnimationResolver::getExplicitAnimationScale($action),
-      sourceEffectAnchor: $context->ui->usesGraphicalField()
+      sourceEffectAnchor: $presentation === EffectPresentation::GRAPHICAL
         ? ($actionAnimation?->sourceEffectAnchor ?? \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE)
         : \Ichiloto\Engine\Animations\SourceEffectAnchor::SOURCE,
       movement: $actionAnimation?->movement ?? \Ichiloto\Engine\Animations\ActionMovement::STEP,
       animationId: $actionAnimation?->id,
-      flashStep: $actionAnimation?->flashStep);
+      flashStep: $actionAnimation?->flashStep,
+      targetImpactSeconds: $actionAnimation?->targetImpactSeconds);
     $this->command->begin();
   }
 
@@ -842,7 +838,8 @@ class ActionExecutionState extends TurnState
     try {
       $presentation = $this->engine->battleConfig->ui->usesGraphicalField()
         ? EffectPresentation::GRAPHICAL : EffectPresentation::TERMINAL;
-      return (BattleCommandCatalog::getBattleSummonLibrary() ?? new SummonCutsceneLibrary())
+      return ($action->getSummonLibrary() ?? $this->engine->battleConfig?->getContent()?->getSummons()
+        ?? BattleCommandCatalog::getBattleSummonLibrary() ?? new SummonCutsceneLibrary())
         ->loadCompiledOrCompileByLinkedActionId($action->skill->name, $presentation);
     } catch (\Throwable $error) {
       Debug::warn('Summon presentation could not be loaded: ' . $error->getMessage());
@@ -850,7 +847,7 @@ class ActionExecutionState extends TurnState
     }
   }
 
-  /** Dispatch authored summon cues independently of the current renderer. */
+  /** Dispatch authored summon visual cues independently of the current renderer. */
   protected function handleSummonCue(
     TurnStateExecutionContext $context,
     CharacterInterface $target,
@@ -868,11 +865,6 @@ class ActionExecutionState extends TurnState
     switch ($type) {
       case 'applyeffect':
         // The authored effectTiming gate decides whether this cue resolves combat.
-        break;
-      case 'playsound':
-      case 'sound':
-        $path = trim(strval($payload['soundEffect'] ?? $payload['sound'] ?? $payload['assetId'] ?? ''));
-        if ($path !== '') { $context->game->audioManager->playSoundEffect($path); }
         break;
       case 'showmessage':
         $message = trim(strval($payload['text'] ?? $payload['message'] ?? ''));
@@ -912,11 +904,13 @@ class ActionExecutionState extends TurnState
    */
   protected function resolveActionAnimation(?BattleAction $action, CharacterInterface $actor): ?Animation
   {
-    $animationLibrary = BattleCommandCatalog::getBattleAnimationLibrary() ?? new AnimationLibrary();
+    $content = ($this->engine->battleConfig ?? null)?->getContent();
+    $animationLibrary = $content?->getAnimations() ?? BattleCommandCatalog::getBattleAnimationLibrary() ?? new AnimationLibrary();
 
     $animation = ActionAnimationResolver::resolveForAction($action, $actor, $animationLibrary);
     $animationId = ActionAnimationResolver::getExplicitAnimationId($action);
-    if ($animation === null && $animationId !== null && BattleCommandCatalog::recordMissingAnimationId($animationId)) {
+    if ($animation === null && $animationId !== null
+      && ($content?->recordMissingAnimation($animationId) ?? BattleCommandCatalog::recordMissingAnimationId($animationId))) {
       Debug::warn(sprintf('Battle animation id %d was not found.', $animationId));
     }
     return $animation;

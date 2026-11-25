@@ -5,7 +5,6 @@ namespace Ichiloto\Engine\Core;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Quests\QuestLog;
-use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
@@ -188,12 +187,13 @@ class WorldConditionEvaluator
    * @param array<int, mixed> $conditions The condition entries.
    * @param GameState $gameState The world state.
    * @param Party|null $party The party, for item conditions.
-   * @param QuestLog|null $questLog Explicit state for detached/preflight evaluation; otherwise the running manager.
+   * @param QuestLog|null $questLog Explicit state for detached or preflight evaluation. Live state uses its own quest log.
    * @return bool True when all conditions hold.
    */
   public static function allHold(array $conditions, GameState $gameState, ?Party $party = null, ?QuestLog $questLog = null,
     ?WorldAbilityCatalog $worldAbilities = null): bool
   {
+    $questLog ??= $gameState->getQuestManager()?->log;
     foreach ($conditions as $condition) {
       if (! is_array($condition)) {
         continue;
@@ -325,7 +325,7 @@ class WorldConditionEvaluator
         $matches = self::evaluate($memberType, $member, trim($member['name'] ?? ''), $gameState, $party, $questLog, $worldAbilities);
         return $matches !== ($member['negate'] ?? false);
       }),
-      WorldConditionType::WORLD_ABILITY => ($worldAbilities ?? WorldAbilityCatalog::getProjectCatalog())
+      WorldConditionType::WORLD_ABILITY => ($worldAbilities ?? $gameState->worldAbilities ?? WorldAbilityCatalog::getProjectCatalog())
         ->isUnlocked($name, $gameState, $party, $questLog),
       WorldConditionType::SWITCH => $gameState->getSwitch($name) === (bool) ($condition['value'] ?? true),
       WorldConditionType::EVENT => $gameState->hasStoryEvent($name),
@@ -350,8 +350,7 @@ class WorldConditionEvaluator
       },
       WorldConditionType::KEY_ITEM => $party?->inventory?->hasKeyItem($name) ?? false,
       WorldConditionType::QUEST => $questLog !== null
-        ? (($condition['status'] ?? 'completed') === 'active' ? $questLog->isActive($name) : $questLog->isCompleted($name))
-        : (QuestManager::current()?->questStatusMatches($name, strval($condition['status'] ?? 'completed')) ?? false),
+        && (($condition['status'] ?? 'completed') === 'active' ? $questLog->isActive($name) : $questLog->isCompleted($name)),
     };
   }
 

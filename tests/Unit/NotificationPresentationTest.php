@@ -7,6 +7,8 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Events\EventManager;
+use Ichiloto\Engine\Events\Enumerations\SceneEventType;
+use Ichiloto\Engine\Events\SceneEvent;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
@@ -104,8 +106,6 @@ beforeEach(function () {
   };
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, $audio);
   new ReflectionProperty($this->game, 'audioManager')->setValue($this->game, $audio);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
-  new ReflectionProperty(NotificationManager::class, 'instance')->setValue(null, null);
   $this->audio = $audio;
   $this->manager = NotificationManager::getInstance($this->game);
   $this->runtime = null;
@@ -145,6 +145,57 @@ afterEach(function () {
   $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
   foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
   rmdir($this->root);
+});
+
+it('keeps each Game’s notices and scene events with their own presenter', function () {
+  $otherGame = new NotificationPresentationGameProbe();
+  $other = NotificationManager::getInstance($otherGame);
+  $firstAlerts = new TrackedNotificationAlertProbe($this->game);
+  $otherAlerts = new TrackedNotificationAlertProbe($otherGame);
+  $this->game->bindModalManager($firstAlerts);
+  $otherGame->bindModalManager($otherAlerts);
+  $makeNotice = static fn(Game $game): Notification =>
+    new class($game, NotificationChannel::INFO, 'Ready', 'A short notice', animationDuration: 0) extends Notification {
+      public int $resumes = 0;
+      public function resume(): void { $this->resumes++; parent::resume(); }
+    };
+  $first = $makeNotice($this->game);
+  $second = $makeNotice($otherGame);
+  $firstReceipt = $this->manager->notifyTracked($first);
+  $secondReceipt = $other->notifyTracked($second);
+  EventManager::getInstance($otherGame)->dispatchEvent(new SceneEvent(SceneEventType::LOAD_END));
+
+  expect($firstReceipt->state)->toBe(PresentationDeliveryState::PRESENTING)
+    ->and($secondReceipt->state)->toBe(PresentationDeliveryState::PRESENTING)
+    ->and($first->resumes)->toBe(0)
+    ->and($second->resumes)->toBe(1)
+    ->and($this->audio->sounds)->toBe(1);
+
+  $other->cancelDelivery($secondReceipt);
+  EventManager::getInstance($this->game)->dispatchEvent(new SceneEvent(SceneEventType::LOAD_END));
+  expect($secondReceipt->state)->toBe(PresentationDeliveryState::CANCELLED)
+    ->and($firstReceipt->state)->toBe(PresentationDeliveryState::PRESENTING)
+    ->and($first->resumes)->toBe(1);
+
+  $longText = str_repeat('Read the complete notice. ', 12);
+  $reading = $other->notifyTracked(new Notification($otherGame, NotificationChannel::INFO, 'Details', $longText));
+  $firstAlerts->processPendingAlerts();
+  expect($firstAlerts->delivered)->toBeEmpty()
+    ->and($reading->state)->toBe(PresentationDeliveryState::QUEUED);
+  $otherAlerts->processPendingAlerts();
+  expect($otherAlerts->delivered)->toBe([[$longText, 'Details']])
+    ->and($reading->state)->toBe(PresentationDeliveryState::COMPLETED);
+
+  $pending = $other->notifyTracked($makeNotice($otherGame));
+  $dispatcher = EventManager::getInstance($otherGame);
+  $retired = WeakReference::create($otherGame);
+  unset($other, $otherGame, $otherAlerts, $second);
+  gc_collect_cycles();
+  expect($retired->get())->toBeNull()
+    ->and($pending->state)->toBe(PresentationDeliveryState::CANCELLED)
+    ->and($firstReceipt->state)->toBe(PresentationDeliveryState::PRESENTING);
+  $dispatcher->dispatchEvent(new SceneEvent(SceneEventType::LOAD_END));
+  expect($first->resumes)->toBe(1);
 });
 
 it('keeps notices live above every transition phase and scene replacement without restarting or baking them in', function (bool $themed, bool $fullCanvas) {

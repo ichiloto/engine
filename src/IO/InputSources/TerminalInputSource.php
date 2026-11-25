@@ -24,6 +24,11 @@ final class TerminalInputSource implements InputSourceInterface
     $this->stream = $stream;
   }
 
+  public function usesStandardInput(): bool
+  {
+    return defined('STDIN') && $this->stream === STDIN;
+  }
+
   public function poll(): ?KeyCode
   {
     LatencyTrace::beginPoll();

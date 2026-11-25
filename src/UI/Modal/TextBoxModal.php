@@ -102,7 +102,7 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
     protected DialogueContext $presentation = new DialogueContext(),
   )
   {
-    $this->playback ??= new DialoguePlayback(isset($game->audioManager) ? $game->audioManager : null);
+    $this->playback ??= new DialoguePlayback(isset($game->audioManager) ? $game->audioManager : null, game: $game);
     $pagination = DialoguePaginationBuilder::buildPagination($message, $title, $help, $presentation,
       get_screen_width(), get_screen_height(),
       $game->getRendererRuntime()?->getDialoguePageLayout($title, $presentation, $help), $position);

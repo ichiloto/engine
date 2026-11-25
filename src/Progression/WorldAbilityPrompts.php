@@ -4,19 +4,18 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Progression;
 
+use Closure;
 use Ichiloto\Engine\Animations\Field\FieldEffectAnchor;
 use Ichiloto\Engine\Animations\Field\FieldEffectManager;
 use Ichiloto\Engine\Animations\Field\FieldEffectSession;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Party;
-use Ichiloto\Engine\Field\DashSettings;
 use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\Messaging\Notifications\ActionHintNotification;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\UI\Presentation\PresentationDeliveryReceipt;
-use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
@@ -30,6 +29,8 @@ final class WorldAbilityPrompts
   private ?PresentationDeliveryReceipt $delivery = null;
   private ?FieldEffectSession $effect = null;
   private ?FieldEffectManager $effects = null;
+  /** @var (Closure(GameScene): bool)|null */
+  private ?Closure $canContinueInScene = null;
   /** @var array<string,true> Broken presentation sources are diagnosed once per field ownership interval. */
   private array $rejected = [];
 
@@ -40,25 +41,39 @@ final class WorldAbilityPrompts
   {
     if ($scene->getUI()->getActivePresentations() !== [] || $scene->isStopping) { $this->cancel(); return; }
     if ($this->pending !== null && ($this->state !== $scene->gameState
-      || !$this->catalog->isUnlocked($this->pending->id, $this->state, $scene->party))) { $this->cancel(); }
+      || !$this->catalog->isUnlocked($this->pending->id, $this->state, $scene->party)
+      || ($this->canContinueInScene !== null && !($this->canContinueInScene)($scene)))) { $this->cancel(); }
     $this->update();
-    if ($this->pending !== null || $scene->player === null || !ConfigStore::has(WorldAbilityCatalog::class)) { return; }
-    $catalog = WorldAbilityCatalog::getProjectCatalog();
-    $dash = ConfigStore::has(DashSettings::class) ? ConfigStore::get(DashSettings::class) : null;
-    if ($dash instanceof DashSettings && PlayerDash::isAvailable() && !($scene->mapManager?->isDashingDisabled ?? false)
-      && $dash->isUnlocked($scene->gameState, $scene->party)) {
-      foreach ($catalog->getRequiredAbilities($dash->conditions) as $ability) {
+    $catalog = $scene->gameState->getWorldAbilities();
+    if ($this->pending !== null || $scene->player === null || $catalog === null) { return; }
+    if ($this->canDashInScene($scene)) {
+      foreach ($catalog->getRequiredAbilities(PlayerDash::getSettings($this->game)->conditions) as $ability) {
         if ($this->offer($ability, $catalog, $scene->gameState, $scene->party, $scene->fieldEffects,
-          FieldEffectAnchor::fromArray(['object' => $scene->player->getGraphicalSpriteId()]))) { return; }
+          FieldEffectAnchor::fromArray(['object' => $scene->player->getGraphicalSpriteId()]))) {
+          $this->canContinueInScene = $this->canDashInScene(...);
+          return;
+        }
       }
     }
     foreach ($scene->player->getSensedPassages() as $passage) {
       foreach ($catalog->getRequiredAbilities([...$passage->conditions, ...($passage->cue?->conditions ?? [])]) as $ability) {
         $position = $passage->cue->findVisiblePositions($passage->area, $scene->player->position)[0];
         if ($this->offer($ability, $catalog, $scene->gameState, $scene->party, $scene->fieldEffects,
-          FieldEffectAnchor::createAtPosition($position))) { return; }
+          FieldEffectAnchor::createAtPosition($position))) {
+          // Another placement of the same trigger can be visible after this anchor leaves range.
+          $this->canContinueInScene = static fn(GameScene $current): bool =>
+            $current->player !== null
+            && $passage->cue->isInRange($position, $current->player->position)
+            && in_array($passage, $current->player->getSensedPassages(), strict: true);
+          return;
+        }
       }
     }
+  }
+
+  private function canDashInScene(GameScene $scene): bool
+  {
+    return PlayerDash::canDash($scene->mapManager?->isDashingDisabled ?? false, $scene->gameState, $scene->party, $this->game);
   }
 
   public function offer(WorldAbility $ability, WorldAbilityCatalog $catalog, GameState $state, ?Party $party = null,
@@ -68,7 +83,7 @@ final class WorldAbilityPrompts
     if ($this->pending !== null || isset($this->rejected[$ability->id]) || $ability->firstUse === null
       || $state->hasSeenWorldAbilityPrompt($ability->id) || !$catalog->isUnlocked($ability->id, $state, $party)) { return false; }
     $source = $ability->firstUse;
-    $hints = $source->getActionHints();
+    $hints = $source->getActionHints($this->game);
     // A control unavailable on this input profile cannot be taught here.
     if (array_any($hints, static fn($hint): bool => $hint->control === null)) { return false; }
     $this->pending = $ability; $this->state = $state; $this->effects = $effects; $this->catalog = $catalog; $this->party = $party;
@@ -114,5 +129,6 @@ final class WorldAbilityPrompts
     if ($this->delivery !== null) { NotificationManager::getInstance($this->game)->cancelDelivery($this->delivery); }
     if ($this->effect !== null) { $this->effects?->stopEffect($this->effect); }
     $this->pending = null; $this->state = null; $this->delivery = null; $this->effect = null; $this->effects = null; $this->catalog = null; $this->party = null;
+    $this->canContinueInScene = null;
   }
 }

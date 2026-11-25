@@ -10,7 +10,6 @@ use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicSubjectLease;
 use Ichiloto\Engine\Cutscenes\Cinematics\StagedActor;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
-use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Field\EncounterManager;
@@ -87,8 +86,6 @@ beforeEach(function () {
   $this->consoleState = new ReflectionClass(Console::class)->getStaticProperties();
   $this->cursorState = new ReflectionClass(Cursor::class)->getStaticProperties();
   $this->configState = new ReflectionProperty(ConfigStore::class, 'store')->getValue();
-  $this->eventState = new ReflectionProperty(EventManager::class, 'instance')->getValue();
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub());
   foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false,
     'output' => null, 'terminalOutputStream' => null] as $name => $value) {
@@ -115,7 +112,6 @@ beforeEach(function () {
 afterEach(function () {
   ob_end_clean();
   new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, $this->configState);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $this->eventState);
   foreach ([Console::class => $this->consoleState, Cursor::class => $this->cursorState] as $class => $state) {
     foreach ($state as $name => $value) {
       new ReflectionProperty($class, $name)->setValue(null, $value);
@@ -256,8 +252,7 @@ it('presents a real Player through the shared client with immutable frames and d
 });
 
 it('observes a real blocked move as changed facing and unchanged graphical position', function () {
-  $map = (new ReflectionClass(MapManager::class))->newInstanceWithoutConstructor();
-  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  $map = new MapManager($this->scene->getGame(), $this->scene);
   new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [3 => [7 => CollisionType::SOLID->value]]);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
   $before = $this->projector->project($this->player, $this->camera);
@@ -274,8 +269,7 @@ it('observes a real blocked move as changed facing and unchanged graphical posit
 
 it('arrives only once the step has slid into its cell, and at once without a slide', function (bool $terminalOutput) {
   Console::setTerminalOutputEnabled($terminalOutput);
-  $map = (new ReflectionClass(MapManager::class))->newInstanceWithoutConstructor();
-  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  $map = new MapManager($this->scene->getGame(), $this->scene);
   new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [3 => [7 => CollisionType::SAVE_POINT->value]]);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
   configurePlayerSpriteField($this->scene, $map);
@@ -314,8 +308,7 @@ it('arrives only once the step has slid into its cell, and at once without a sli
 
 it('completes a pending arrival before the next step so none is skipped', function (bool $terminalOutput) {
   Console::setTerminalOutputEnabled($terminalOutput);
-  $map = (new ReflectionClass(MapManager::class))->newInstanceWithoutConstructor();
-  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  $map = new MapManager($this->scene->getGame(), $this->scene);
   new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [2 => [7 => CollisionType::NONE->value], 3 => [7 => CollisionType::NONE->value]]);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
   configurePlayerSpriteField($this->scene, $map);
@@ -340,8 +333,7 @@ it('retains step motion independently of the host and follows scene arrival timi
 ) {
   Console::setTerminalOutputEnabled($terminalOutput);
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['accessibility' => ['reducedMotion' => $reduced]]));
-  $map = (new ReflectionClass(MapManager::class))->newInstanceWithoutConstructor();
-  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  $map = new MapManager($this->scene->getGame(), $this->scene);
   new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map,
     array_fill(0, 30, array_fill(0, 40, CollisionType::ENCOUNTER->value)));
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);

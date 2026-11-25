@@ -8,6 +8,7 @@ use Ichiloto\Engine\Animations\EffectScale;
 use Ichiloto\Engine\Animations\Timelines\EffectFlashStrength;
 use Ichiloto\Engine\Animations\Timelines\EffectImageDepth;
 use Ichiloto\Engine\Animations\Timelines\EffectFlightMode;
+use Ichiloto\Engine\Animations\Timelines\EffectTrackType;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint;
@@ -15,9 +16,11 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSession;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Core\Vector2;
 use InvalidArgumentException;
 use RuntimeException;
@@ -93,7 +96,7 @@ final class GraphicalBattleEffects
     }
     foreach ([...$images, ...$text, ...$composites] as $drawing) { $recordSource?->__invoke($drawing, null); }
     foreach ($playback->getActiveSegments($reducedMotion) as $segment) {
-      if (in_array($segment['layer'], ['tone', 'field-motion', 'field-color', 'battler-motion'], true)) { continue; } // Their owners transform the body or the complete field, preserving draw order.
+      if (in_array($segment['layer'], ['tone', 'field-motion', 'field-color', 'battler-motion', EffectTrackType::BATTLER_REACTION->value], true)) { continue; } // Their owners transform the body or the complete field, preserving draw order.
       foreach ($segment['drawCommands'] as $command) {
         if (!($command['visible'] ?? true)) { continue; }
         $before = [count($images), count($text), count($composites)];
@@ -101,6 +104,41 @@ final class GraphicalBattleEffects
         $data = $command['payload'] ?? [];
         $anchor = $data['anchor'] ?? 'target';
         if ($anchor === 'stage') { continue; }
+        if (isset($data['groundSpan'])) {
+          if ($playback->targets === []) { continue; }
+          try {
+            if (!EffectScale::playsAuthoredSize((float)($data['scale'] ?? EffectScale::DEFAULT))) {
+              throw new InvalidArgumentException('Captured ground-span geometry requires binding scale 1.');
+            }
+            if (!$imageFlips && (($data['flipX'] ?? false) || ($data['flipY'] ?? false))) {
+              throw new InvalidArgumentException('Renderer cannot mirror this battle effect image.');
+            }
+            if (!$compositing || !$textureStrip || !$playback instanceof BattleCommandPlayback) {
+              throw new RuntimeException('Renderer requires compositing and texture-strip support for a captured ground span.');
+            }
+            $snapshot = $playback->getCapturedAnchorSnapshot($data['capturedTargetGroup'] ?? 'snapshot')
+              ?? throw new RuntimeException('Ground-span effect has no captured caster and recipient ground placement.');
+            $recipients = $anchor === 'target' ? array_keys($snapshot->targets->grounds) : [null];
+            $asset = $command['assetId'] ?? '';
+            $crop = \Ichiloto\Engine\Animations\Timelines\EffectImageSource::fromCommand($command)->getSourceRect($assetRoot);
+            foreach ($recipients as $recipient) {
+              if (isset($data['hitSubject']) && $data['hitSubject'] !== $recipient) { continue; }
+              $id = 'command-effect-' . $command['trackId'] . '-' . ($recipient ?? 'target-group');
+              $reveal = $data['groundSpan']['reveal'] ?? null;
+              $progress = $reveal === null || $reducedMotion || $recipient === null ? 1
+                : $playback->getGroundSpanRevealProgress($recipient, $reveal['startFrame']);
+              if ($progress <= 0) { continue; }
+              if ($progress < 1 && !PresentationSession::supportsCapability(RendererSessionConfig::CANVAS_TEXTURE_STRIP_CLIP)) {
+                throw new RuntimeException('A revealed ground span requires texture strip clipping support.');
+              }
+              $span = GraphicalBattleGroundSpan::compose($id, $asset, $crop, $snapshot, $arena, $data, $recipient, $progress);
+              if ($span !== null) { $composites[] = $span; }
+            }
+          } catch (InvalidArgumentException|RuntimeException $error) {
+            $playback->recordPresentationFailure($error);
+          }
+          continue;
+        }
         if ($segment['layer'] === 'tether') {
           try {
             if (!$playback instanceof BattleCommandPlayback || count($playback->targets) !== 1) {
@@ -124,18 +162,18 @@ final class GraphicalBattleEffects
           }
           continue;
         }
+        $captureKey = $data['capturedTargetGroup'] ?? null;
+        $captured = $captureKey !== null && $playback instanceof BattleCommandPlayback
+          ? $playback->getCapturedTargetGroup($captureKey) : null;
+        if ($captureKey !== null && $captured === null && $playback->targets !== []) {
+          $playback->recordPresentationFailure(new RuntimeException('Battle effect has no captured target ground placement.'));
+          continue;
+        }
         $targetGroup = null;
         if ($anchor === 'target-group') {
           try {
-            $lane = $data['capturedTargetGroup'] ?? null;
-            if ($lane !== null && $playback instanceof BattleCommandPlayback) {
-              $targetGroup = $playback->getCapturedTargetGroup($lane);
-              if ($targetGroup === null && $playback->targets !== []) {
-                throw new RuntimeException('Target-group effect has no captured ground placement.');
-              }
-            } else {
-              $targetGroup = BattleEffectTargetGroup::collectTargets($playback->targets, $bounds, $groundAnchors, $partySides);
-            }
+            $targetGroup = $captureKey !== null ? $captured
+              : BattleEffectTargetGroup::collectTargets($playback->targets, $bounds, $groundAnchors, $partySides);
           }
           catch (RuntimeException $error) { $playback->recordPresentationFailure($error); continue; }
           if ($targetGroup === null) { continue; }
@@ -148,7 +186,15 @@ final class GraphicalBattleEffects
           || ($segment['layer'] === 'flash' && ($data['scope'] ?? '') === 'screen')) { $subjects = [null]; }
         foreach ($subjects as $subject) {
           if (isset($data['hitSubject']) && ($subject === null || $data['hitSubject'] !== spl_object_id($subject))) { continue; }
-          $box = $targetGroup?->bounds ?? ($subject === null ? null : ($bounds[spl_object_id($subject)] ?? null));
+          $subjectId = $subject === null ? null : spl_object_id($subject);
+          $subjectGround = $subjectId === null ? null : ($captured !== null
+            ? ($captured->grounds[$subjectId] ?? null) : ($groundAnchors[$subjectId] ?? null));
+          $box = $targetGroup?->bounds ?? ($subjectId === null ? null : ($captured !== null
+            ? ($captured->memberBounds[$subjectId] ?? null) : ($bounds[$subjectId] ?? null)));
+          if ($captured !== null && $subjectId !== null && ($subjectGround === null || $box === null)) {
+            $playback->recordPresentationFailure(new RuntimeException('Battle effect has no captured ground placement for its target.'));
+            continue;
+          }
           $isDetached = $playback instanceof BattleCommandPlayback && isset($data['detachFrame'])
             && $playback->session->currentFrame >= $data['detachFrame'];
           $beam = ($data['flight']['mode'] ?? null) === EffectFlightMode::BEAM->value;
@@ -173,7 +219,8 @@ final class GraphicalBattleEffects
             ? array_find($playback->targets, static fn($target): bool => $target !== $playback->actor) : $subject;
           $casterX = $release['casterX'] ?? ($groundAnchors[spl_object_id($playback->actor)] ?? null)?->x;
           $recipientX = $release !== null ? $release['recipientX'] : ($targetGroup?->getGroundOrigin()->x
-            ?? ($recipient === null ? null : ($groundAnchors[spl_object_id($recipient)] ?? null)?->x));
+            ?? ($anchor === 'target' ? $subjectGround?->x
+              : ($recipient === null ? null : ($groundAnchors[spl_object_id($recipient)] ?? null)?->x)));
           $flight = $isDetached && isset($data['flight'])
             ? self::sampleFlight($playback, $release['path'] ?? null, $data, $reducedMotion) : null;
           if ($isDetached && isset($data['flight']) && $flight === null) { continue; }
@@ -201,7 +248,7 @@ final class GraphicalBattleEffects
             : ($subject === null ? 'screen' : spl_object_id($subject)));
           $position = $oriented['position'] ?? ['x' => 0, 'y' => 0];
           $attachment = $data['attachment'] ?? $data['legacyPosition'] ?? 'center';
-          $ground = $targetGroup?->getGroundOrigin() ?? ($subject === null ? null : ($groundAnchors[spl_object_id($subject)] ?? null));
+          $ground = $targetGroup?->getGroundOrigin() ?? $subjectGround;
           try {
             if ($attachment === 'ground' && $ground === null) {
               throw new InvalidArgumentException('Battle effect ground attachment requires the subject ground point.');
@@ -237,19 +284,6 @@ final class GraphicalBattleEffects
                 $crop = \Ichiloto\Engine\Animations\Timelines\EffectImageSource::fromCommand($oriented)->getSourceRect($assetRoot);
                 $frameWidth = $crop->width;
                 $frameHeight = $crop->height;
-                if (isset($data['groundSpan'])) {
-                  if (!EffectScale::playsAuthoredSize($scale)) {
-                    throw new InvalidArgumentException('Captured ground-span geometry requires binding scale 1.');
-                  }
-                  if (!$compositing || !$textureStrip || !$playback instanceof BattleCommandPlayback) {
-                    throw new RuntimeException('Renderer requires compositing and texture-strip support for a captured ground span.');
-                  }
-                  $snapshot = $playback->getCapturedAnchorSnapshot($data['capturedTargetGroup'] ?? 'snapshot')
-                    ?? throw new RuntimeException('Ground-span effect has no captured caster and recipient ground placement.');
-                  $span = GraphicalBattleGroundSpan::compose($id, $asset, $crop, $snapshot, $arena, $data);
-                  if ($span !== null) { $composites[] = $span; }
-                  break;
-                }
                 if ($compositing && $textureStrip && $targetGroup !== null && isset($data['contactRail'])) {
                   $rail = $contactRails[spl_object_id($targetGroup)] ??= BattleEffectContactRail::fit($targetGroup);
                   $strip = GraphicalBattleStrip::compose($id, $asset, $crop, $rail, $arena, $data, $x - $ground->x, $y - $ground->y);

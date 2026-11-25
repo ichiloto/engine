@@ -8,7 +8,6 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
-use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
@@ -296,8 +295,6 @@ function createTransferTriggerScene(array $data = [], array $conditions = [], ?s
 beforeEach(function () {
     $this->transferPreviousCwd = getcwd();
     $this->transferPreviousConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
-    $this->transferPreviousEventManager = new ReflectionProperty(EventManager::class, 'instance')->getValue();
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
     $this->transferPreviousDebug = new ReflectionClass(Debug::class)->getStaticProperties();
     putSceneAudioConfig(['audio' => ['music' => false, 'sfx' => false, 'voice' => false],
         'save' => ['autosave' => true], 'ui' => ['hud' => ['location' => false]]]);
@@ -310,7 +307,6 @@ afterEach(function () {
     } else {
         ConfigStore::put(ProjectConfig::class, $this->transferPreviousConfig);
     }
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $this->transferPreviousEventManager);
     foreach ($this->transferPreviousDebug as $name => $value) {
         new ReflectionProperty(Debug::class, $name)->setValue(null, $value);
     }

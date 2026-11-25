@@ -269,6 +269,12 @@ final class TerminalBattleEffects
   public function compose(BattleEffectPlayback $playback, callable $resolveOrigin, bool $reducedMotion = false): array
   {
     $draws = $flashes = [];
+    $snapshot = $playback instanceof BattleCommandPlayback ? $playback->getCapturedTerminalLane() : null;
+    if ($snapshot === null && $playback instanceof BattleCommandPlayback && !$playback->isCompleted
+      && $playback->phase === 'target' && $playback->targets !== [] && $playback->plan->terminalContacts !== null
+      && $playback->session->currentFrame >= $playback->plan->phases['target']['start'] + $playback->plan->terminalContacts->getCaptureTick()) {
+      $playback->recordPresentationFailure(new RuntimeException('Terminal contacts have no command-owned ground capture.'));
+    }
     foreach ($playback->getActiveSegments($reducedMotion, true) as $segment) {
       foreach ($segment['drawCommands'] as $command) {
         if (!($command['visible'] ?? true)) { continue; }
@@ -284,12 +290,12 @@ final class TerminalBattleEffects
             $flashes[spl_object_id($target)] = ['target' => $target, 'screen' => false, 'color' => $color];
           }
         }
+        $contactId = $command['terminalContactSubject'] ?? null;
         if ($segment['layer'] === 'glyph-lane') {
           try {
-            $snapshot = $playback instanceof BattleCommandPlayback ? $playback->getCapturedTerminalLane() : null;
             if ($snapshot === null) { throw new RuntimeException('Terminal glyph lane has no command-owned captured geometry.'); }
             array_push($draws, ...TerminalBattleGlyphLane::compose($snapshot, $data, $command['color'] ?? null,
-              intval($this->origin->x) + 1, intval($this->origin->y) + 1, max(0, $this->width - 2), max(0, $this->height - 2)));
+              intval($this->origin->x) + 1, intval($this->origin->y) + 1, max(0, $this->width - 2), max(0, $this->height - 2), $contactId));
           } catch (\Throwable $failure) { $playback->recordPresentationFailure($failure); }
           continue;
         }
@@ -305,15 +311,17 @@ final class TerminalBattleEffects
         $seen = [];
         foreach ($subjects as $subject) {
           $id = spl_object_id($subject);
-          if (isset($seen[$id]) || (isset($data['hitSubject']) && $data['hitSubject'] !== $id)) { continue; }
+          $recipientId = $contactId ?? $data['hitSubject'] ?? null;
+          if (isset($seen[$id]) || ($recipientId !== null && $recipientId !== $id)) { continue; }
           $seen[$id] = true;
-          $origin = $resolveOrigin($subject, $screen ? AnimationTargetPosition::SCREEN : $position);
+          $origin = $contactId === null ? $resolveOrigin($subject, $screen ? AnimationTargetPosition::SCREEN : $position)
+            : $snapshot?->getTargetGround($id);
           if ($origin === null) { continue; }
           $recipient = $anchor === 'caster'
             ? array_find($playback->targets, static fn($target): bool => $target !== $playback->actor) : $subject;
-          $casterOrigin = $resolveOrigin($playback->actor, AnimationTargetPosition::CENTER);
-          $recipientOrigin = $recipient === null ? null
-            : $resolveOrigin($recipient, AnimationTargetPosition::CENTER);
+          $casterOrigin = $contactId === null ? $resolveOrigin($playback->actor, AnimationTargetPosition::CENTER) : $snapshot?->casterGround;
+          $recipientOrigin = $contactId !== null ? $origin
+            : ($recipient === null ? null : $resolveOrigin($recipient, AnimationTargetPosition::CENTER));
           $oriented = $screen ? $command : BattleEffectDirection::orientForSubject($command, $casterOrigin['x'] ?? null,
             $recipientOrigin['x'] ?? null, match (true) {
               isset($origin['partyIndex']) => true, isset($origin['troopIndex']) => false, default => null,
@@ -336,11 +344,19 @@ final class TerminalBattleEffects
     $playback->bindTerminalLaneCapture(function (BattleCommandPlayback $sample) use ($party, $troop, $reducedMotion): TerminalBattleLaneSnapshot {
       $caster = $this->getAnimationOrigin($sample->actor, AnimationTargetPosition::CENTER, $party, $troop, $sample, $reducedMotion);
       if ($caster === null) { throw new RuntimeException('Terminal lane caster is absent from the battlefield.'); }
-      $selected = [];
+      $captureGround = $sample->plan->terminalContacts !== null;
+      $casterGround = $captureGround ? $this->getAnimationOrigin($sample->actor, AnimationTargetPosition::FEET,
+        $party, $troop, $sample, $reducedMotion) : null;
+      $selected = $grounds = [];
       foreach ($sample->targets as $target) {
         $point = $this->getAnimationOrigin($target, AnimationTargetPosition::CENTER, $party, $troop, $sample, $reducedMotion);
         if ($point === null) { throw new RuntimeException('Terminal lane target is absent from the battlefield.'); }
-        $selected[spl_object_id($target)] = ['x' => $point['x'], 'y' => $point['y']];
+        $id = spl_object_id($target);
+        $selected[$id] = ['x' => $point['x'], 'y' => $point['y']];
+        if ($captureGround) {
+          $ground = $this->getAnimationOrigin($target, AnimationTargetPosition::FEET, $party, $troop, $sample, $reducedMotion);
+          $grounds[$id] = ['x' => $ground['x'], 'y' => $ground['y']];
+        }
       }
       $blocked = [];
       foreach ([...$party, ...$troop] as $member) {
@@ -353,7 +369,8 @@ final class TerminalBattleEffects
         if ($width < 1 || $sprite === []) { continue; }
         $blocked[] = ['x' => $point['x'] - intdiv($width, 2), 'y' => $point['y'], 'width' => $width, 'height' => count($sprite)];
       }
-      return new TerminalBattleLaneSnapshot(['x' => $caster['x'], 'y' => $caster['y']], $selected, $blocked, isset($caster['partyIndex']));
+      return new TerminalBattleLaneSnapshot(['x' => $caster['x'], 'y' => $caster['y']], $selected, $blocked, isset($caster['partyIndex']),
+        $casterGround === null ? null : ['x' => $casterGround['x'], 'y' => $casterGround['y']], $grounds);
     });
   }
 

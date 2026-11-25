@@ -24,7 +24,7 @@ class EventTriggerFactory
    * @throws RequiredFieldException If a required field is missing.
    * @throws InvalidArgumentException If the area is neither exact cells nor a rectangle.
    */
-  public static function create(array $args, ?string $mapId = null): EventTrigger
+  public static function create(array $args, ?string $mapId = null, ?string $projectAssetRoot = null): EventTrigger
   {
     $class = $args['class'] ?? throw new RequiredFieldException('class');
     if (! class_exists($class) ) {
@@ -64,6 +64,7 @@ class EventTriggerFactory
       is_array($args['cue'] ?? null) ? $args['cue'] : null,
       $args['facing'] ?? [],
       $engagement,
+      $projectAssetRoot,
     );
   }
 }

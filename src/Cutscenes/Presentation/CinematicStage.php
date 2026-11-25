@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Cutscenes\Presentation;
 
+use Ichiloto\Engine\Animations\Timelines\EffectReducedMotionSamples;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use InvalidArgumentException;
 
@@ -98,8 +99,12 @@ final readonly class CinematicStage
     return new self([...$data, 'background' => $background, 'subjects' => $subjects, 'camera' => $camera, 'covers' => $covers], $stageRestFrame, $lengthFrames);
   }
 
-  public function getFrame(int $frame, bool $reducedMotion = false): CinematicStageFrame
+  /** Samples the stage at an authored frame using the consumer's motion preference. */
+  public function getFrame(int $frame, bool $reducedMotion = false, ?array $reducedMotionSamples = null): CinematicStageFrame
   {
+    if ($reducedMotion && $reducedMotionSamples !== null) {
+      return $this->getFrameAtSample($frame, EffectReducedMotionSamples::getSampleFrame($reducedMotionSamples, $frame));
+    }
     $active = $frame >= $this->data['startFrame'] && $frame < $this->data['restoreFrame'];
     $contentFrame = $reducedMotion && $active ? $this->restFrame : $frame;
     [$from, $to, $progress] = self::getInterval($this->data['camera'], $contentFrame);

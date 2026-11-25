@@ -146,7 +146,6 @@ beforeEach(function () {
     EventManager::class, Time::class, Debug::class, PngAssetPreflight::class, ModalManager::class] as $class) {
     $this->staticBefore[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false,
     'output' => null, 'terminalOutputStream' => null] as $name => $value) {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);

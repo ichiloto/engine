@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities\Magic;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 
 /**
  * Tracks a spell that can be learned along with its requirement progress.
@@ -36,10 +37,10 @@ class LearnableSpell
    * @param array<string, mixed> $data The serialized learnable-spell data.
    * @return self|null The reconstructed learnable spell, if the spell exists.
    */
-  public static function fromArray(array $data): ?self
+  public static function fromArray(array $data, ?SkillCatalog $skills = null): ?self
   {
     $skillName = strval($data['skill'] ?? '');
-    $skill = MagicLibrary::find($skillName);
+    $skill = ($skills ?? SkillCatalog::getProjectCatalog())->findSkill($skillName);
 
     if (! $skill instanceof MagicSkill) {
       return null;

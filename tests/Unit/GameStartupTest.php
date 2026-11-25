@@ -171,12 +171,11 @@ beforeEach(function () {
     ], true) . ';');
     chdir($this->root);
     $this->statics = [];
-    foreach ([ConfigStore::class, GameLoader::class, SceneManager::class, MapManager::class, QuestManager::class,
+    foreach ([ConfigStore::class, GameLoader::class, SceneManager::class, QuestManager::class,
         Time::class, AchievementManager::class, Debug::class, SaveManager::class] as $class) {
         $this->statics[$class] = new ReflectionClass($class)->getStaticProperties();
     }
     new ReflectionProperty(QuestManager::class, 'current')->setValue(null, null);
-    new ReflectionProperty(MapManager::class, 'instance')->setValue(null, null);
     $this->manager = new StartupScenesProbe();
     $this->game = new StartupGameProbe($this->manager);
     new ReflectionProperty(SceneManager::class, 'game')->setValue($this->manager, $this->game);
@@ -571,12 +570,17 @@ it('launches the unsaved battle test once and preserves the original project tes
     $actors = new ActorStore(definitions: [ActorDefinition::fromArray(['id' => 'fixture.hero', 'name' => 'Hero', 'currentExp' => 0,
         'stats' => ['currentHp' => 40, 'currentMp' => 10, 'currentAp' => 3, 'totalHp' => 100, 'totalMp' => 20, 'totalAp' => 3,
         'attack' => 8, 'defence' => 7, 'magicAttack' => 6, 'magicDefence' => 5, 'speed' => 4, 'grace' => 3, 'evasion' => 2]])]);
-    ConfigStore::put(ActorStore::class, $actors);
-    ConfigStore::put(ItemStore::class, new ItemStore());
+    ConfigStore::put(ActorStore::class, new ActorStore(definitions: []));
+    ConfigStore::put(ItemStore::class, $this->items);
     $system = file_get_contents($this->root . '/assets/Data/system.php');
     $test = new ProjectBattleTest(setup: new BattleTestSetup([new BattleTestMember('fixture.hero', 1)]));
     $game = new StartupGameProbe($this->manager, ['starting_scene' => ArenaScene::class]);
+    $game->bindGameLoader(createTestGameLoader($game, $actors, $this->items, $this->root . '/assets'));
     $this->manager->game = $game;
+    $foreign = createTestDirectory('ichiloto-foreign-battle-start-');
+    mkdir($foreign . '/assets/Data', 0700, true);
+    file_put_contents($foreign . '/assets/Data/system.php', '<?php return ["battle" => ["partySize" => 8]];');
+    chdir($foreign);
     $game->beginLaunch(new GameLaunchContext(battleTest: $test));
     expect($this->manager->loads)->toBe([ArenaScene::class])
         ->and($this->manager->receivedBattleTest)->toBe($test)
@@ -751,4 +755,32 @@ it('requires isolated storage and exclusive intent for checkpoint launch', funct
         ->and(fn() => $context->validateOptions(['starting_scene' => 0], null))->toThrow(InvalidArgumentException::class);
     $ordinary = new SaveManager($this->game, compatibilityManifest: SaveCompatibilityManifest::fromArray('fixture.launch', ['contentVersion' => 0]));
     expect(fn() => $ordinary->importIsolatedCheckpoint('/checkpoint.iedata'))->toThrow(InvalidArgumentException::class);
+});
+
+it('keeps each field scene’s map state with the scene that requested it', function () {
+    $first = $this->manager->field;
+    $second = new StartupFieldProbe($this->game);
+    $firstMap = MapManager::getInstance($this->game, $first);
+    $secondMap = MapManager::getInstance($this->game, $second);
+
+    expect($firstMap)->not->toBe($secondMap)
+        ->and(MapManager::getInstance($this->game, $first))->toBe($firstMap)
+        ->and(MapManager::getInstance($this->game, $second))->toBe($secondMap);
+});
+
+it('uses the owning map files and collision dictionary at launch while another project is current', function () {
+    writeLaunchMap($this->root);
+    $foreign = createTestDirectory('foreign-map-launch-');
+    writeLaunchMap($foreign, []);
+    file_put_contents($foreign . '/assets/Maps/collisions.php', '<?php $none = \Ichiloto\Engine\Events\Enumerations\CollisionType::NONE; return [" " => $none, "#" => $none];');
+    file_put_contents($foreign . '/assets/Maps/region/field/field.data.php', "<?php return ['name' => 'Foreign', 'events' => []];");
+    chdir($foreign);
+
+    $blocked = new GameLaunchContext(mode: GameStartupMode::NEW_GAME, start: new GameStartLocation('region/field', 1, 0));
+    expect(fn() => $this->game->beginLaunch($blocked))->toThrow(InvalidArgumentException::class, 'blocks movement')
+        ->and($this->manager->loads)->toBe([]);
+    $prepared = MapManager::getInstance($this->game, $this->manager->field)->prepareMap('region/field');
+    expect($prepared->data['name'])->toBe('Fixture')
+        ->and($prepared->collisions[0][1])->toBe(\Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID->value)
+        ->and(getcwd())->toBe(realpath($foreign));
 });

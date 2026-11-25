@@ -2,11 +2,14 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Engine\Battle\BattleClassification;
+use Ichiloto\Engine\Battle\Entry\BattleEntryContext;
 use Ichiloto\Engine\Core\Campaign\CampaignSession;
 use Ichiloto\Engine\Core\Campaign\CampaignNotices;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\ProjectState\ProjectStateParticipantInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Character;
@@ -182,4 +185,41 @@ it('keeps restored campaign facts without retaining a field host through present
     gc_collect_cycles();
     try { expect($weak->get())->toBeNull()->and($campaign->isReleased)->toBeFalse(); }
     finally { $campaign->release(); }
+});
+
+it('owns world abilities through loaded campaign state and battle entry snapshots', function (): void {
+    $conditions = [['type' => 'world_ability', 'name' => 'read-tracks']];
+    $sessions = [];
+    try {
+        foreach (['first', 'second'] as $label) {
+            $root = createTestDirectory('campaign-abilities-' . $label . '-');
+            mkdir($root . '/Data');
+            file_put_contents($root . '/Data/world-abilities.php', '<?php return ' . var_export([
+                ['id' => 'read-tracks', 'name' => ucfirst($label) . ' tracking',
+                    'conditions' => [['type' => 'switch', 'name' => $label . '-trained']]],
+            ], true) . ';');
+            $config = createCampaignSessionConfig(new Party(), ['switches' => ['first-trained' => true]]);
+            $sessions[] = CampaignSession::restore(new PassiveGame(), $config, $root);
+        }
+
+        [$first, $second] = $sessions;
+        $snapshot = $first->gameState->toArray();
+        $entry = BattleEntryContext::capture(
+            BattleClassification::ORDINARY, null, $first->party, $first->gameState, 'campaign-abilities',
+        );
+        expect(WorldConditionEvaluator::allHold($conditions, $first->gameState))->toBeTrue()
+            ->and(WorldConditionEvaluator::allHold($conditions, $second->gameState))->toBeFalse()
+            ->and($first->gameState->getWorldAbilities()->getAbility('read-tracks')->name)->toBe('First tracking')
+            ->and($second->gameState->getWorldAbilities()->getAbility('read-tracks')->name)->toBe('Second tracking')
+            ->and($snapshot)->not->toHaveKey('worldAbilities')
+            ->and($entry->conditionsHold($conditions))->toBeTrue();
+
+        $first->gameState->setSwitch('first-trained', false);
+        expect(WorldConditionEvaluator::allHold($conditions, $first->gameState))->toBeFalse()
+            ->and($entry->conditionsHold($conditions))->toBeTrue();
+        $first->gameState->restoreSnapshot($snapshot);
+        expect(WorldConditionEvaluator::allHold($conditions, $first->gameState))->toBeTrue();
+    } finally {
+        foreach (array_reverse($sessions) as $session) { $session->release(); }
+    }
 });

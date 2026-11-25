@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Rendering\Tilesets;
 
 use GdImage;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetDecoder;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use InvalidArgumentException;
 use RuntimeException;
@@ -181,7 +182,7 @@ final class TileCoverage
   {
     try {
       $size = PngAssetPreflight::inspect($this->assetRoot, $asset);
-      $decoded = @imagecreatefrompng($this->assetRoot . DIRECTORY_SEPARATOR . $asset);
+      $decoded = PngAssetDecoder::decodeFile($this->assetRoot . DIRECTORY_SEPARATOR . $asset);
       if ($decoded === false) {
         throw new RuntimeException("Tile pixel inspection could not decode sheet {$key}: {$asset}.");
       }

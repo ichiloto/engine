@@ -2,7 +2,7 @@
 
 namespace Ichiloto\Engine\UI;
 
-use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
@@ -36,7 +36,7 @@ final class Accessibility
    */
   public static function prefersReducedMotion(): bool
   {
-    return (bool) self::setting('reducedMotion', false);
+    return (bool) self::readSetting('reducedMotion', false);
   }
 
   /**
@@ -52,7 +52,7 @@ final class Accessibility
       return false;
     }
 
-    return ! (bool) self::setting('disableBlink', false);
+    return ! (bool) self::readSetting('disableBlink', false);
   }
 
   /**
@@ -62,7 +62,7 @@ final class Accessibility
    */
   public static function prefersHighContrast(): bool
   {
-    return (bool) self::setting('highContrast', false);
+    return (bool) self::readSetting('highContrast', false);
   }
 
   /**
@@ -70,9 +70,9 @@ final class Accessibility
    *
    * @return float The multiplier; 1.0 leaves the configured speed alone.
    */
-  public static function textSpeedScale(): float
+  public static function textSpeedScale(?Game $game = null): float
   {
-    $scale = self::setting('textSpeedScale', 1.0);
+    $scale = self::readSetting('textSpeedScale', 1.0, $game);
 
     return is_numeric($scale) ? max(0.1, floatval($scale)) : 1.0;
   }
@@ -82,9 +82,9 @@ final class Accessibility
    *
    * @return float The multiplier; 1.0 uses the standard project timing.
    */
-  public static function notificationDurationScale(): float
+  public static function notificationDurationScale(?Game $game = null): float
   {
-    $scale = self::setting('notificationDurationScale', 1.0);
+    $scale = self::readSetting('notificationDurationScale', 1.0, $game);
 
     return is_numeric($scale) ? max(0.1, floatval($scale)) : 1.0;
   }
@@ -96,12 +96,10 @@ final class Accessibility
    * @param mixed $default The value returned when unset.
    * @return mixed The setting value.
    */
-  protected static function setting(string $key, mixed $default): mixed
+  protected static function readSetting(string $key, mixed $default, ?Game $game = null): mixed
   {
-    if (! ConfigStore::has(ProjectConfig::class)) {
-      return $default;
-    }
+    $configuration = ProjectConfig::findForGame($game);
 
-    return config(ProjectConfig::class, "accessibility.$key", $default);
+    return $configuration === null ? $default : $configuration->get("accessibility.$key", $default);
   }
 }

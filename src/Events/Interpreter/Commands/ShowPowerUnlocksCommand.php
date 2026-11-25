@@ -28,7 +28,8 @@ final class ShowPowerUnlocksCommand implements ScriptCommandHandlerInterface
       if (count($matches) !== 1) { throw new RuntimeException('Select one current party actor for the power showcase.'); }
       $actor = $matches[0];
     }
-    $notices = PowerUnlockShowcase::getNotices(WorldAbilityCatalog::getProjectCatalog(),
+    $catalog = $state->worldAbilities ?? WorldAbilityCatalog::getProjectCatalog();
+    $notices = PowerUnlockShowcase::getNotices($catalog,
       array_column($command['abilities'] ?? [], 'ability'), $state, $scene->party, $actor,
       $command['includeCrisis'] ?? false, $command['announcement'] ?? '');
     return ScriptCommandOutcome::waitFor(new NoticeSequenceOperation($scene->getGame()->modalManager, $notices));

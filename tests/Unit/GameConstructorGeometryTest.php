@@ -24,6 +24,7 @@ it('resolves real Game constructor geometry without mistaking injected defaults 
     $exitCode = proc_close($process);
     $diagnostics = file_get_contents($root . '/stderr') . (is_file($root . '/logs/error.log') ? file_get_contents($root . '/logs/error.log') : '');
     $this->assertSame(0, $exitCode, $diagnostics);
+    expect(file_get_contents($root . '/stderr'))->toBe('');
     expect(json_decode(file_get_contents($root . '/dimensions.json'), true))->toBe($expected);
     $output = file_get_contents($root . '/stdout');
     if ($scenario['boot'] ?? false) {

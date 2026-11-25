@@ -1,5 +1,9 @@
 <?php
 
+use Tests\Support\Rendering\RendererPipePeer;
+
+require_once __DIR__ . '/../Support/Rendering/RendererPipePeer.php';
+
 it('previews a different skit backdrop over the snapshot\'s while preserving non-actor speaker bindings', function () {
     $directory = \getTestTemporaryDirectory() . '/dialogue-preview-' . bin2hex(random_bytes(6));
     mkdir($directory . '/Data/Presentation', 0777, true);
@@ -21,18 +25,15 @@ it('previews a different skit backdrop over the snapshot\'s while preserving non
             ['actorId' => 'innkeeper-art', 'name' => 'Innkeeper', 'emotion' => 'Neutral'],
         ],
     ], JSON_THROW_ON_ERROR));
-    $executable = $directory . '/renderer';
+    $executable = RendererPipePeer::getExecutablePath();
     $capture = $directory . '/wire.ndjson';
-    file_put_contents($executable, '#!' . PHP_BINARY . "\n<?php\n\$argv = "
-        . var_export([$executable, 'dialogue_preview', $capture], true)
-        . ";\nrequire " . var_export(__DIR__ . '/../Fixtures/Renderer/renderer-stub.php', true) . ";\n");
-    chmod($executable, 0755);
+    $environment = RendererPipePeer::getEnvironment('dialogue_preview', $capture);
     $process = null;
     try {
         $process = proc_open([PHP_BINARY, dirname(__DIR__, 2) . '/tools/gpui-dialogue-preview.php',
             '--renderer=' . $executable, '--asset-root=' . $directory, '--snapshot=' . $snapshot,
             '--background=proposal.png', '--duration=1'],
-            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, env_vars: $environment);
         expect(is_resource($process))->toBeTrue();
         $stdout = stream_get_contents($pipes[1]);
         $stderr = stream_get_contents($pipes[2]);

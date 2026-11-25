@@ -108,7 +108,6 @@ beforeEach(function () {
   }
   $this->root = createTestDirectory('text-emotion-');
   Debug::configure(['log_directory' => $this->root]);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 24]));
   putSceneAudioConfig([]);
   ob_start();

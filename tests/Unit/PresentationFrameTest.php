@@ -39,12 +39,27 @@ it('rejects invalid sprite structure without filesystem access', function ($over
     'x' => 0, 'y' => 0, 'width' => 32, 'height' => 48], $overrides);
   expect(fn() => new PresentationSprite(...$args))->toThrow(InvalidArgumentException::class);
 })->with([
-  [['id' => '']], [['id' => "bad\0id"]], [['id' => "\xFF"]], [['asset' => '']],
-  [['asset' => '/tmp/test.png']], [['asset' => 'C:/test.png']], [['asset' => 'C:test.png']],
-  [['asset' => '\\server\test.png']], [['asset' => '../test.png']], [['asset' => 'sub/../test.png']],
-  [['asset' => 'sub\..\test.png']], [['asset' => "bad\0.png"]], [['asset' => "\xFF"]],
-  [['asset' => 'https://example.com/test.png']], [['width' => 0]], [['height' => -1]],
-  [['width' => 4097]], [['height' => 4097]], [['x' => 2147483648]], [['y' => -2147483649]], [['layer' => 2147483648]],
+  'empty identity' => [['id' => '']],
+  'NUL in identity' => [['id' => "bad\0id"]],
+  'invalid UTF-8 in identity' => [['id' => "\xFF"]],
+  'empty asset' => [['asset' => '']],
+  'absolute asset path' => [['asset' => '/tmp/test.png']],
+  'drive absolute asset path' => [['asset' => 'C:/test.png']],
+  'drive relative asset path' => [['asset' => 'C:test.png']],
+  'network asset path' => [['asset' => '\\server\test.png']],
+  'parent asset path' => [['asset' => '../test.png']],
+  'embedded parent asset path' => [['asset' => 'sub/../test.png']],
+  'backslash asset separator' => [['asset' => 'sub\..\test.png']],
+  'NUL in asset path' => [['asset' => "bad\0.png"]],
+  'invalid UTF-8 in asset path' => [['asset' => "\xFF"]],
+  'web asset URL' => [['asset' => 'https://example.com/test.png']],
+  'zero width' => [['width' => 0]],
+  'negative height' => [['height' => -1]],
+  'width over limit' => [['width' => 4097]],
+  'height over limit' => [['height' => 4097]],
+  'x above limit' => [['x' => 2147483648]],
+  'y below limit' => [['y' => -2147483649]],
+  'layer above limit' => [['layer' => 2147483648]],
 ]);
 
 it('accepts signed coordinate and layer limits and leaves PNG validation to the renderer', function () {
@@ -54,9 +69,21 @@ it('accepts signed coordinate and layer limits and leaves PNG validation to the 
 
 it('rejects invalid frame text and identifiers', function ($number, $text) {
   expect(fn() => new PresentationFrame($number, $text))->toThrow(InvalidArgumentException::class);
-})->with([[-1, []], [1, [1 => 'x']], [1, [123]], [1, ["\xFF"]], [1, ["\033[31mx"]],
-  [1, ["a\tb"]], [1, ["a\nb"]], [1, ["a\rb"]], [1, ["\0"]], [1, ["\x7F"]], [1, ["\u{85}"]],
-  [1, [str_repeat('x', 513)]], [1, array_fill(0, 257, '')]]);
+})->with([
+  'negative frame number' => [-1, []],
+  'nonsequential rows' => [1, [1 => 'x']],
+  'integer row' => [1, [123]],
+  'invalid UTF-8' => [1, ["\xFF"]],
+  'ANSI foreground' => [1, ["\033[31mx"]],
+  'tab' => [1, ["a\tb"]],
+  'line feed' => [1, ["a\nb"]],
+  'carriage return' => [1, ["a\rb"]],
+  'NUL' => [1, ["\0"]],
+  'delete' => [1, ["\x7F"]],
+  'next line' => [1, ["\u{85}"]],
+  'row over limit' => [1, [str_repeat('x', 513)]],
+  'row count over limit' => [1, array_fill(0, 257, '')],
+]);
 
 it('measures renderer text in Unicode scalars rather than bytes or terminal columns', function () {
   $row = str_repeat("\u{1F408}", 512);

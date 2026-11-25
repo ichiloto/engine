@@ -237,15 +237,12 @@ if (! function_exists('dialogue_speed') ) {
    *
    * @return float The typing speed in characters per second.
    */
-  function dialogue_speed(): float
+  function dialogue_speed(?Game $game = null): float
   {
-    $speed = floatval(config(
-      ProjectConfig::class,
-      'ui.dialogue.speed',
-      config(ProjectConfig::class, 'ui.dialogue.message.speed', 20)
-    ));
+    $configuration = $game?->getProjectConfiguration() ?? ConfigStore::get(ProjectConfig::class);
+    $speed = floatval($configuration->get('ui.dialogue.speed', $configuration->get('ui.dialogue.message.speed', 20)));
 
-    return max(1.0, $speed * \Ichiloto\Engine\UI\Accessibility::textSpeedScale());
+    return max(1.0, $speed * \Ichiloto\Engine\UI\Accessibility::textSpeedScale($game));
   }
 }
 
@@ -376,11 +373,12 @@ if (! function_exists('asset') ) {
    *
    * @param string $path The path of the asset file.
    * @param bool $asArray Whether to return the content as an array or not.
+   * @param string|null $assetRoot The owning project directory for assets.
    * @return string|array|object The content of the asset file.
    */
-  function asset(string $path, bool $asArray = false): string|array|object
+  function asset(string $path, bool $asArray = false, ?string $assetRoot = null): string|array|object
   {
-    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', $path);
+    $filename = Path::join($assetRoot ?? Path::join(Path::getCurrentWorkingDirectory(), 'assets'), $path);
 
     if (! file_exists($filename) ) {
       throw new RuntimeException("Asset file not found: $filename");

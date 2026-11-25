@@ -4,7 +4,10 @@ namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
 use Ichiloto\Engine\Messaging\Dialogue\ChoiceKind;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
+use Ichiloto\Engine\Events\Interpreter\EventCommandRequirements;
+use Ichiloto\Engine\Events\Interpreter\EventScriptContext;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Field\MapDoorReference;
 use InvalidArgumentException;
@@ -19,18 +22,22 @@ use Ichiloto\Engine\Events\Interpreter\MovementRouteRunner;
  */
 final class CinematicScriptValidator
 {
+  private function __construct(private readonly ScriptCommandCatalog $scriptCommands) {}
+
   /** @param array<int, mixed> $commands */
-  public static function validate(array $commands, string $cinematicId = 'cinematic', ?CinematicFramingDefinition $framing = null): void
+  public static function validate(array $commands, string $cinematicId = 'cinematic', ?CinematicFramingDefinition $framing = null,
+    ?ScriptCommandCatalog $scriptCommands = null): void
   {
-    self::validateCommands($commands, $cinematicId, 'script');
+    $scriptCommands ??= ScriptCommandRegistry::getCatalog();
+    new self($scriptCommands)->validateCommands($commands, $cinematicId, 'script');
     if ($framing !== null) {
-      \Ichiloto\Engine\Events\Interpreter\EventCommandRequirements::validate($commands,
-        \Ichiloto\Engine\Events\Interpreter\EventScriptContext::CINEMATIC, framing: $framing, path: $cinematicId . ':script');
+      EventCommandRequirements::validate($commands, EventScriptContext::CINEMATIC,
+        framing: $framing, path: $cinematicId . ':script', scriptCommands: $scriptCommands);
     }
   }
 
   /** @param array<int, mixed> $commands */
-  protected static function validateCommands(array $commands, string $cinematicId, string $path): void
+  private function validateCommands(array $commands, string $cinematicId, string $path): void
   {
     if (! array_is_list($commands)) {
       throw self::failure($cinematicId, $path, 'command blocks must be lists.');
@@ -50,7 +57,7 @@ final class CinematicScriptValidator
       }
 
       if (! in_array($type, CinematicCommandSchema::COMMAND_TYPES, true)) {
-        $definition = ScriptCommandRegistry::getCatalog()->findDefinition($type)
+        $definition = $this->scriptCommands->findDefinition($type)
           ?? throw self::failure($cinematicId, $commandPath, sprintf('unknown command type "%s".', $type));
         $problems = $definition->findProblems($command);
 
@@ -64,12 +71,12 @@ final class CinematicScriptValidator
       match ($type) {
         'text' => self::validateText($command, $cinematicId, $commandPath),
         'play_skit' => self::validateStableReference($command, 'skit', $cinematicId, $commandPath),
-        'play_storybook' => self::validateStorybookPlayback($command, $cinematicId, $commandPath),
-        'framing' => self::validateFraming($command, $cinematicId, $commandPath),
-        'sequence' => self::validateRequiredBlock($command, 'commands', $cinematicId, "$commandPath/sequence"),
-        'parallel' => self::validateParallel($command, $cinematicId, $commandPath),
-        'branch' => self::validateBranch($command, $cinematicId, $commandPath),
-        'choice' => self::validateChoice($command, $cinematicId, $commandPath),
+        'play_storybook' => $this->validateStorybook($command, $cinematicId, $commandPath),
+        'framing' => $this->validateFraming($command, $cinematicId, $commandPath),
+        'sequence' => $this->validateRequiredBlock($command, 'commands', $cinematicId, "$commandPath/sequence"),
+        'parallel' => $this->validateParallel($command, $cinematicId, $commandPath),
+        'branch' => $this->validateBranch($command, $cinematicId, $commandPath),
+        'choice' => $this->validateChoice($command, $cinematicId, $commandPath),
         MapDoorReference::COMMAND => self::validateDoorReference($command, $cinematicId, $commandPath),
         'move_route' => self::validateMoveRoute($command, $cinematicId, $commandPath),
         'camera' => self::validateCamera($command, $cinematicId, $commandPath),
@@ -90,7 +97,7 @@ final class CinematicScriptValidator
     }
   }
 
-  private static function validateFraming(array $command, string $cinematicId, string $path): void
+  private function validateFraming(array $command, string $cinematicId, string $path): void
   {
     if (!is_array($command['subjects'] ?? null) || !is_array($command['commands'] ?? null)
       || $command['commands'] === []) {
@@ -98,7 +105,7 @@ final class CinematicScriptValidator
     }
     try { CinematicFramingDefinition::validateRequirements($command['subjects']); }
     catch (InvalidArgumentException $error) { throw self::failure($cinematicId, $path, $error->getMessage()); }
-    self::validateRequiredBlock($command, 'commands', $cinematicId, $path . '/' . CinematicCommandSchema::FRAMING_BODY_LANE);
+    $this->validateRequiredBlock($command, 'commands', $cinematicId, $path . '/' . CinematicCommandSchema::FRAMING_BODY_LANE);
   }
 
   /** @param array<string, mixed> $command */
@@ -111,7 +118,13 @@ final class CinematicScriptValidator
     }
   }
 
-  public static function validateStorybookPlayback(array $command, string $cinematicId, string $path): void
+  public static function validateStorybookPlayback(array $command, string $cinematicId, string $path,
+    ?ScriptCommandCatalog $scriptCommands = null): void
+  {
+    new self($scriptCommands ?? ScriptCommandRegistry::getCatalog())->validateStorybook($command, $cinematicId, $path);
+  }
+
+  private function validateStorybook(array $command, string $cinematicId, string $path): void
   {
     $id = $command['storybook'] ?? null;
     if (!is_string($id) || preg_match(\Ichiloto\Engine\Messaging\Storybook\StorybookDefinition::ID_PATTERN, $id) !== 1) {
@@ -120,7 +133,7 @@ final class CinematicScriptValidator
 
     $finish = CinematicCommandSchema::STORYBOOK_FINISH_FIELD;
     if (array_key_exists($finish, $command)) {
-      self::validateRequiredBlock($command, $finish, $cinematicId, "$path/$finish");
+      $this->validateRequiredBlock($command, $finish, $cinematicId, "$path/$finish");
     }
   }
 
@@ -151,7 +164,7 @@ final class CinematicScriptValidator
   }
 
   /** @param array<string, mixed> $command */
-  protected static function validateRequiredBlock(
+  private function validateRequiredBlock(
     array $command,
     string $field,
     string $cinematicId,
@@ -164,11 +177,11 @@ final class CinematicScriptValidator
       throw self::failure($cinematicId, $path, sprintf('field "%s" must contain a command list.', $field));
     }
 
-    self::validateCommands($commands, $cinematicId, $path);
+    $this->validateCommands($commands, $cinematicId, $path);
   }
 
   /** @param array<string, mixed> $command */
-  protected static function validateParallel(array $command, string $cinematicId, string $path): void
+  private function validateParallel(array $command, string $cinematicId, string $path): void
   {
     $lanes = $command['lanes'] ?? null;
 
@@ -194,7 +207,7 @@ final class CinematicScriptValidator
           throw self::failure($cinematicId, $lanePath, 'lane command list must not be empty.');
         }
 
-        self::validateCommands($lane, $cinematicId, $lanePath);
+        $this->validateCommands($lane, $cinematicId, $lanePath);
         continue;
       }
 
@@ -212,24 +225,24 @@ final class CinematicScriptValidator
       if (($lane['commands'] ?? []) === []) {
         throw self::failure($cinematicId, "$path/parallel[$id]", 'lane command list must not be empty.');
       }
-      self::validateRequiredBlock($lane, 'commands', $cinematicId, "$path/parallel[$id]");
+      $this->validateRequiredBlock($lane, 'commands', $cinematicId, "$path/parallel[$id]");
     }
   }
 
   /** @param array<string, mixed> $command */
-  protected static function validateBranch(array $command, string $cinematicId, string $path): void
+  private function validateBranch(array $command, string $cinematicId, string $path): void
   {
     foreach (['then', 'else'] as $arm) {
       if (! array_key_exists($arm, $command)) {
         continue;
       }
 
-      self::validateRequiredBlock($command, $arm, $cinematicId, "$path/branch:$arm");
+      $this->validateRequiredBlock($command, $arm, $cinematicId, "$path/branch:$arm");
     }
   }
 
   /** @param array<string, mixed> $command */
-  protected static function validateChoice(array $command, string $cinematicId, string $path): void
+  private function validateChoice(array $command, string $cinematicId, string $path): void
   {
     $options = $command['options'] ?? null;
 
@@ -249,12 +262,12 @@ final class CinematicScriptValidator
       }
 
       if (array_key_exists('then', $option)) {
-        self::validateRequiredBlock($option, 'then', $cinematicId, sprintf('%s/choice[%d]', $path, $index + 1));
+        $this->validateRequiredBlock($option, 'then', $cinematicId, sprintf('%s/choice[%d]', $path, $index + 1));
       }
     }
 
     if (array_key_exists('cancel', $command)) {
-      self::validateRequiredBlock($command, 'cancel', $cinematicId, "$path/choice:cancel");
+      $this->validateRequiredBlock($command, 'cancel', $cinematicId, "$path/choice:cancel");
     }
   }
 

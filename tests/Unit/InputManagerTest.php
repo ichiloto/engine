@@ -143,7 +143,6 @@ it('defaults to terminal input and preserves explicit source installation across
   $source = new FakeInputSource(KeyCode::W);
   InputManager::setInputSource($source);
   $oldConfig = ConfigStore::has(InputConfig::class) ? ConfigStore::get(InputConfig::class) : null;
-  $oldEventSingleton = new ReflectionProperty(EventManager::class, 'instance')->getValue();
   $config = new class extends InputConfig {
     public int $writes = 0;
     protected function load(): array { return ['up' => ['keys' => [KeyCode::W]]]; }
@@ -171,7 +170,6 @@ it('defaults to terminal input and preserves explicit source installation across
     expect(InputManager::getPressedKeyCode())->toBe(KeyCode::W);
   } finally {
     $oldConfig === null ? ConfigStore::remove(InputConfig::class) : ConfigStore::put(InputConfig::class, $oldConfig);
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $oldEventSingleton);
   }
 });
 

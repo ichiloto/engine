@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\IO;
 
+use Ichiloto\Engine\Core\Game;
+
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 
@@ -99,11 +101,12 @@ class Input
    * Checks if the given button is down.
    *
    * @param string $name The name of the button to check.
+   * @param Game|null $game Owner of any project-specific action policy.
    * @return bool Returns true if the button is down, false otherwise.
    */
-  public static function isButtonDown(string $name): bool
+  public static function isButtonDown(string $name, ?Game $game = null): bool
   {
-    return InputManager::isButtonDown($name);
+    return InputManager::isButtonDown($name, $game);
   }
 
   /** A fresh discrete action; native OS repeats do not confirm, cancel or toggle a choice. */

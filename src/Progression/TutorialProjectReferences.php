@@ -12,6 +12,7 @@ use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use Ichiloto\Engine\Progression\Mastery\MasteryBoard;
 use Ichiloto\Engine\Progression\Mastery\MasteryCatalog;
 use Ichiloto\Engine\Util\Stores\ActorStore;
@@ -25,7 +26,8 @@ final class TutorialProjectReferences
   /** @var array<string, list<string>> */
   private array $ids = [];
 
-  public function __construct(string $assetRoot)
+  public function __construct(string $assetRoot,
+    private readonly ?ScriptCommandCatalog $scriptCommands = null)
   {
     $this->assetRoot = rtrim(realpath($assetRoot) ?: $assetRoot, '/\\');
   }
@@ -67,7 +69,7 @@ final class TutorialProjectReferences
   public function validateCatalog(TutorialCatalog $catalog): void
   {
     $views = TutorialScreenCatalog::getViews();
-    $cinematics = new CinematicLibrary($this->assetRoot . '/Cutscenes/Cinematics');
+    $cinematics = new CinematicLibrary($this->assetRoot . '/Cutscenes/Cinematics', $this->scriptCommands);
     $effects = new EffectTimelineLibrary($this->assetRoot);
     foreach ($catalog->definitions as $tutorial) {
       $firstView = $tutorial->steps[0]->target;

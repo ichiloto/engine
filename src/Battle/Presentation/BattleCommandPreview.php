@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Animations\Timelines\EffectGroundSpan;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
@@ -11,6 +12,7 @@ use Ichiloto\Engine\IO\Console\TerminalPresentationComposer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
+use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 use InvalidArgumentException;
 
 /** Random-access inspection through production playback and presentation only. */
@@ -27,7 +29,8 @@ final class BattleCommandPreview
   public function __construct(BattleConfig $battle, public readonly BattleCommandTimeline $plan,
     private readonly CharacterInterface $actor, private readonly array $targets,
     private readonly BattlePoseRole $pose, ?BattlePresentationCatalog $catalog = null, string $assetRoot = '',
-    public readonly EffectPresentation $presentation = EffectPresentation::GRAPHICAL, ?GraphicalBattlePresentation $graphical = null)
+    public readonly EffectPresentation $presentation = EffectPresentation::GRAPHICAL, ?GraphicalBattlePresentation $graphical = null,
+    ?ConfigInterface $configuration = null)
   {
     $participants = [...$battle->partyRoster->battlers, ...$battle->troop->members->toArray()];
     if (!in_array($actor, $participants, true) || $targets === []
@@ -38,24 +41,32 @@ final class BattleCommandPreview
       throw new InvalidArgumentException('A graphical battle preview requires its presentation catalog.');
     }
     $this->graphical = $presentation === EffectPresentation::TERMINAL ? null
-      : ($graphical ?? GraphicalBattlePresentation::prepare($battle, $catalog, $assetRoot));
+      : ($graphical ?? GraphicalBattlePresentation::prepare($battle, $catalog, $assetRoot, $configuration));
     $this->terminal = new TerminalBattlePresentation($battle, conditionEffects: BattleConditionEffects::createFromConfig(
-      new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($assetRoot === '' ? getcwd() . '/assets' : $assetRoot)));
+      new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($assetRoot === '' ? getcwd() . '/assets' : $assetRoot),
+      $configuration));
     $this->terminalComposer = new TerminalPresentationComposer();
   }
 
   public function getFrameAtTime(float $seconds, bool $reducedMotion = false, bool $imageRotation = false,
-    bool $coverageDabs = false, bool $textureStrip = false, bool $compositing = true): BattleCommandPreviewFrame
+    bool $coverageDabs = false, bool $textureStrip = false, bool $compositing = true,
+    bool $imageFlips = true, bool $maskFlips = true, bool $imageTones = true,
+    bool $imageClips = true, bool $bottomFade = false): BattleCommandPreviewFrame
   {
     if (!is_finite($seconds) || $seconds < 0) {
       throw new InvalidArgumentException('Battle preview time must be finite and non-negative.');
     }
     return $this->getFrameAtIndex(min($this->getTotalFrames($reducedMotion) - 1,
-      EffectPlaybackTiming::getFrameCountForElapsed($seconds, 1 / BattleCommandTimeline::FPS)), $reducedMotion, $imageRotation, $coverageDabs, $textureStrip, $compositing);
+      EffectPlaybackTiming::getFrameCountForElapsed($seconds, 1 / BattleCommandTimeline::FPS)),
+      reducedMotion: $reducedMotion, imageRotation: $imageRotation, coverageDabs: $coverageDabs,
+      textureStrip: $textureStrip, compositing: $compositing, imageFlips: $imageFlips, maskFlips: $maskFlips,
+      imageTones: $imageTones, imageClips: $imageClips, bottomFade: $bottomFade);
   }
 
   public function getFrameAtIndex(int $frame, bool $reducedMotion = false, bool $imageRotation = false,
-    bool $coverageDabs = false, bool $textureStrip = false, bool $compositing = true): BattleCommandPreviewFrame
+    bool $coverageDabs = false, bool $textureStrip = false, bool $compositing = true,
+    bool $imageFlips = true, bool $maskFlips = true, bool $imageTones = true,
+    bool $imageClips = true, bool $bottomFade = false): BattleCommandPreviewFrame
   {
     if ($frame < 0 || $frame >= $this->getTotalFrames($reducedMotion)) {
       throw new InvalidArgumentException('Battle preview frame must be inside the command timeline.');
@@ -66,8 +77,22 @@ final class BattleCommandPreview
     });
     $seconds = $frame / BattleCommandTimeline::FPS;
     $playback->update($seconds);
+    $role = $this->plan->targetContactSequence?->previewReaction;
+    if ($role !== null && $this->graphical !== null) {
+      // Show the authored contact example without making up damage or resolving the action.
+      $contacts = $playback->getResultPresentationFrames();
+      foreach ($this->targets as $target) {
+        $contact = $contacts[spl_object_id($target)] ?? null;
+        if ($contact !== null && $contact <= $playback->session->currentFrame) {
+          $playback->setReaction($target, $role, $contact);
+        }
+      }
+    }
     $canvas = $this->graphical?->frame(new BattlePresentationSnapshot($playback,
-      poseElapsedSeconds: $seconds), now: $seconds, reducedMotion: $reducedMotion, imageRotation: $imageRotation, coverageDabs: $coverageDabs, textureStrip: $textureStrip, compositing: $compositing);
+      poseElapsedSeconds: $seconds), now: $seconds, reducedMotion: $reducedMotion,
+      imageFlips: $imageFlips, maskFlips: $maskFlips, imageTones: $imageTones, imageClips: $imageClips,
+      imageRotation: $imageRotation, coverageDabs: $coverageDabs, textureStrip: $textureStrip,
+      compositing: $compositing, bottomFade: $bottomFade);
     $lines = $this->terminal->getFrame($playback, $reducedMotion, $seconds)['lines'];
     $terminalCanvas = $this->terminalComposer->createCanvasFromLines($lines, new RendererGridConfig(
       $this->terminal->width, $this->terminal->height,
@@ -97,7 +122,19 @@ final class BattleCommandPreview
       if ($playback->presentationFailure !== null) { throw $playback->presentationFailure; }
       $snapshot = $playback->getCapturedAnchorSnapshot('snapshot')
         ?? throw new \RuntimeException('Ground-span placement inspection has no captured source and recipients.');
-      $snapshot->getGroundSpanEndpoint();
+      $anchors = [];
+      foreach ($this->plan->timeline->playbackSegments as $segment) {
+        foreach ($segment['drawCommands'] as $command) {
+          $span = $command['payload'][EffectGroundSpan::FIELD] ?? null;
+          if ($span === null) { continue; }
+          $snapshot->getGroundSpanStart(EffectGroundSpan::fromArray($span)->casterPoint);
+          $anchors[$command['payload']['anchor']] = true;
+        }
+      }
+      if (isset($anchors['target-group'])) { $snapshot->getGroundSpanEndpoint(); }
+      if (isset($anchors['target'])) {
+        foreach (array_keys($snapshot->targets->grounds) as $recipient) { $snapshot->getGroundSpanEndpoint($recipient); }
+      }
       return [];
     } catch (\Throwable $error) { return [$error->getMessage()]; }
     finally { $playback->cancel(); }

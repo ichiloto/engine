@@ -233,9 +233,13 @@ it('shares clipping and styled composition between string and normalized input',
     expect(Console::presentationSnapshot())->toEqual($expected);
   }
 })->with([
-  '<fg=blue>界</>AB', "e\u{0301}⚔️🗡", "🇺\e[0m🇸X", "👩\e[0m‍💻X",
-  "\e[1;31mA\e[22mB\e[39mC", "\e[38;2;0;128;0;48;5;0m A\e[49mB",
-  "\e[4;999;38;5;0mA\e[24mB\e[0mC",
+  'formatter colour' => '<fg=blue>界</>AB',
+  'combining letter and weapons' => "e\u{0301}⚔️🗡",
+  'flag split by reset' => "🇺\e[0m🇸X",
+  'profession emoji split by reset' => "👩\e[0m‍💻X",
+  'ANSI bold and foreground resets' => "\e[1;31mA\e[22mB\e[39mC",
+  'truecolor foreground and indexed background' => "\e[38;2;0;128;0;48;5;0m A\e[49mB",
+  'unsupported SGR amid supported styles' => "\e[4;999;38;5;0mA\e[24mB\e[0mC",
 ]);
 
 it('keeps authored map symbols separate across reset and combining boundaries', function () {

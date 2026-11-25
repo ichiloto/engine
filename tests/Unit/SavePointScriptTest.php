@@ -2,12 +2,14 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
 use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\Localization\EngineMessageTerms;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
 /** A project whose config.php holds these values. */
 function useSavePointProject(array $data): void
@@ -58,8 +60,19 @@ it('refuses a save point script that is not a stable script id', function (mixed
 })->with(['a path' => ['../secrets'], 'a list' => [['guild-ledger']], 'a number' => [7]]);
 
 it('runs the project script on arriving at a save point', function () {
-  useSavePointProject(['save' => ['point_script' => 'guild-ledger']]);
-  $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
+  useSavePointProject(['save' => ['point_script' => 'other-guild-ledger']]);
+  $owner = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+    public function getProjectConfiguration(): ConfigInterface
+    {
+      return new SceneAudioConfigStub(['save' => ['point_script' => 'guild-ledger']]);
+    }
+  };
+  $scene = new class($owner) extends GameScene {
+    public function __construct(private readonly Game $owner) {}
+    public function getGame(): Game { return $this->owner; }
+  };
   $interpreter = new SavePointScriptRecorder();
   new ReflectionProperty(GameScene::class, 'eventInterpreter')->setValue($scene, $interpreter);
 

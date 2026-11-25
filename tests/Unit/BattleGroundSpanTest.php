@@ -101,6 +101,96 @@ describe('ground-span source compilation', function () {
     expect($copy->toArray())->toBe($effect->toArray());
   });
 
+  it('draws one rigid ray from the held origin to each recipient at its exact ground depth', function (bool $namedOrigin) {
+    $data = groundSpanSource();
+    $data['tracks'][0]['anchor'] = 'target';
+    if ($namedOrigin) { $data['tracks'][0]['groundSpan']['casterPoint'] = 'leading-boot'; }
+    $effect = $this->spanLibrary->compile('recipient-span', $data, true);
+    expect($effect->playbackSegments[0]['drawCommands'][0]['payload']['groundSpan'])->toBe($data['tracks'][0]['groundSpan']);
+    $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
+      new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect);
+    $actor = new Character('Caster', 1, new Stats());
+    $targets = [new Character('Equal name', 1, new Stats()), new Character('Equal name', 1, new Stats())];
+    $ids = array_map(spl_object_id(...), $targets);
+    $caster = new Vector2(870, 500);
+    $grounds = array_combine($ids, [new Vector2(300, 250), new Vector2(300, 560)]);
+    $bounds = array_fill_keys($ids, new CanvasRectangle(200, 200, 100, 60));
+    $boot = new Vector2(842.75, 511.125);
+    $snapshot = new BattleEffectAnchorSnapshot(BattleEffectTargetGroup::collectTargets($targets, $bounds, $grounds),
+      $caster, ['leading-boot' => $boot]);
+    $start = clone ($namedOrigin ? $boot : $caster);
+    $boot->x += 50;
+    $copy = $snapshot->getGroundSpanStart($namedOrigin ? 'leading-boot' : null);
+    $copy->y += 60;
+    expect(fn() => $snapshot->getGroundSpanStart('missing'))->toThrow(InvalidArgumentException::class, 'missing');
+    $resolutions = 0;
+    $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $actor, $targets,
+      \Ichiloto\Engine\Battle\Presentation\BattlePoseRole::ATTACK, function () use (&$resolutions) { $resolutions++; }, static fn() => null);
+    $playback->bindAnchorSnapshotCapture(static fn() => $snapshot);
+    $playback->begin();
+    $playback->update($plan->getCommandFrameForAuthoredFrame('target', 3) / $plan::FPS);
+    $render = fn(bool $reduced): array => \Ichiloto\Engine\Battle\Presentation\GraphicalBattleEffects::compose(
+      $playback, new BattleCanvasLayout(1350, 760), [], $this->spanRoot, $reduced, textureStrip: true)->composites;
+    foreach ([false, true] as $reduced) {
+      $composites = $render($reduced);
+      expect(array_column($composites, 'id'))->toBe(array_map(static fn(int $id): string => 'command-effect-target-ground-' . $id, $ids));
+      foreach ($composites as $index => $composite) {
+        $point = $grounds[$ids[$index]];
+        $geometry = $composite->operations[0]->textureStrip;
+        [$u, $v] = $geometry->getSourcePoint($point->x - $composite->destination->x, $point->y - $composite->destination->y);
+        [$ru, $rv] = $geometry->getSourcePoint($start->x - $composite->destination->x, $start->y - $composite->destination->y);
+        expect($u)->toEqualWithDelta(.1, 1e-12)->and($v)->toEqualWithDelta(.5, 1e-12)
+          ->and($ru)->toEqualWithDelta(.9, 1e-12)->and($rv)->toEqualWithDelta(.5, 1e-12);
+      }
+    }
+    expect($playback->presentationFailure)->toBeNull()->and($resolutions)->toBe(0);
+    $playback->update(10);
+    expect($render(false))->toBe([])->and($resolutions)->toBe(1);
+  })->with([false, true]);
+
+  it('samples approaching ground spans from one captured contact schedule before impact', function () {
+    $data = groundSpanSource();
+    $data['tracks'][0]['anchor'] = 'target';
+    $data['tracks'][0]['groundSpan']['reveal'] = ['startFrame' => 2, 'featherPixels' => 2, 'beforeContactOpacity' => .65];
+    $data['tracks'][] = ['id' => 'contact', 'type' => 'image', 'asset' => 'span.png', 'presentation' => 'graphical',
+      'anchor' => 'target', 'keyframes' => [['frame' => 6, 'duration' => 1]]];
+    $data['targetContactSequence'] = ['firstFrame' => 6, 'lastFrame' => 8, 'intervalFrames' => 2, 'tracks' => ['contact']];
+    $effect = $this->spanLibrary->compile('approach', $data, true);
+    $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
+      new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect);
+    $actor = new Character('Caster', 1, new Stats());
+    $near = new Character('Near', 1, new Stats());
+    $far = new Character('Far', 1, new Stats());
+    $grounds = [spl_object_id($near) => new Vector2(300, 150), spl_object_id($far) => new Vector2(100, 180)];
+    $bounds = array_fill_keys(array_keys($grounds), new CanvasRectangle(200, 100, 100, 60));
+    $caster = new Vector2(800, 200);
+    $snapshot = new BattleEffectAnchorSnapshot(BattleEffectTargetGroup::collectTargets([$near, $far], $bounds, $grounds), $caster);
+    $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $actor, [$near, $far],
+      \Ichiloto\Engine\Battle\Presentation\BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
+    $playback->bindAnchorSnapshotCapture(static fn() => $snapshot);
+    $playback->begin();
+    $tick = $plan->getCommandFrameForAuthoredFrame('target', 4);
+    $playback->update($tick / $plan::FPS);
+    $seen = $playback->getTargetContactFrames();
+    expect($seen)->toBe([spl_object_id($near) => $plan->getCommandFrameForAuthoredFrame('target', 6),
+      spl_object_id($far) => $plan->getCommandFrameForAuthoredFrame('target', 8)]);
+    expect($playback->getGroundSpanRevealProgress(spl_object_id($near), 2))->toBe(.5)
+      ->and($playback->getGroundSpanRevealProgress(spl_object_id($far), 2))->toBe(1 / 3);
+    $render = fn() => \Ichiloto\Engine\Battle\Presentation\GraphicalBattleEffects::compose(
+      $playback, new BattleCanvasLayout(1350, 760), $bounds, $this->spanRoot, false, textureStrip: true);
+    $drawing = \Ichiloto\Engine\Rendering\Presentation\PresentationSession::runForSession(
+      static fn($cap) => $cap === 'canvas_texture_strip_clip', $render);
+    expect($drawing->images)->toBe([])->and($drawing->composites)->toHaveCount(2);
+    foreach ($drawing->composites as $composite) {
+      expect($composite->opacity)->toBe(.65)->and($composite->operations[0]->textureStrip->clipPlane['feather'])->toBe(2.0);
+    }
+    expect($render()->composites)->toBe([])
+      ->and($playback->presentationFailure?->getMessage())->toContain('clipping support');
+    $data['targetContactSequence']['tracks'][] = 'ground';
+    expect(fn() => $this->spanLibrary->compile('invalid-approach', $data, true))
+      ->toThrow(InvalidArgumentException::class, 'separate contact tracks');
+  });
+
   it('preserves the ground-span descriptor through the actual summon authoring and compilation boundaries', function (bool $paired) {
     $graphical = groundSpanSource();
     $terminal = ['fps' => 24, 'lengthFrames' => 12, 'restFrame' => 3,

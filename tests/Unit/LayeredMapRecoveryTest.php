@@ -34,9 +34,6 @@ it('removes technical destination diagnostics from player feedback while refusin
         ? "<?php\nreturn str_repeat(' ', 2);" : MapGridSource::buildSource('x', 'MAP'));
     try {
         \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $root . '/logs']);
-        foreach ([NotificationManager::class, EventManager::class] as $class) {
-            new ReflectionProperty($class, 'instance')->setValue(null, null);
-        }
         foreach ((new ReflectionClass(AudioManager::class))->getProperties(ReflectionProperty::IS_STATIC) as $property) {
             if ($property->getValue() instanceof AudioManager) { $property->setValue(null, null); }
         }

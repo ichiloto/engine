@@ -576,3 +576,46 @@ it('honours neutral authored flash holds in Terminal while retaining foreground 
   expect($frame['flashes'])->toHaveCount($strength === 0.0 || $reduced ? 0 : count($this->targets));
   foreach ($frame['flashes'] as $flash) { expect($flash['screen'])->toBeFalse()->and($flash['color'])->toBe(Color::YELLOW); }
 })->with([0.0,.35,1.0])->with([false,true]);
+
+it('renders the same staggered recipient glyphs in the live Terminal field and a reverse preview', function (bool $reduced) {
+  ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
+  Console::syncDimensions(135, 30);
+  $positions = PartyBattlerPositions::createForSize(1, 135, 30);
+  $effect = (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator('/no-graphical-assets'))->compile('staggered', [
+    'fps' => 24, 'lengthFrames' => 10, 'restFrame' => 3,
+    'effectTiming' => ['mode' => 'frame', 'frame' => 3],
+    'terminalTargetContacts' => ['intervalFrames' => 2, 'tracks' => ['burst']],
+    'tracks' => [['id' => 'burst', 'type' => 'glyph', 'presentation' => 'terminal', 'anchor' => 'target',
+      'keyframes' => [['frame' => 3, 'duration' => 4, 'content' => '!', 'position' => ['x' => 0, 'y' => -1]]]]],
+  ], forBattle: true, presentation: \Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.01, .01, .01, .01, .01, .01, .01),
+    target: $effect, targetCount: count($this->targets));
+  $playback = new BattleCommandPlayback($plan, $this->actor, $this->targets, BattlePoseRole::MAGIC,
+    static fn() => null, static fn() => null);
+  $field = terminalPreviewField($this->battle, $positions, new Vector2(), 135, 30);
+  $field->setCommandPlayback($playback);
+  $playback->begin();
+  $firstFrame = $plan->phases['target']['start'] + 15;
+  $playback->update($firstFrame / 120);
+  $presentation = new TerminalBattlePresentation($this->battle, $positions);
+  $frame = $presentation->getFrame($playback, $reduced);
+  $marks = array_filter($frame['draws'], static fn(array $draw): bool => TerminalText::stripAnsi($draw['text']) === '!');
+  expect($marks)->toHaveCount(1)->and($playback->presentationFailure)->toBeNull();
+  $field->renderParty($this->battle->party);
+  $field->renderTroop($this->battle->troop);
+  $field->renderMagicCastEffects();
+  $live = array_map(static fn(string $line): array => NormalizedRow::fromText($line, 135)->cells, Console::getBuffer());
+  foreach ($frame['lines'] as $row => $line) {
+    expect(NormalizedRow::fromText($line, 135)->cells)->toBe($live[$row]);
+  }
+
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview(
+    $this->battle, $plan, $this->actor, $this->targets, BattlePoseRole::MAGIC,
+    presentation: \Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL);
+  $first = $preview->getFrameAtIndex($firstFrame, $reduced);
+  $next = $preview->getFrameAtIndex($firstFrame + 10, $reduced);
+  $rewound = $preview->getFrameAtIndex($firstFrame, $reduced);
+  expect($first->diagnostics)->toBe([])->and($next->diagnostics)->toBe([])
+    ->and($rewound->terminalLines)->toBe($first->terminalLines)
+    ->and($next->terminalLines)->not->toBe($first->terminalLines);
+})->with([false, true]);

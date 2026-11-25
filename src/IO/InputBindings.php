@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO;
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -29,6 +30,8 @@ class InputBindings implements ActionHintProvider
    */
   protected const array LOCKED_ACTIONS = ['back'];
 
+  public function __construct(private readonly ?Game $game = null) {}
+
   public static function canRebind(string $action): bool
   {
     return ! in_array($action, self::LOCKED_ACTIONS, true);
@@ -45,8 +48,8 @@ class InputBindings implements ActionHintProvider
     $bindings = [];
 
     foreach (InputManager::getBindings() as $action => $binding) {
-      if (($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled())
-        || ($action === PlayerDash::ACTION && !PlayerDash::isAvailable())
+      if (($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled($this->game))
+        || ($action === PlayerDash::ACTION && !PlayerDash::isAvailable($this->game))
         || in_array($action, self::LOCKED_ACTIONS, true)) {
         continue;
       }
@@ -98,8 +101,8 @@ class InputBindings implements ActionHintProvider
 
   public function controlForAction(string $action): ?ControlHint
   {
-    if ($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return null; }
-    if ($action === PlayerDash::ACTION && !PlayerDash::isAvailable()) { return null; }
+    if ($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled($this->game)) { return null; }
+    if ($action === PlayerDash::ACTION && !PlayerDash::isAvailable($this->game)) { return null; }
     $key = $this->primaryKey($action);
     return $key === null ? null : ControlHint::keyboard($key);
   }
@@ -146,8 +149,8 @@ class InputBindings implements ActionHintProvider
    */
   protected function persist(): bool
   {
-    $player = ConfigStore::has(PlayerSettings::class)
-      ? ConfigStore::get(PlayerSettings::class) : null;
+    $player = $this->game?->getPlayerSettings() ?? (ConfigStore::has(PlayerSettings::class)
+      ? ConfigStore::get(PlayerSettings::class) : null);
 
     if (! $player instanceof PlayerSettings) {
       Debug::warn('Player settings are not available; the rebind applies to this session only.');

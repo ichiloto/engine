@@ -119,6 +119,19 @@ it('parses stty terminal size output into width and height', function () {
   ]);
 });
 
+it('reports no terminal size without printing diagnostics in a detached process', function () {
+  $probe = <<<'PHP'
+if (posix_setsid() === -1) { exit(2); }
+require $argv[1];
+$size = new ReflectionMethod(\Ichiloto\Engine\IO\Console\Console::class, 'readAvailableSizeFromStty');
+echo json_encode($size->invoke(null), JSON_THROW_ON_ERROR), PHP_EOL;
+PHP;
+  $autoload = dirname(__DIR__, 2) . '/vendor/autoload.php';
+  exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($probe) . ' ' . escapeshellarg($autoload) . ' < /dev/null 2>&1', $output, $exit);
+
+  expect($exit)->toBe(0)->and($output)->toBe(['null']);
+})->skip(!function_exists('posix_setsid'), 'Requires a detached POSIX session.');
+
 it('rejects invalid terminal size values during normalization', function () {
   expect(ConsoleTestProxy::normalizeSize('abc', 36))->toBeNull()
     ->and(ConsoleTestProxy::normalizeSize(0, 0))->toBe([

@@ -4,11 +4,19 @@ namespace Ichiloto\Engine\Util\Config;
 
 use Assegai\Util\Path;
 use Exception;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
 class ProjectConfig extends AbstractConfig
 {
+  /** A booted game retains its configuration. Standalone callers use their active project. */
+  public static function findForGame(?Game $game = null): ?ConfigInterface
+  {
+    return $game?->getProjectConfiguration() ?? (ConfigStore::has(self::class) ? ConfigStore::get(self::class) : null);
+  }
+
   /**
    * @inheritDoc
    * @throws NotFoundException

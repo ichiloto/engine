@@ -348,18 +348,24 @@ it('reports a sheet that passes header preflight but cannot be decoded without g
   $path = $this->root . '/C.png';
   $bytes = "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 64, 64);
   file_put_contents($path, $bytes);
-  // GD's expected corrupt-image warning belongs in the child, not PHPUnit's error handler.
-  $code = 'require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . '; '
-    . '\\Ichiloto\\Engine\\Util\\Debug::configure(["log_directory" => '
-    . var_export($this->fixtureRoot . '/logs', true) . ']); '
-    . '$tileset = new \\Ichiloto\\Engine\\Rendering\\Tilesets\\Tileset("corrupt", "Corrupt", ["B" => "B.png", "C" => "C.png"]); '
-    . '$reader = new \\Ichiloto\\Engine\\Rendering\\Tilesets\\TileCoverage($tileset, '
-    . var_export($this->root, true) . '); '
-    . 'echo json_encode(["frames" => $reader->readFrames(256), "stack" => $reader->findUncovered([1, 256]), '
-    . '"reversed" => $reader->findUncovered([256, 1]), "substrate" => $reader->findUncovered([1])], JSON_THROW_ON_ERROR);';
-  exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code), $output, $exit);
-  expect($exit)->toBe(0);
-  $result = json_decode(implode('', $output), true, flags: JSON_THROW_ON_ERROR);
+  $tileset = new Tileset('corrupt', 'Corrupt', ['B' => 'B.png', 'C' => 'C.png']);
+  $warnings = [];
+  set_error_handler(static function (int $severity, string $message) use (&$warnings): bool {
+    $warnings[] = $severity;
+    return true;
+  });
+  try {
+    $reader = new TileCoverage($tileset, $this->root);
+    $result = [
+      'frames' => $reader->readFrames(TileId::C),
+      'stack' => $reader->findUncovered([1, TileId::C]),
+      'reversed' => $reader->findUncovered([TileId::C, 1]),
+      'substrate' => $reader->findUncovered([1]),
+    ];
+  } finally {
+    restore_error_handler();
+  }
+  expect($warnings)->toBe([]);
   expect($result['frames']['frames'])->toBeNull()->and($result['frames']['diagnostic'])->toContain('decode');
   foreach (['stack', 'reversed'] as $key) {
     expect($result[$key]['uncoveredPixels'])->toBeNull()->and($result[$key]['diagnostic'])->toContain('decode');

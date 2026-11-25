@@ -7,6 +7,8 @@ namespace Ichiloto\Engine\Battle\Presentation;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 use InvalidArgumentException;
 
 /**
@@ -31,10 +33,10 @@ final readonly class EnemyDefeatStyle
     PresentationColor::rgb(...$color);
   }
 
-  public static function createFromConfig(): self
+  public static function createFromConfig(?ConfigInterface $configuration = null): self
   {
-    return self::createFromArray(\Ichiloto\Engine\Util\Config\ConfigStore::has(\Ichiloto\Engine\Util\Config\ProjectConfig::class)
-      ? config(\Ichiloto\Engine\Util\Config\ProjectConfig::class, 'ui.battle.defeat', []) : []);
+    $configuration ??= ProjectConfig::findForGame();
+    return self::createFromArray($configuration?->get('ui.battle.defeat', []) ?? []);
   }
 
   public static function createFromArray(array $data): self

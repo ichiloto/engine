@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Events\Triggers;
 
+use Assegai\Util\Path;
 use Ichiloto\Engine\Entities\Actions\RunScriptAction;
 use Ichiloto\Engine\Events\Interfaces\ActionOnlyEventTriggerInterface;
 use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
@@ -185,7 +186,8 @@ class ScriptEventTrigger extends EventTrigger implements
       return [];
     }
 
-    $filename = \Assegai\Util\Path::join(\Assegai\Util\Path::getCurrentWorkingDirectory(), 'assets', 'Events', "$scriptId.php");
+    $assetRoot = $this->projectAssetRoot ?? Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+    $filename = Path::join($assetRoot, 'Events', "$scriptId.php");
     $this->scriptSource = $filename;
 
     if (! file_exists($filename)) {

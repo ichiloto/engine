@@ -6,7 +6,7 @@ use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Battle\BattleClassification;
 use Ichiloto\Engine\Battle\EscapePolicy;
 use Ichiloto\Engine\Battle\Events\BattleEventPage;
-use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
+use Ichiloto\Engine\Events\Interpreter\Commands\{ScriptCommandCatalog, ScriptCommandRegistry};
 use Ichiloto\Engine\Battle\Presentation\BattleStageSlot;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
@@ -174,9 +174,10 @@ class Troop extends BattleGroup
    * @return self
    * @throws RequiredFieldException If a required field is missing.
    */
-  public static function fromArray(array $data, string $source = 'troop data'): self
+  public static function fromArray(array $data, string $source = 'troop data',
+    ?EnemyStore $enemiesStore = null, ?ScriptCommandCatalog $scriptCommands = null): self
   {
-    $enemiesStore = ConfigStore::get(EnemyStore::class);
+    $enemiesStore ??= ConfigStore::get(EnemyStore::class);
 
     $name = $data['name'] ?? throw new RequiredFieldException('name');
     if ($source === 'troop data') { $source .= sprintf(' troop "%s"', $name); }
@@ -238,7 +239,7 @@ class Troop extends BattleGroup
       : null;
     $classification = BattleClassification::resolve($data['classification'] ?? null, $source);
 
-    $eventPages = BattleEventPage::readPages($events, $source, count($enemies), ScriptCommandRegistry::getCatalog());
+    $eventPages = BattleEventPage::readPages($events, $source, count($enemies), $scriptCommands ?? ScriptCommandRegistry::getCatalog());
     $troop = new self(
       $name,
       $enemies,

@@ -293,6 +293,8 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
   protected(set) ?string $naturalVariantId = null;
   /** Stable project actor identity; distinct from the mutable display name. */
   protected(set) string $actorId;
+  /** The project that owns this character's definitions, excluded from save data. */
+  public private(set) ?string $projectAssetRoot = null;
   private ?string $lastFieldArtworkFailure = null;
 
   /** Resolve current actor-owned art, never historical images or mutable display names. */
@@ -404,7 +406,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
    * @param SkillCatalog|null $skills The owning project snapshot when hydrating authored data.
    * @return Character The character instance.
    */
-  public static function fromArray(array $data, ?SkillCatalog $skills = null): self
+  public static function fromArray(array $data, ?SkillCatalog $skills = null, ?string $assetRoot = null): self
   {
     // The class name lives inside the actor's `data` block. A `role` entry
     // may instead hold a hydrated CharacterRole (older saves), so only a
@@ -412,6 +414,9 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     $className = is_string($data['class'] ?? null)
       ? trim($data['class'])
       : (is_string($data['role'] ?? null) ? trim($data['role']) : '');
+    if ($assetRoot !== null) {
+      $skills ??= SkillCatalog::getProjectCatalog($assetRoot);
+    }
     $character = new Character(
       $data['name'] ?? throw new InvalidArgumentException('Character name is required.'),
       $data['currentExp'] ?? throw new InvalidArgumentException('Current experience points are required.'),
@@ -426,12 +431,14 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
       AbilityBook::fromArray(
         is_array($data['abilities'] ?? null)
           ? $data['abilities']
-          : (is_array($data['abilityBook'] ?? null) ? $data['abilityBook'] : [])
+          : (is_array($data['abilityBook'] ?? null) ? $data['abilityBook'] : []),
+        $skills,
       ),
       Spellbook::fromArray(
         is_array($data['magic'] ?? null)
           ? $data['magic']
-          : (is_array($data['spellbook'] ?? null) ? $data['spellbook'] : [])
+          : (is_array($data['spellbook'] ?? null) ? $data['spellbook'] : []),
+        $skills,
       ),
       is_array($data['actorNaturalAdjustments'] ?? null) ? $data['actorNaturalAdjustments'] : [],
       PermanentGrowthLedger::fromArray(
@@ -445,8 +452,9 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
       self::resolveAttackSkill($data['attackSkill'] ?? null, $skills),
       CounterAttackRule::fromArray($data['counterAttack'] ?? null),
       ($crisisReference = CrisisAbilityCatalog::getActorReference($data)) === null
-        ? null : CrisisAbilityCatalog::fromProject()->getAbility($crisisReference),
+        ? null : CrisisAbilityCatalog::fromProject($assetRoot)->getAbility($crisisReference),
     );
+    $character->projectAssetRoot = $assetRoot;
 
     // Actors reference a class by name (`'class' => 'Vanguard'`); the role
     // is built once the character exists, since its curves are seeded from
@@ -1192,8 +1200,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
    */
   public function unserialize(string $data): void
   {
-    $this->bindDataToProperties(json_decode($data, true));
-    $this->rehydrateDerivedState();
+    $this->__unserialize(json_decode($data, true));
   }
 
   public function __serialize(): array
@@ -1274,7 +1281,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
    *
    * @param array<string, mixed> $data
    */
-  public function restoreMutableState(array $data, bool $preserveAuthoredAp = false): void
+  public function restoreMutableState(array $data, bool $preserveAuthoredAp = false, ?SkillCatalog $skills = null): void
   {
     $rawSavedStats = $data['stats'] ?? null;
     $savedStats = $rawSavedStats instanceof Stats
@@ -1292,15 +1299,20 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
       $this->maxLevel = max(1, intval($data['maxLevel']));
     }
 
+    if ($this->projectAssetRoot !== null) {
+      $skills ??= SkillCatalog::getProjectCatalog($this->projectAssetRoot);
+    }
     $this->abilityBook = AbilityBook::fromArray(
       is_array($data['abilities'] ?? null)
         ? $data['abilities']
-        : (is_array($data['abilityBook'] ?? null) ? $data['abilityBook'] : [])
+        : (is_array($data['abilityBook'] ?? null) ? $data['abilityBook'] : []),
+      $skills,
     );
     $this->spellbook = Spellbook::fromArray(
       is_array($data['magic'] ?? null)
         ? $data['magic']
-        : (is_array($data['spellbook'] ?? null) ? $data['spellbook'] : [])
+        : (is_array($data['spellbook'] ?? null) ? $data['spellbook'] : []),
+      $skills,
     );
     $this->permanentGrowth = PermanentGrowthLedger::fromArray(
       is_array($data['permanentGrowth'] ?? null) ? $data['permanentGrowth'] : []
@@ -1365,7 +1377,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
     $roleName = null;
 
     foreach ($data as $key => $value) {
-      if (in_array($key, ['states', 'battleCommandLoadout', 'attackStyle', 'attackSkill', 'counterAttack', 'crisisAbility', 'superMove'], true)) {
+      if (in_array($key, ['states', 'battleCommandLoadout', 'attackStyle', 'attackSkill', 'counterAttack', 'crisisAbility', 'superMove', 'projectAssetRoot'], true)) {
         continue;
       }
 
@@ -1579,7 +1591,7 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider, 
       }
 
       $stateId = trim(strval($entry['id'] ?? ''));
-      $state = StateRegistry::get($stateId);
+      $state = StateRegistry::get($stateId, $this->projectAssetRoot);
 
       if ($stateId === '' || $state === null) {
         throw new PersistentStateRestoreException(sprintf(

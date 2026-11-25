@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Animations\ActionMovement;
 use Ichiloto\Engine\Animations\EffectScale;
+use Ichiloto\Engine\Animations\Animation;
 use Ichiloto\Engine\Animations\SourceEffectAnchor;
 use Ichiloto\Engine\Animations\Timelines\BattleEffectRangeTiming;
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
@@ -45,6 +47,7 @@ final readonly class BattleCommandTimeline
   public int $impactFrame;
   public ?string $fallbackHitTrack;
   public ?BattleTargetContactSequence $targetContactSequence;
+  public ?TerminalBattleContacts $terminalContacts;
   /** @var list<int> Authored per-hit feedback on the command clock. */
   public array $hitFeedbackFrames;
   /** @var array<string, CinematicStage> Each effect lane owns its own stage and authored clock. */
@@ -86,9 +89,17 @@ final readonly class BattleCommandTimeline
     public bool $movementPoses = false, public ?BattleTravelPlan $travel = null,
     ?BattlerPose $movePose = null, ?BattlerPose $returnPose = null, ?float $projectedRange = null,
     public ?BattlerPose $actionPoseOverride = null,
-    public ?\Ichiloto\Engine\Animations\FlashStepTiming $flashStep = null, int $targetCount = 1)
+    public ?\Ichiloto\Engine\Animations\FlashStepTiming $flashStep = null, int $targetCount = 1,
+    ?float $targetImpactSeconds = null,
+    public ActionMovement $movement = ActionMovement::STEP)
   {
     $targetScale = EffectScale::readValue($targetScale, 'Battle target effect scale');
+    $targetImpactSeconds = Animation::readTargetImpactSeconds($targetImpactSeconds);
+    if ($targetImpactSeconds !== null) {
+      if ($resultsOnly) { throw new InvalidArgumentException('A result-only command cannot have a target impact delay.'); }
+      self::assertSharedTargetImpactOwner($target);
+      self::assertSharedTargetImpactOwner($terminalTarget);
+    }
     if (array_any($source?->playbackSegments ?? [], static fn(array $segment): bool => $segment['layer'] === 'field-color')) {
       throw new InvalidArgumentException('Field colour is owned by the target effect timeline.');
     }
@@ -109,7 +120,7 @@ final readonly class BattleCommandTimeline
     if (isset($source->defaults['targetCaptureFrame']) || isset($source->defaults['terminalLaneCaptureFrame'])) {
       throw new InvalidArgumentException('Target capture belongs to the target effect lane.');
     }
-    if (isset($source->defaults['targetContactSequence'])) {
+    if (isset($source->defaults['targetContactSequence']) || isset($source->defaults[TerminalBattleContacts::FIELD])) {
       throw new InvalidArgumentException('Target contact sequencing belongs to the target effect lane.');
     }
     $this->usesArenaImpact = !$resultsOnly && ($target?->defaults['effectTiming']['mode'] ?? null) === EffectImpactTimingMode::ARENA->value;
@@ -131,7 +142,7 @@ final readonly class BattleCommandTimeline
     $this->rangeTiming = $rangeTiming !== null && $projectedRange >= $rangeTiming->minDistance ? $rangeTiming : null;
     if ($resultsOnly) {
       $this->flightTiming = null;
-      $this->targetContactSequence = null;
+      $this->targetContactSequence = $this->terminalContacts = null;
       $this->hitFeedbackFrames = [];
       $this->fallbackHitSpacing = $this->impactFrame = 0;
       $this->actionPoseAnchorFrame = null;
@@ -175,7 +186,7 @@ final readonly class BattleCommandTimeline
     $this->terminalTarget = $target?->hasTerminalContent ? null : $terminalTarget;
     $this->terminalSegments = array_map(
       static fn(array $segment): array => self::getAnchoredSegment($segment, $terminalTarget, 'target'),
-      $this->terminalTarget?->playbackSegments ?? []);
+      self::withoutTerminalContactTracks($this->terminalTarget));
     $sourceTiming = $this->sourceTiming = $source === null ? null
       : EffectPlaybackTiming::createForBattlePhase($source, $timings->actionAnimation);
     $targetTiming = $this->targetTiming = $target === null ? null
@@ -185,6 +196,10 @@ final readonly class BattleCommandTimeline
     $fallbackHitTail = max(0, $targetCount - 1) * $this->fallbackHitSpacing;
     $this->terminalTiming = $this->terminalTarget === null ? null
       : EffectPlaybackTiming::createForBattlePhase($this->terminalTarget, $timings->effectAnimation);
+    $terminalContactEffect = isset($target->defaults[TerminalBattleContacts::FIELD]) ? $target : $this->terminalTarget;
+    $terminalContactClock = $terminalContactEffect === $target ? $targetTiming : $this->terminalTiming;
+    $this->terminalContacts = isset($terminalContactEffect->defaults[TerminalBattleContacts::FIELD])
+      ? new TerminalBattleContacts($terminalContactEffect, $terminalContactClock) : null;
     $phases = $cues = $segments = $restFrames = $restSegments = $reducedSamples = $reducedSegments = [];
     $detachments = $targetGroupCaptures = [];
     $impact = 0;
@@ -235,11 +250,23 @@ final readonly class BattleCommandTimeline
       if ($phase === 'target') {
         $terminalLength = $this->terminalTiming?->getFrameBoundary($this->terminalTiming->totalFrames, self::FPS) ?? 0;
         $length = max($length, $terminalLength);
-        $impact = $cursor + self::getTargetImpactOffset($target, $targetTiming, $length);
+        if ($targetImpactSeconds === null) {
+          $impactOffset = self::getTargetImpactOffset($target, $targetTiming, $length);
+        } else {
+          $ticks = $targetImpactSeconds * self::FPS;
+          $impactOffset = (int)ceil($ticks - PHP_FLOAT_EPSILON * max(1, $ticks) * 4);
+          $length = max($length, $impactOffset);
+        }
+        $impact = $cursor + $impactOffset;
         if ($sourceEffectAnchor === SourceEffectAnchor::TARGET && $sourceTiming !== null) {
           $length = max($length, $sourceTiming->getFrameBoundary($sourceTiming->totalFrames, self::FPS));
         }
-        if (isset($this->terminalTarget?->defaults['terminalLaneCaptureFrame'])) {
+        if ($this->terminalContacts !== null) {
+          $terminalLength = max($terminalLength, $this->terminalContacts->getEndTick($targetCount));
+          $length = max($length, $terminalLength);
+          $cues[] = ['id' => 'capture-terminal-lane', 'type' => 'commandCaptureTerminalLane',
+            'frame' => $cursor + $this->terminalContacts->getCaptureTick(), 'payload' => []];
+        } elseif (isset($this->terminalTarget?->defaults['terminalLaneCaptureFrame'])) {
           $cues[] = ['id' => 'capture-terminal-lane', 'type' => 'commandCaptureTerminalLane',
             'frame' => $cursor + $this->terminalTiming->getFrameBoundary($this->terminalTarget->defaults['terminalLaneCaptureFrame'], self::FPS), 'payload' => []];
         }
@@ -301,16 +328,27 @@ final readonly class BattleCommandTimeline
         if ($lane === 'target' && isset($effect->defaults['targetContactSequence'])) {
           $contact = $effect->defaults['targetContactSequence'];
           $targetContacts = new BattleTargetContactSequence(
-            $cursor + $clock->getFrameBoundary($contact['firstFrame'], self::FPS),
-            $cursor + $clock->getFrameBoundary($contact['lastFrame'], self::FPS),
-            BattleContactDirection::from($contact['direction']),
-            array_map(static fn(string $track): string => 'target-' . $track, $contact['tracks']));
+            $contact['firstFrame'], $contact['lastFrame'],
+            isset($contact['direction']) ? BattleContactDirection::from($contact['direction']) : null,
+            array_map(static fn(string $track): string => 'target-' . $track, $contact['tracks']),
+            $contact['intervalFrames'] ?? null, $contact[BattleTargetContactSequence::RESULT_FIELD] ?? false,
+            isset($contact[BattleTargetContactSequence::PREVIEW_REACTION_FIELD])
+              ? BattlePoseRole::from($contact[BattleTargetContactSequence::PREVIEW_REACTION_FIELD]) : null);
+          $firstContact = $cursor + $clock->getFrameBoundary($targetContacts->firstFrame, self::FPS);
+          if ($targetContacts->presentsResults && ($firstContact !== $impact || $fallbackHitTrack !== null
+            || isset($target->defaults['hitFeedbackFrames']))) {
+            throw new InvalidArgumentException('Contact results must start at the command impact and own the only result schedule.');
+          }
+          $usesReveal = array_any($effect->playbackSegments, static fn(array $segment): bool =>
+            array_any($segment['drawCommands'], static fn(array $command): bool => isset($command['payload']['groundSpan']['reveal'])));
+          // Only an approaching span needs the recipient schedule before the first contact.
+          $collectAt = $usesReveal ? $effect->defaults['targetCaptureFrame'] : $targetContacts->firstFrame;
           $cues[] = ['id' => 'capture-target-contacts', 'type' => 'commandCaptureTargetContacts',
-            'frame' => $targetContacts->firstFrame, 'payload' => []];
+            'frame' => $cursor + $clock->getFrameBoundary($collectAt, self::FPS), 'payload' => []];
         }
         $restFrames[$lane] = $cursor + $clock->getFrameBoundary($range?->getPresentationFrame($rest) ?? $rest, self::FPS);
         $restSegments[$phase] ??= [];
-        foreach ($effect->playbackSegments as $segment) {
+        foreach (self::withoutTerminalContactTracks($effect) as $segment) {
           $copy = self::getAnchoredSegment($segment, $effect, $lane, $lane === 'target' ? $targetScale : EffectScale::DEFAULT);
           $visualClock = EffectPresentation::TERMINAL->acceptsSegment($segment) ? null : $range;
           $boundary = static fn(int $frame): int => $clock->getFrameBoundary(
@@ -399,6 +437,10 @@ final readonly class BattleCommandTimeline
         'payload' => []];
     }
     $this->targetContactSequence = $targetContacts;
+    if ($targetContacts?->presentsResults && $phases['target']['start']
+      + $targetTiming->getFrameBoundary($targetContacts->lastFrame, self::FPS) >= $phases['return']['start']) {
+      throw new InvalidArgumentException('Contact results must fit before the command return.');
+    }
     $flightTiming = $target?->defaults['flightTiming'] ?? null;
     $release = $flightTiming === null ? null
       : $phases['target']['start'] + $targetTiming->getFrameBoundary($flightTiming['release'], self::FPS);
@@ -451,6 +493,15 @@ final readonly class BattleCommandTimeline
       defaults: ['lengthFrames' => $cursor, 'restFrame' => $cursor - 1]);
   }
 
+  /** Validate one presentation before assigning resolution to its animation binding. */
+  public static function assertSharedTargetImpactOwner(?CompiledEffectTimeline $effect): void
+  {
+    if ($effect instanceof SummonCompiledCutscene || isset($effect->defaults['effectTiming'])
+      || array_any($effect?->cueSchedule ?? [], static fn(array $cue): bool => $cue['type'] === 'applyEffect')) {
+      throw new InvalidArgumentException('Clear the target effect impact timing or leave the animation impact delay blank.');
+    }
+  }
+
   /** Summons retain their explicit cue/frame/end policy; ordinary effects may author an impact cue. */
   private static function getTargetImpactOffset(?CompiledEffectTimeline $target, ?EffectPlaybackTiming $clock, int $length): int
   {
@@ -484,10 +535,7 @@ final readonly class BattleCommandTimeline
     $lane = $this->getActiveCinematicLane($frame);
     if ($lane === null) { return null; }
     $authored = $this->getAuthoredFrameAtCommandFrame($lane, $frame);
-    return $reducedMotion && isset($this->reducedSamples[$lane])
-      ? $this->cinematicStages[$lane]->getFrameAtSample($authored,
-        \Ichiloto\Engine\Animations\Timelines\EffectReducedMotionSamples::getSampleFrame($this->reducedSamples[$lane], $authored))
-      : $this->cinematicStages[$lane]->getFrame($authored, $reducedMotion);
+    return $this->cinematicStages[$lane]->getFrame($authored, $reducedMotion, $this->reducedSamples[$lane] ?? null);
   }
 
   /** Staged images retain authored render IDs; palette ownership uses the command lane's identity. */
@@ -509,6 +557,11 @@ final readonly class BattleCommandTimeline
     $lane = $this->getActiveCinematicLane($frame);
     return $lane === null ? [] : \Ichiloto\Engine\Animations\Timelines\EffectMotionScope::filterSegments(
       $this->cinematicSegments[$lane], $reducedMotion);
+  }
+
+  public function hasReducedMotionSamples(string $lane): bool
+  {
+    return isset($this->reducedSamples[$lane]);
   }
 
   /** Select held drawings without changing command time, cue dispatch or captured geometry. */
@@ -625,8 +678,16 @@ final readonly class BattleCommandTimeline
   /** Primary and companion Terminal presentations own the same renderer-specific capture lifetime. */
   public function requiresTerminalLaneCapture(): bool
   {
-    return array_any([...$this->timeline->playbackSegments, ...$this->terminalSegments],
+    return $this->terminalContacts !== null || array_any([...$this->timeline->playbackSegments, ...$this->terminalSegments],
       static fn(array $segment): bool => $segment['layer'] === 'glyph-lane');
+  }
+
+  private static function withoutTerminalContactTracks(?CompiledEffectTimeline $effect): array
+  {
+    $segments = $effect?->playbackSegments ?? [];
+    $contacts = $effect?->defaults[TerminalBattleContacts::FIELD]['tracks'] ?? [];
+    return $contacts === [] ? $segments : array_values(array_filter($segments, static fn(array $segment): bool =>
+      !in_array($segment['drawCommands'][0]['trackId'], $contacts, true)));
   }
 
   /** A scaled lane stamps its image commands; glyphs and text keep their cells, which cannot resize without distortion. */

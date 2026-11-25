@@ -11,16 +11,11 @@ use Ichiloto\Engine\Entities\Troop;
 class BattleLoader
 {
   /**
-   * @var BattleLoader|null The battle loader instance.
-   */
-  protected static ?BattleLoader $instance = null;
-
-  /**
    * The battle loader constructor.
    *
    * @param Game $game The game instance.
    */
-  private function __construct(protected Game $game)
+  public function __construct(protected Game $game)
   {
   }
 
@@ -32,11 +27,7 @@ class BattleLoader
    */
   public static function getInstance(Game $game): self
   {
-    if (!self::$instance) {
-      self::$instance = new self($game);
-    }
-
-    return self::$instance;
+    return $game->getBattleLoader();
   }
 
   /**
@@ -60,8 +51,7 @@ class BattleLoader
       $events[] = $event;
     }
 
-    $systemPayload = asset('Data/system.php', true);
-    $systemData = SystemData::fromArray(is_array($systemPayload) ? $systemPayload : []);
+    $systemData = SystemData::fromArray($this->game->getGameLoader()->loadSystemData());
 
     $settings = [
       'engine' => $systemData->getBattleEngineType()->value,

@@ -38,7 +38,6 @@ use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
 use Ichiloto\Engine\Messaging\Storybook\StorybookLibrary;
 use Ichiloto\Engine\Messaging\Storybook\StorybookOutcome;
-use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Rendering\ScreenTransition;
 use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
@@ -84,6 +83,11 @@ class EventInterpreter
   {
     $this->host = $host ?? $gameScene;
     $this->presentation ??= new ModalEventPresentation($gameScene);
+  }
+
+  private function getScriptCommands(): ScriptCommandCatalog
+  {
+    return $this->scriptCommands ?? ScriptCommandRegistry::getCatalog();
   }
 
   /**
@@ -137,7 +141,7 @@ class EventInterpreter
     }
 
     if ($strictCommands) {
-      CinematicScriptValidator::validate($commands, $scriptId ?? 'cinematic');
+      CinematicScriptValidator::validate($commands, $scriptId ?? 'cinematic', scriptCommands: $this->getScriptCommands());
     } else {
       $commands = array_values(array_filter($commands, is_array(...)));
     }
@@ -604,13 +608,14 @@ class EventInterpreter
         }
         $finish = CinematicCommandSchema::STORYBOOK_FINISH_FIELD;
         if (array_key_exists($finish, $command)) {
-          CinematicScriptValidator::validateStorybookPlayback($command, $session->cinematic?->id ?? 'event', $lane->commandPath());
+          CinematicScriptValidator::validateStorybookPlayback($command, $session->cinematic?->id ?? 'event',
+            $lane->commandPath(), $this->getScriptCommands());
           if ($command[$finish] !== [] && !$this->presentation instanceof EventStorybookOutcomePresentationInterface) {
             throw new RuntimeException('play_storybook onFinish requires a reader that reports a reading outcome.');
           }
         }
         // Narration belongs to the active project, independently of its renderer's artwork root.
-        $book = new StorybookLibrary(Path::join(Path::getCurrentWorkingDirectory(), 'assets'))->load($bookId);
+        $book = new StorybookLibrary($this->gameScene->getGame()->getProjectAssetRoot())->load($bookId);
         $session->claimPresentation($lane);
         $this->presentation->beginStorybook($book);
         $lane->yieldFor($command, ['kind' => 'dialogue']);
@@ -638,7 +643,7 @@ class EventInterpreter
         return EventCommandResult::COMPLETED;
 
       case 'accept_quest':
-        QuestManager::current()?->acceptQuest(
+        $gameState->getQuestManager()?->acceptQuest(
           strval($command['id'] ?? ''),
           ($command['confirm'] ?? true) !== false,
         );
@@ -669,7 +674,7 @@ class EventInterpreter
         $player = $this->gameScene->player;
         $doorTransfer = $type === MapDoorReference::COMMAND;
         $destination = $doorTransfer
-          ? MapDoorReference::fromCommand($command)->resolveFromProject(Path::join(Path::getCurrentWorkingDirectory(), 'assets'))
+          ? MapDoorReference::fromCommand($command)->resolveFromProject($this->gameScene->getGame()->getProjectAssetRoot())
           : new Location(
             strval($command['map'] ?? ''),
             new Vector2(intval($command['x'] ?? 0), intval($command['y'] ?? 0)),
@@ -814,7 +819,7 @@ class EventInterpreter
           throw new RuntimeException('common_event requires a safe stable id.');
         }
 
-        $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Events', "$eventId.php");
+        $filename = Path::join($this->gameScene->getGame()->getProjectAssetRoot(), 'Events', "$eventId.php");
 
         if (! is_file($filename)) {
           throw new RuntimeException(sprintf('Common Event "%s" was not found at "%s".', $eventId, $filename));
@@ -830,6 +835,7 @@ class EventInterpreter
           CinematicScriptValidator::validate(
             $commands,
             sprintf('%s:common_event:%s', $session->cinematic->id, $eventId),
+            scriptCommands: $this->getScriptCommands(),
           );
           $commonEventCommands = $commands;
         } else {
@@ -915,14 +921,14 @@ class EventInterpreter
 
       case 'field_animation':
         CinematicScriptValidator::validateFieldAnimation($command, $session->scriptId ?? 'event', $lane->path);
+        $assetRoot = $this->gameScene->getGame()->getProjectAssetRoot();
         if (array_key_exists('effect', $command)) {
-          $library = new EffectTimelineLibrary($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot()
-            ?? getcwd() . '/assets');
+          $library = new EffectTimelineLibrary($assetRoot);
           $animation = $library->load($command['effect'], presentation: $this->gameScene->isGraphicalFieldPresented()
             ? EffectPresentation::GRAPHICAL : EffectPresentation::TERMINAL);
         } else {
           $reference = $command['animation'] ?? $command['id'] ?? null;
-          $library = new AnimationLibrary();
+          $library = new AnimationLibrary(assetRoot: $assetRoot);
           $animation = is_numeric($reference)
             ? $library->findById(intval($reference))
             : $library->findByName(strval($reference));
@@ -1014,7 +1020,7 @@ class EventInterpreter
     string $type,
   ): EventCommandResult
   {
-    $catalog = $this->scriptCommands ?? ScriptCommandRegistry::getCatalog();
+    $catalog = $this->getScriptCommands();
     $definition = $catalog->findDefinition($type)
       ?? throw new RuntimeException($this->unknownCommandDiagnostic($session, $lane, $type));
     $scope = $this->host->getEventScope();

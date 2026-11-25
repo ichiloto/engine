@@ -110,6 +110,12 @@ class Console
    * @var Game|null $game The game instance.
    */
   private static ?Game $game = null;
+
+  /** The game that owns this console surface, if it is attached. */
+  public static function getAttachedGame(): ?Game
+  {
+    return self::$game;
+  }
   /**
    * @var array<int, list<string>> Authoritative scene cells, never serialized rows.
    */
@@ -708,6 +714,7 @@ class Console
     self::cursor()->show();
     self::cursor()->enableBlinking();
     self::closeTerminalOutputStream();
+    self::$game = null;
     self::$terminalHandedBack = true;
     self::$terminalViewport = null;
     self::$terminalViewportDirty = false;
@@ -1168,26 +1175,37 @@ class Console
     self::writeToTerminal($sequence);
   }
 
-  /**
-   * Saves the terminal settings.
-   *
-   * @return void
-   */
-  public static function saveTerminalSettings(): void
+  /** POSIX input modes belong to the terminal attached to standard input. */
+  public static function hasInteractiveTerminalInput(): bool
   {
-    if (self::$captureDepth > 0) { return; }
-    self::$previousTerminalSettings = shell_exec('stty -g') ?? '';
+    return PHP_OS_FAMILY !== 'Windows' && defined('STDIN') && is_resource(STDIN) && stream_isatty(STDIN);
   }
 
-  /**
-   * Restores the terminal settings.
-   *
-   * @return void
-   */
+  /** Capture the original modes once before a game claims the terminal. */
+  public static function saveTerminalSettings(): void
+  {
+    if (self::$captureDepth > 0 || self::hasSavedTerminalSettings() || !self::hasInteractiveTerminalInput()) {
+      return;
+    }
+    self::$previousTerminalSettings = trim(shell_exec('stty -g 2>/dev/null') ?? '');
+  }
+
+  public static function hasSavedTerminalSettings(): bool
+  {
+    return self::$captureDepth === 0 && self::$previousTerminalSettings !== '';
+  }
+
+  /** Restore a captured terminal mode once when its session ends. */
   public static function restoreTerminalSettings(): void
   {
-    if (self::$captureDepth > 0) { return; }
-    shell_exec('stty ' . self::$previousTerminalSettings);
+    if (!self::hasSavedTerminalSettings()) {
+      return;
+    }
+    $settings = self::$previousTerminalSettings;
+    self::$previousTerminalSettings = '';
+    if (self::hasInteractiveTerminalInput()) {
+      shell_exec('stty ' . escapeshellarg($settings));
+    }
   }
 
   /**
@@ -1489,7 +1507,8 @@ class Console
   protected static function readAvailableSizeFromStty(): ?array
   {
     $commands = [
-      'stty size < /dev/tty 2>/dev/null',
+      // Redirect the shell's error output before it attempts to open the controlling terminal.
+      'stty size 2>/dev/null < /dev/tty',
       'stty size 2>/dev/null',
     ];
 
@@ -2187,6 +2206,12 @@ class Console
   public static function selectDialogueAnswer(string $message, array $answers, string $speaker = '', int $default = 0): int
   {
     return ModalManager::getInstance(self::$game)->selectDialogueAnswer($message, $answers, $speaker, $default);
+  }
+
+  /** The Game attached to the legacy console helpers. */
+  public static function getGame(): Game
+  {
+    return self::$game ?? throw new RuntimeException('No Game is attached to the Console.');
   }
 
   /**

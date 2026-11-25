@@ -32,17 +32,22 @@ final class BattleGlyphLaneTrack
         || (array_key_exists('zIndex', $key) && $key['zIndex'] !== 0)) {
         throw new InvalidArgumentException('Glyph lane samples must follow capture in ordered nonoverlapping intervals.');
       }
-      self::validateFields($key['payload'], ['head', 'shaft']);
+      self::validateFields($key['payload'], ['head', 'shaft'], ['reach']);
       $head = self::copyRows($key['payload']['head']); $shaft = self::copyRows($key['payload']['shaft']);
       if (count($head) !== count($shaft)) { throw new InvalidArgumentException('Glyph lane head and shaft require the same odd row count.'); }
+      $reach = $key['payload']['reach'] ?? null;
+      if ($reach !== null && ((!is_float($reach) && !is_int($reach)) || !is_finite($reach) || $reach < 0 || $reach > 1)) {
+        throw new InvalidArgumentException('Glyph lane reach must be a number from 0 to 1.');
+      }
       $color = $key['color'] ?? null;
       if ($color !== null && (!is_string($color) || !array_any(Color::cases(),
         static fn(Color $value): bool => strtolower($value->name) === strtolower($color)))) {
         throw new InvalidArgumentException('Glyph lane colour requires a named Terminal colour.');
       }
-      $keys[] = ['frame' => $at, 'duration' => $duration, 'visible' => $key['visible'] ?? true,
+      $visible = ($key['visible'] ?? true) && ($reach === null || $reach > 0);
+      $keys[] = ['frame' => $at, 'duration' => $duration, 'visible' => $visible,
         ...($color === null ? [] : ['color' => $color]),
-        'payload' => ['head' => $head, 'shaft' => $shaft, 'facing' => $facing->value,
+        'payload' => ['head' => $head, 'shaft' => $shaft, ...($reach === null ? [] : ['reach' => (float)$reach]), 'facing' => $facing->value,
           'anchor' => 'target-group']];
       $end = $at + $duration;
     }

@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionHostInterface;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionScope;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
@@ -61,6 +62,7 @@ final class BattleEventRunner implements EventExecutionHostInterface, BattleEven
     private readonly ?Party $party,
     private readonly EventPresentationInterface $presentation,
     private readonly ?\Closure $onConcede = null,
+    private readonly ?ScriptCommandCatalog $scriptCommands = null,
   )
   {
   }
@@ -105,7 +107,7 @@ final class BattleEventRunner implements EventExecutionHostInterface, BattleEven
    */
   public function update(float $deltaSeconds): bool
   {
-    $interpreter = $this->interpreter ??= new EventInterpreter($this->gameScene, $this->presentation, host: $this);
+    $interpreter = $this->interpreter ??= new EventInterpreter($this->gameScene, $this->presentation, $this->scriptCommands, $this);
 
     if ($interpreter->hasActiveSession()) {
       $interpreter->update($deltaSeconds);

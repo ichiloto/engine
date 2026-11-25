@@ -19,10 +19,12 @@ final readonly class CanvasTextureStrip
   public float $height;
   /** @var list<array{u: float, offset: float}> */
   public array $knots;
+  /** @var ?array{normal: array{float, float}, limit: float, feather: float} */
+  public ?array $clipPlane;
 
   public function __construct(array $geometry)
   {
-    CanvasCompositeValues::validateKeys($geometry, ['origin', 'axis', 'length', 'height', 'knots']);
+    CanvasCompositeValues::validateKeys($geometry, ['origin', 'axis', 'length', 'height', 'knots'], ['clipPlane']);
     $this->origin = CanvasCompositeValues::getPoint($geometry['origin']);
     $this->axis = CanvasCompositeValues::getPoint($geometry['axis'], -1, 1);
     if (abs(hypot(...$this->axis) - 1) > 1e-9) {
@@ -45,6 +47,17 @@ final readonly class CanvasTextureStrip
       throw new InvalidArgumentException('Canvas texture strip knots must cover the full source width.');
     }
     $this->knots = $knots;
+    $plane = $geometry['clipPlane'] ?? null;
+    if ($plane !== null) {
+      CanvasCompositeValues::validateKeys($plane, ['normal', 'limit', 'feather']);
+      $normal = CanvasCompositeValues::getPoint($plane['normal'], -1, 1);
+      if (abs(hypot(...$normal) - 1) > 1e-9) {
+        throw new InvalidArgumentException('Canvas texture strip clip plane normal must have unit length.');
+      }
+      $plane = ['normal' => $normal, 'limit' => CanvasCompositeValues::getNumber($plane['limit'], -65536, 65536),
+        'feather' => CanvasCompositeValues::getNumber($plane['feather'], 0, 256)];
+    }
+    $this->clipPlane = $plane;
   }
 
   /** @return array{float, float, float, float} Conservative destination bounds, prior to clipping. */
@@ -93,9 +106,20 @@ final readonly class CanvasTextureStrip
     return $v < 0 || $v >= 1 ? null : [$u, $v];
   }
 
+  /** Clip coverage at a local surface pixel center. Limits are relative to the strip origin. */
+  public function getClipCoverage(float $x, float $y): float
+  {
+    if ($this->clipPlane === null) { return 1; }
+    [$nx, $ny] = $this->clipPlane['normal'];
+    $left = $this->clipPlane['limit'] - (($x - $this->origin[0]) * $nx + ($y - $this->origin[1]) * $ny);
+    if ($left <= 0) { return 0; }
+    $feather = $this->clipPlane['feather'];
+    return $feather === 0.0 ? 1 : min(1, $left / $feather);
+  }
+
   public function toArray(): array
   {
     return ['origin' => $this->origin, 'axis' => $this->axis, 'length' => $this->length,
-      'height' => $this->height, 'knots' => $this->knots];
+      'height' => $this->height, 'knots' => $this->knots, ...($this->clipPlane === null ? [] : ['clipPlane' => $this->clipPlane])];
   }
 }

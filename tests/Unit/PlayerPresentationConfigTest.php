@@ -89,7 +89,6 @@ beforeEach(function () {
   }
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub());
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 20, 'height' => 10]));
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false,
     'output' => null, 'terminalOutputStream' => null] as $name => $value) {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);

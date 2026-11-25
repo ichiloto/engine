@@ -83,8 +83,22 @@ it('distinguishes transparent artwork from unavailable inspection', function () 
 it('reports a PNG that passes header preflight but cannot be decoded', function () {
   if (!function_exists('imagecreatefrompng')) { $this->markTestSkipped('Optional GD PNG inspection is unavailable.'); }
   file_put_contents($this->root . '/pixels.png', "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 10, 10));
-  $result = ($this->readInChild)();
-  expect($result['bounds'])->toBeNull()->and($result['diagnostic'])->toContain('could not decode');
+  $warnings = [];
+  set_error_handler(static function (int $severity, string $message) use (&$warnings): bool {
+    $warnings[] = $severity;
+    return true;
+  });
+  try {
+    $image = new CanvasImage('image', 'pixels.png', new CanvasRectangle(0, 0, 100, 100));
+    $result = PngAssetBounds::getVisibleBounds($this->root, $image);
+    $decodeWarnings = $warnings;
+    trigger_error('Check the restored host error handler.', E_USER_WARNING);
+  } finally {
+    restore_error_handler();
+  }
+
+  expect($result['bounds'])->toBeNull()->and($result['diagnostic'])->toContain('could not decode')
+    ->and($decodeWarnings)->toBe([])->and($warnings)->toBe([E_USER_WARNING]);
 });
 
 it('reads changed same-dimension pixels and never freezes an import hash', function () {

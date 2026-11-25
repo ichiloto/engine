@@ -74,12 +74,24 @@ it('sanitizes control cells without leaking protocol controls or moving subseque
   $snapshot = Console::snapshot();
   expect($snapshot->rows[0])->toBe('A?B' . str_repeat(' ', 21))
     ->and(preg_match('/\p{Cc}/u', $snapshot->rows[0]))->toBe(0);
-})->with(["\0", "\033", "\t", "\r", "\n", "\x7F", "\u{85}"]);
+})->with([
+  'NUL' => "\0",
+  'escape' => "\033",
+  'tab' => "\t",
+  'carriage return' => "\r",
+  'line feed' => "\n",
+  'delete' => "\x7F",
+  'next line' => "\u{85}",
+]);
 
 it('rejects corrupt rows instead of silently coercing or blanking them', function ($row) {
   new ReflectionProperty(Console::class, 'buffer')->setValue(null, [array_pad([$row], 24, ' ')]);
   expect(fn() => Console::snapshot())->toThrow(RuntimeException::class, 'Console row 0 must contain valid UTF-8 text.');
-})->with(["A\xFFB", 123, false]);
+})->with([
+  'invalid UTF-8' => "A\xFFB",
+  'integer' => 123,
+  'boolean' => false,
+]);
 
 it('applies the scalar fallback to composite emoji after existing terminal stabilization', function () {
   Console::write("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}|", 2, 0);
@@ -150,5 +162,13 @@ it('detaches caller references and forbids modifying snapshot cells or dimension
 
 it('validates manually supplied snapshot geometry and text', function ($width, $height, $rows) {
   expect(fn() => new ConsoleFrameSnapshot($width, $height, $rows))->toThrow(InvalidArgumentException::class);
-})->with([[0, 1, ['']], [1, 0, []], [1, 2, ['x']], [2, 1, ['x']], [1, 1, [1 => 'x']],
-  [1, 1, ["\n"]], [1, 1, ["\xFF"]], [1, 1, [12]]]);
+})->with([
+  'zero width' => [0, 1, ['']],
+  'zero height' => [1, 0, []],
+  'missing row' => [1, 2, ['x']],
+  'short row' => [2, 1, ['x']],
+  'nonsequential rows' => [1, 1, [1 => 'x']],
+  'line feed' => [1, 1, ["\n"]],
+  'invalid UTF-8' => [1, 1, ["\xFF"]],
+  'integer row' => [1, 1, [12]],
+]);

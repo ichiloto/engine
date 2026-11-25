@@ -17,7 +17,7 @@ use Ichiloto\Engine\Audio\Interfaces\AudioBackendInterface;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
-use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
@@ -110,20 +110,20 @@ class AudioManager implements CanUpdate
   protected const array GUESSABLE_EXTENSIONS = ['ogg', 'wav', 'mp3', 'flac', 'm4a', 'opus', 'aiff'];
 
   /**
-   * The instance of this singleton.
+   * Explicit legacy helper context for unbootstrapped hosts.
    *
    * @var AudioManager|null
    */
   protected static ?AudioManager $instance = null;
+  /** @var \WeakReference<AudioManager>|null The first initialized manager before a console is attached. */
+  private static ?\WeakReference $bootstrapManager = null;
 
   /**
-   * Every constructed manager, keyed by object ID. The process-wide cleanup
-   * handlers walk this list so no manager's player processes can outlive the
-   * game process.
+   * Live managers, weakly tracked for process-level cleanup.
    *
-   * @var array<int, AudioManager>
+   * @var \WeakMap<AudioManager, true>|null
    */
-  protected static array $managers = [];
+  protected static ?\WeakMap $managers = null;
 
   /**
    * Whether the process-wide cleanup handlers have been registered.
@@ -414,23 +414,34 @@ class AudioManager implements CanUpdate
   {
     $this->backends = $this->createBackends();
 
-    self::$managers[spl_object_id($this)] = $this;
+    self::$managers ??= new \WeakMap();
+    self::$managers[$this] = true;
     self::registerCleanupHandlers();
   }
 
   /**
-   * Returns the instance of the audio manager.
+   * Returns the audio manager owned by this game.
    *
    * @param Game $game The game.
    * @return AudioManager The audio manager.
    */
   public static function getInstance(Game $game): AudioManager
   {
-    if (self::$instance === null) {
-      self::$instance = new AudioManager($game);
+    $manager = $game->getBoundAudioManager();
+    if ($manager === null) {
+      $manager = self::$instance?->isOwnedBy($game) ? self::$instance : new AudioManager($game);
+      $game->bindAudioManager($manager);
     }
 
-    return self::$instance;
+    if (self::$bootstrapManager?->get() === null) {
+      self::$bootstrapManager = \WeakReference::create($manager);
+    }
+    return $manager;
+  }
+
+  public function isOwnedBy(Game $game): bool
+  {
+    return $this->game === $game;
   }
 
   /**
@@ -445,7 +456,8 @@ class AudioManager implements CanUpdate
    */
   public static function getCurrentInstance(): ?AudioManager
   {
-    return self::$instance;
+    $game = Console::getAttachedGame();
+    return $game?->getBoundAudioManager() ?? self::$instance ?? ($game === null ? self::$bootstrapManager?->get() : null);
   }
 
   /**
@@ -905,7 +917,7 @@ class AudioManager implements CanUpdate
    */
   public static function shutdownAll(): void
   {
-    foreach (self::$managers as $manager) {
+    foreach (self::$managers ?? [] as $manager => $_) {
       $manager->shutdown();
     }
   }
@@ -1344,7 +1356,7 @@ class AudioManager implements CanUpdate
     if (Path::isAbsolute($path)) {
       $basePaths = [$path];
     } else {
-      $assetsPath = Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+      $assetsPath = $this->game->getProjectAssetRoot();
       $basePaths = [
         Path::join($assetsPath, $path),
         Path::join($assetsPath, 'Audio', $conventionalDirectory, $path),
@@ -1409,11 +1421,8 @@ class AudioManager implements CanUpdate
    */
   protected function getProjectSetting(string $path, mixed $default): mixed
   {
-    if (ConfigStore::doesntHave(ProjectConfig::class)) {
-      return $default;
-    }
-
-    return ConfigStore::get(ProjectConfig::class)->get($path, $default);
+    $configuration = ProjectConfig::findForGame($this->game);
+    return $configuration === null ? $default : $configuration->get($path, $default);
   }
 
   /**

@@ -199,20 +199,16 @@ The nested representation was and remains mixed:
 | Optional project state | bounded plain `projectState` array on `GameConfig` | registered namespace, schema version and project-defined stable references | project policy owns migration/validation |
 
 The concrete object graph is serialized directly. That preserves existing
-saves and avoids a replacement format, but PHP invokes nested
-`__unserialize()` methods before the outer envelope is available. During
-`SaveManager::loadSaveFile()`, `SaveHydrationContext` therefore asks only
-`Character` to retain its raw array until content aliases and tombstones have
-been applied. The rest of the decoded `GameConfig` is migrated before it is
-given to `GameScene::configure()`. This is the safe hydration boundary within
-the existing format.
+saves and avoids a replacement format. PHP invokes nested serialization
+callbacks before the outer envelope is available. During a save load,
+`SaveHydrationContext` defers character and inventory reconstruction until
+the loader can apply content migrations, aliases and tombstones.
 
 Direct PHP object serialization also means old class names and property
 layouts remain compatibility constraints. WP1 does not add a strict class
 allowlist or replace serialized objects. Inventory and equipment aliases
-update their persisted identity while preserving their serialized runtime
-data; a future format change would be required to rebuild every item from
-current catalog definitions.
+update the stored identity, then the current item definition supplies static
+fields while the save supplies quantity and mutable state.
 
 ## Load order
 
@@ -228,8 +224,11 @@ quick, and autosave files, and for readers used by Continue and tooling:
 6. It verifies the migrated project identity.
 7. It runs adjacent project content migrations registered by the manifest.
 8. `SaveContentResolver` resolves aliases and rejects tombstones.
-9. Deferred characters hydrate their current ability, magic, summon, item,
-   equipment, and state references.
+9. The save manager uses its Game's bound loader to reconstruct the party.
+   The loader supplies the actor and item stores and the asset root used by
+   classes, learned abilities, magic, Mastery and persistent states.
+   Standalone compatibility callers can continue to supply their established
+   project context. Project paths and catalogue instances stay out of saves.
 10. Content migrations that implement
     `PostResolutionContentMigrationInterface` receive the resolved
     `GameConfig`. This optional phase is for deterministic repairs that need

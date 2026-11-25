@@ -559,9 +559,9 @@ Talk/action by returning `['secondary_action' => Handler::class]` from
 `assets/Data/field-actions.php`. The handler implements the existing
 `ActionInterface`, is instantiable without required constructor arguments, and
 receives `FieldActionContext`. Its eligibility, NPC capability and consequences
-belong to the project. The shared registry resets at each project bootstrap;
-an absent declaration adds no gameplay behavior. It does not call `Npc::talk()`
-or apply ordinary talk-completion flags or quests on the project's behalf.
+belong to the project. Each game loads its declaration with its own project
+content. The handler decides whether to start a conversation or update its
+completion flags and quests.
 
 The semantic `secondary_action` binding defaults to unclaimed G/g keys. Explicit
 project bindings and deliberate unbinding win, and player remapping and action

@@ -14,6 +14,14 @@ it('keeps the historical step default and round trips explicit target movement',
     ->and((clone $run)->movement)->toBe(ActionMovement::RUN_TO_TARGET);
 });
 
+it('round trips a stationary animation without requiring a target route', function () {
+  $source = ['id' => 1, 'name' => 'Ground effect', 'movement' => 'stationary'];
+  $animation = Animation::fromArray($source);
+  expect($animation->movement)->toBe(ActionMovement::STATIONARY)
+    ->and($animation->movement->usesTargetRoute())->toBeFalse()
+    ->and(Animation::fromArray($animation->toArray())->movement)->toBe(ActionMovement::STATIONARY);
+});
+
 it('rejects unknown or incorrectly typed movement definitions', function (mixed $value) {
   expect(fn() => Animation::fromArray(['id' => 1, 'movement' => $value]))->toThrow(InvalidArgumentException::class);
 })->with(['run', '', 'RUN_TO_TARGET', false, 1, null]);

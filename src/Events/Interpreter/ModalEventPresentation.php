@@ -37,7 +37,7 @@ final class ModalEventPresentation implements EventPlayedDialoguePresentationInt
 
   public function beginDialogue(string $text, string $speaker, DialogueContext $context): void
   {
-    $this->showDialogue($text, $speaker, $context, null, dialogue_speed());
+    $this->showDialogue($text, $speaker, $context, null, dialogue_speed($this->host->getGame()));
   }
 
   public function beginPlayedDialogue(string $text, string $speaker, DialogueContext $context,

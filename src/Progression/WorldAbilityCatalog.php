@@ -46,12 +46,17 @@ final class WorldAbilityCatalog implements ConfigInterface
     catch (InvalidArgumentException $error) { throw new InvalidArgumentException($file . ': ' . $error->getMessage(), previous: $error); }
   }
 
-  /** The application installs one catalog per active project, before evaluating its world. */
+  /** Legacy standalone evaluation can still use the explicitly installed catalogue. */
   public static function getProjectCatalog(): self
   {
+    return self::findInstalledCatalog()
+      ?? throw new LogicException('Supply a WorldAbilityCatalog before evaluating a world_ability condition.');
+  }
+
+  public static function findInstalledCatalog(): ?self
+  {
     $catalog = ConfigStore::has(self::class) ? ConfigStore::get(self::class) : null;
-    return $catalog instanceof self ? $catalog
-      : throw new LogicException('Install the current WorldAbilityCatalog before evaluating a world_ability condition.');
+    return $catalog instanceof self ? $catalog : null;
   }
 
   public function getAbility(string $id): WorldAbility

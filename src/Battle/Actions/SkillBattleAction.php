@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Actions;
 
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
@@ -20,6 +21,7 @@ use Ichiloto\Engine\Localization\Vocabulary;
 class SkillBattleAction extends BattleAction implements ExecutionEligibility
 {
   private SkillEffectExecutor $effectExecutor;
+  private ?SummonCutsceneLibrary $summonLibrary = null;
   public ItemScope $targetScope {
     get { return clone $this->skill->scope; }
   }
@@ -38,6 +40,17 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
   {
     parent::__construct($skill->name, $resolver, $random);
     $this->effectExecutor = new SkillEffectExecutor($this->resolver, $this->random);
+  }
+
+  public function getSummonLibrary(): ?SummonCutsceneLibrary
+  {
+    return $this->summonLibrary;
+  }
+
+  /** Preserve the battle's summon identity through selection, execution and presentation. */
+  public function bindSummonLibrary(SummonCutsceneLibrary $library): void
+  {
+    $this->summonLibrary = $library;
   }
 
   public function getExecutionRefusal(Actor $actor): ?string

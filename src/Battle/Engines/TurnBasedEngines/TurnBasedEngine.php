@@ -89,8 +89,10 @@ abstract class TurnBasedEngine implements BattleEngineInterface
   public function configure(BattleConfig $config): void
   {
     if ($this->battleConfig === $config) { return; }
+    $config->bindContent($this->game->getProjectAssetRoot());
     ($this->battleConfig->ui ?? null)?->releaseActionPrefetch();
     $this->battleConfig?->reactions->clear();
+    $this->battleConfig?->releaseContent();
     $this->releaseStateClock();
     $this->battleConfig = $config;
     $this->stateClock = new BattleStateClock();
@@ -122,6 +124,7 @@ abstract class TurnBasedEngine implements BattleEngineInterface
     $this->state = null;
     $this->turnStateExecutionContext = null;
     $this->battleConfig?->reactions->clear();
+    $this->battleConfig?->releaseContent();
     $this->battleConfig = null;
   }
 

@@ -2,7 +2,7 @@
 
 use Ichiloto\Engine\Animations\Timelines\{EffectPresentation, EffectTimelineValidator};
 use Ichiloto\Engine\Battle\BattleTurnTimings;
-use Ichiloto\Engine\Battle\Presentation\{BattleCanvasLayout, BattleCommandPlayback, BattleCommandTimeline, BattleContactDirection, BattleEffectTargetGroup, BattlePoseRole, BattleTargetContactSequence, GraphicalBattleEffects};
+use Ichiloto\Engine\Battle\Presentation\{BattleCanvasLayout, BattleCommandPlayback, BattleCommandTimeline, BattleContactDirection, BattleEffectAnchorSnapshot, BattleEffectTargetGroup, BattlePoseRole, BattleTargetContactSequence, GraphicalBattleEffects};
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Summons\{SummonCutsceneCompiler, SummonCutsceneDefinition};
 use Ichiloto\Engine\Entities\{Character, Stats};
@@ -54,6 +54,43 @@ it('gives coincident bodies a simultaneous contact and a single recipient the fi
   $group = BattleEffectTargetGroup::collectTargets([$this->far], $bounds, $this->grounds);
   expect($sequence->getContactFrames($group))->toBe([spl_object_id($this->far) => 10]);
 });
+
+it('projects equally spaced ground contacts from authored frames and preserves one combat impact', function (bool $fits) {
+  $data = $this->data;
+  $data['fps'] = 23;
+  unset($data['targetContactSequence']['direction']);
+  $data['targetContactSequence']['intervalFrames'] = 2;
+  if (!$fits) { $data['targetContactSequence']['lastFrame'] = 8; }
+  $mid = new Character('Same name', 1, new Stats());
+  $nearId = spl_object_id($this->near);
+  $farId = spl_object_id($this->far);
+  $midId = spl_object_id($mid);
+  $bounds = $this->bounds + [$midId => $this->bounds[$nearId]];
+  $grounds = $this->grounds + [$midId => new Vector2(85, 60)];
+  $caster = new Vector2(100, 100);
+  $recipients = [$this->far, $mid, $this->near];
+  $effect = (new EffectTimelineValidator($this->root))->compile('staggered-contacts', $data, forBattle: true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect);
+  $impactCount = 0;
+  $playback = new BattleCommandPlayback($plan, $this->actor, $recipients, BattlePoseRole::ATTACK,
+    function () use (&$impactCount) { $impactCount++; }, static fn() => null);
+  $playback->bindAnchorSnapshotCapture(fn() => new BattleEffectAnchorSnapshot(
+    BattleEffectTargetGroup::collectTargets($recipients, $bounds, $grounds), $caster));
+  $tick = fn(int $frame): int => $plan->getCommandFrameForAuthoredFrame('target', $frame);
+  $playback->begin();
+  $playback->update($tick(6) / BattleCommandTimeline::FPS);
+  expect($impactCount)->toBe(0);
+  if ($fits) {
+    expect($playback->getTargetContactFrames())->toBe([
+      $nearId => $tick(6), $midId => $tick(8), $farId => $tick(10),
+    ])->and($playback->presentationFailure)->toBeNull();
+  } else {
+    expect($playback->getTargetContactFrames())->toBe([])
+      ->and($playback->presentationFailure?->getMessage())->toContain('authored contact window');
+  }
+  $playback->update(10);
+  expect($impactCount)->toBe(1);
+})->with([true, false]);
 
 it('plays body contacts before one logical impact through ordinary and summon timelines', function (bool $summon, bool $cancel, bool $reduced) {
   $data = $this->data;
@@ -112,6 +149,45 @@ it('reports missing body capture while preserving one logical impact', function 
   expect($hits)->toBe(1)->and($playback->presentationFailure)->toBeInstanceOf(RuntimeException::class);
 });
 
+it('holds and clears the authored reduced drawing on each recipient contact clock', function () {
+  \Tests\Support\Rendering\writeTestPng($this->root . '/held.png', 8, 8);
+  $data = $this->data;
+  $data['tracks'][0]['keyframes'][] = ['frame' => 8, 'duration' => 2, 'asset' => 'held.png'];
+  $data['reducedMotionSamples'] = [
+    ['frame' => 0, 'duration' => 6, 'sourceFrame' => null],
+    ['frame' => 6, 'duration' => 2, 'sourceFrame' => 8],
+    ['frame' => 8, 'duration' => 8, 'sourceFrame' => null],
+  ];
+  $effect = (new EffectTimelineValidator($this->root))->compile('held-contacts', $data, forBattle: true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect);
+  $impactCount = 0;
+  $playback = new BattleCommandPlayback($plan, $this->actor, [$this->far, $this->near], BattlePoseRole::ATTACK,
+    function () use (&$impactCount) { $impactCount++; }, static fn() => null);
+  $playback->bindTargetGroupCapture(fn() => BattleEffectTargetGroup::collectTargets($playback->targets, $this->bounds, $this->grounds));
+  $playback->begin();
+  $advanceTo = static function (int $frame) use ($plan, $playback): void {
+    $tick = $plan->getCommandFrameForAuthoredFrame('target', $frame);
+    $playback->update(($tick - $playback->session->currentFrame) / BattleCommandTimeline::FPS);
+  };
+  $render = fn(bool $reduced): array => array_column(GraphicalBattleEffects::compose($playback,
+    new BattleCanvasLayout(1440, 840), $this->bounds, $this->root, $reduced, groundAnchors: $this->grounds)->images, 'asset');
+
+  $advanceTo(5);
+  expect($render(true))->toBe([]);
+  $advanceTo(6);
+  expect($render(false))->toBe(['contact.png'])->and($render(true))->toBe(['held.png']);
+  $advanceTo(8);
+  expect($render(false))->toBe(['held.png'])->and($render(true))->toBe([]);
+  $advanceTo(10);
+  expect($render(false))->toBe(['contact.png'])->and($render(true))->toBe(['held.png'])
+    ->and($impactCount)->toBe(0);
+  $advanceTo(12);
+  expect($render(false))->toBe(['held.png'])->and($render(true))->toBe([])
+    ->and($impactCount)->toBe(1);
+  $playback->update(100);
+  expect($render(true))->toBe([])->and($impactCount)->toBe(1);
+});
+
 it('keeps Terminal content independent of graphical contact resources and timing', function () {
   $data = $this->data;
   $data['tracks'][] = ['id' => 'terminal', 'type' => 'glyph', 'presentation' => 'terminal',
@@ -126,7 +202,7 @@ it('refuses invalid or overflowing track references at the authoring boundary', 
   $data['targetContactSequence'] = [...$data['targetContactSequence'], ...$change];
   expect(fn() => (new EffectTimelineValidator($this->root))->compile('contacts', $data, forBattle: true))
     ->toThrow(InvalidArgumentException::class);
-})->with(array_map(static fn(array $change): array => [$change], [['firstFrame' => -1], ['lastFrame' => 16], ['lastFrame' => 5], ['direction' => 'up'],
+})->with(array_map(static fn(array $change): array => [$change], [['firstFrame' => -1], ['lastFrame' => 16], ['lastFrame' => 5], ['direction' => 'up'], ['intervalFrames' => 2],
   ['tracks' => []], ['tracks' => ['missing']], ['tracks' => ['splash', 'splash']], ['lastFrame' => 15]]));
 
 

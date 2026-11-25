@@ -199,7 +199,6 @@ beforeEach(function () {
   foreach ([Console::class, InputManager::class, ConfigStore::class, EventManager::class, UIManager::class, ModalManager::class, Debug::class] as $class) {
     $this->staticState[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   Debug::configure(['log_directory' => createTestDirectory('excursion-log-')]);
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['audio' => ['music' => false, 'sfx' => false]]));
   ConfigStore::put(PlaySettings::class, new PlaySettings(['screenDimensions' => ['width' => 40, 'height' => 12]]));

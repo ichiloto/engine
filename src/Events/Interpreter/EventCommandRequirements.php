@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Events\Interpreter;
 use Ichiloto\Engine\Messaging\Dialogue\ChoiceKind;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicFramingDefinition;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use InvalidArgumentException;
 
@@ -28,7 +29,8 @@ final class EventCommandRequirements
     }
   }
 
-  public static function assertAvailable(string $type, EventScriptContext $context, string $path = 'script'): void
+  public static function assertAvailable(string $type, EventScriptContext $context, string $path = 'script',
+    ?ScriptCommandCatalog $scriptCommands = null): void
   {
     self::assertRequiredContext($type, $context, $path);
     $scope = $context->getScope();
@@ -36,7 +38,7 @@ final class EventCommandRequirements
     if (in_array($type, CinematicCommandSchema::COMMAND_TYPES, true)) {
       $allowed = $scope->allowsBuiltInCommand($type, $context === EventScriptContext::CINEMATIC);
     } else {
-      $allowed = ScriptCommandRegistry::getCatalog()->findDefinition($type)?->runsIn($scope) ?? true;
+      $allowed = ($scriptCommands ?? ScriptCommandRegistry::getCatalog())->findDefinition($type)?->runsIn($scope) ?? true;
     }
     if (!$allowed) {
       throw new InvalidArgumentException(sprintf('%s: "%s" cannot run in %s.', $path, $type, $scope->getLabel()));
@@ -57,8 +59,10 @@ final class EventCommandRequirements
     ?callable $readCommonEvent = null,
     ?CinematicFramingDefinition $framing = null,
     string $path = 'script',
+    ?ScriptCommandCatalog $scriptCommands = null,
   ): void {
-    self::validateCommands($commands, $context, $readCommonEvent, $framing ?? new CinematicFramingDefinition(), $path, [], true);
+    self::validateCommands($commands, $context, $readCommonEvent, $framing ?? new CinematicFramingDefinition(),
+      $path, [], true, $scriptCommands);
   }
 
   /**
@@ -68,17 +72,18 @@ final class EventCommandRequirements
   public static function validateRuntimeRequirements(array $commands, EventScriptContext $context,
     ?CinematicFramingDefinition $framing = null, string $path = 'script'): void
   {
-    self::validateCommands($commands, $context, null, $framing ?? new CinematicFramingDefinition(), $path, [], false);
+    self::validateCommands($commands, $context, null, $framing ?? new CinematicFramingDefinition(), $path, [], false, null);
   }
 
   private static function validateCommands(array $commands, EventScriptContext $context, ?callable $reader,
-    CinematicFramingDefinition $framing, string $path, array $activeCalls, bool $validateScope): void
+    CinematicFramingDefinition $framing, string $path, array $activeCalls, bool $validateScope,
+    ?ScriptCommandCatalog $scriptCommands): void
   {
     foreach ($commands as $index => $command) {
       if (!is_array($command)) { continue; } // Historical event scripts retain their permissive shape boundary.
       $type = is_string($command['type'] ?? null) ? $command['type'] : '';
       $commandPath = sprintf('%s[%s]', $path, is_int($index) ? $index + 1 : $index);
-      if ($validateScope) { self::assertAvailable($type, $context, $commandPath); }
+      if ($validateScope) { self::assertAvailable($type, $context, $commandPath, $scriptCommands); }
       else { self::assertRequiredContext($type, $context, $commandPath); }
       if ($type === 'choice') {
         try {
@@ -98,7 +103,8 @@ final class EventCommandRequirements
         }
       }
       foreach (CinematicCommandSchema::getCommandBlocks($command) as $suffix => $block) {
-        self::validateCommands($block, $context, $reader, $framing, $commandPath . '/' . $suffix, $activeCalls, $validateScope);
+        self::validateCommands($block, $context, $reader, $framing, $commandPath . '/' . $suffix, $activeCalls,
+          $validateScope, $scriptCommands);
       }
       if ($type === 'common_event' && $reader !== null) {
         $id = $command['id'] ?? null;
@@ -111,7 +117,7 @@ final class EventCommandRequirements
           throw new InvalidArgumentException($commandPath . ': a common event must return a command list.');
         }
         self::validateCommands($body, $context, $reader, new CinematicFramingDefinition(),
-          $commandPath . '/common_event:' . $id, [...$activeCalls, $id => true], $validateScope);
+          $commandPath . '/common_event:' . $id, [...$activeCalls, $id => true], $validateScope, $scriptCommands);
       }
     }
   }

@@ -15,6 +15,7 @@ use Ichiloto\Engine\UI\Presentation\MenuCanvas;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Throwable;
+use WeakReference;
 use Ichiloto\Engine\UI\Presentation\PresentationDeliveryReceipt;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
@@ -24,7 +25,6 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
-use Ichiloto\Engine\Core\Interfaces\SingletonInterface;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Events\Enumerations\EventType;
 use Ichiloto\Engine\Events\Enumerations\MapEventType;
@@ -47,10 +47,6 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    * alerts, shops), not ordinary frames.
    */
   protected const float STALL_COMPENSATION_THRESHOLD_SECONDS = 0.5;
-  /**
-   * @var NotificationManager|null The instance of the notification manager.
-   */
-  protected static ?NotificationManager $instance = null;
   /**
    * @var Queue<NotificationInterface>
    */
@@ -90,7 +86,7 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
   /**
    * NotificationManager constructor.
    */
-  private function __construct(protected Game $game)
+  public function __construct(protected Game $game)
   {
     $this->notifications = new Queue(NotificationInterface::class);
 
@@ -106,23 +102,24 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   public function __destruct()
   {
-    $this->eventManager->removeEventListener(EventType::SCENE, $this->sceneEventHandler);
-    $this->eventManager->removeEventListener(EventType::MAP, $this->mapEventHandler);
+    if ($this->sceneEventHandler !== null) {
+      $this->eventManager->removeEventListener(EventType::SCENE, $this->sceneEventHandler);
+    }
+    if ($this->mapEventHandler !== null) {
+      $this->eventManager->removeEventListener(EventType::MAP, $this->mapEventHandler);
+    }
+    foreach ($this->deliveries ?? [] as $delivery) { $delivery->cancel(); }
     $this->finalizeEventHandlers();
   }
 
   /**
-   * Returns the instance of the notification manager.
+   * Returns the notice queue owned by this Game.
    *
    * @param Game $game The game.
    */
-  public static function getInstance(Game $game): static
+  public static function getInstance(Game $game): self
   {
-    if (self::$instance === null) {
-      self::$instance = new NotificationManager($game);
-    }
-
-    return self::$instance;
+    return $game->getNotificationManager();
   }
 
   /**
@@ -142,7 +139,7 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
 
     // A notification can arrive while the player is looking elsewhere on
     // screen, so it says so.
-    play_sound(SystemSound::NOTIFICATION);
+    ($this->game->audioManager ?? null)?->playSystemSound(SystemSound::NOTIFICATION);
 
     if ($queueWasEmpty) {
       $this->openActiveNotification();
@@ -416,15 +413,17 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   private function initializeEventHandlers(): void
   {
-    $this->sceneEventHandler = function (SceneEvent $event) {
+    // A borrowed dispatcher can outlive the Game that registered these handlers.
+    $manager = WeakReference::create($this);
+    $this->sceneEventHandler = static function (SceneEvent $event) use ($manager): void {
       if ($event->sceneEventType === SceneEventType::LOAD_END) {
-        $this->resume();
+        $manager->get()?->resume();
       }
     };
 
-    $this->mapEventHandler = function (MapEvent $event) {
+    $this->mapEventHandler = static function (MapEvent $event) use ($manager): void {
       if ($event->mapEventType === MapEventType::LOAD) {
-        $this->resume();
+        $manager->get()?->resume();
       }
     };
   }

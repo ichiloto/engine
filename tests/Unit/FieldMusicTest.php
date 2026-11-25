@@ -27,8 +27,7 @@ function enterAudioMap(GameScene $scene, string $id, ?string $bgm, array $varian
 }
 
 it('keeps a scenario across differently scored interiors, exteriors and unscored maps', function () {
-  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([musicRule()]));
-  [$scene, , $audio] = makeFieldAudioScene();
+  [$scene, , $audio] = makeFieldAudioScene([musicRule()]);
   $scene->gameState->setSwitch('on_mission', true);
   foreach (['outside' => 'happy', 'inside' => 'briefing', 'hall' => null, 'outside-again' => 'happy'] as $id => $bgm) {
     enterAudioMap($scene, $id, $bgm);
@@ -41,8 +40,7 @@ it('keeps a scenario across differently scored interiors, exteriors and unscored
 });
 
 it('starts and ends a scenario without requiring a transfer or player movement', function () {
-  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([musicRule()]));
-  [$scene, , $audio] = makeFieldAudioScene();
+  [$scene, , $audio] = makeFieldAudioScene([musicRule()]);
   enterAudioMap($scene, 'outside', 'happy');
   $scene->gameState->setSwitch('on_mission', true);
   $scene->refreshFieldMusic();
@@ -68,11 +66,10 @@ it('resolves highest priority first with stable ties and exact map scopes', func
 });
 
 it('allows deliberate scenario silence and falls back to the next eligible scenario', function () {
-  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([
+  [$scene, , $audio] = makeFieldAudioScene([
     musicRule(['id' => 'campaign', 'priority' => 0, 'track' => 'campaign', 'conditions' => []]),
     musicRule(['track' => null]),
-  ]));
-  [$scene, , $audio] = makeFieldAudioScene();
+  ]);
   $audio->playBackgroundMusic('old-theme');
   $scene->gameState->setSwitch('on_mission', true);
   enterAudioMap($scene, 'outside', 'happy');
@@ -93,8 +90,7 @@ it('re-evaluates ordinary map variants without a transfer', function () {
 });
 
 it('does not inherit a mission theme as the default of an autoplay-off map', function () {
-  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([musicRule()]));
-  [$scene, , $audio] = makeFieldAudioScene();
+  [$scene, , $audio] = makeFieldAudioScene([musicRule()]);
   enterAudioMap($scene, 'road', 'happy');
   $scene->gameState->setSwitch('on_mission', true);
   $scene->refreshFieldMusic();
@@ -105,8 +101,7 @@ it('does not inherit a mission theme as the default of an autoplay-off map', fun
 });
 
 it('releases a mission to silence if no map ever supplied a default', function () {
-  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([musicRule()]));
-  [$scene, , $audio] = makeFieldAudioScene();
+  [$scene, , $audio] = makeFieldAudioScene([musicRule()]);
   $scene->gameState->setSwitch('on_mission', true);
   enterAudioMap($scene, 'unscored', null);
   $scene->gameState->setSwitch('on_mission', false);
@@ -124,9 +119,8 @@ it('preserves legacy event music when entering an autoplay-off map', function ()
 });
 
 it('lets battle, victory and title own music and restores the live scenario on return', function () {
-  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([musicRule()]));
   putSceneAudioConfig(['audio' => ['bgm' => ['battle' => 'battle', 'title' => 'title']]]);
-  [$scene, , $audio, $manager] = makeFieldAudioScene();
+  [$scene, , $audio, $manager] = makeFieldAudioScene([musicRule()]);
   $scene->gameState->setSwitch('on_mission', true);
   enterAudioMap($scene, 'road', 'happy');
   $apply = new ReflectionMethod(SceneManager::class, 'applySceneBackgroundMusic');
@@ -152,8 +146,7 @@ it('lets battle, victory and title own music and restores the live scenario on r
 });
 
 it('holds rest music through state changes and nested temporary scopes', function () {
-  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([musicRule()]));
-  [$scene, , $audio] = makeFieldAudioScene();
+  [$scene, , $audio] = makeFieldAudioScene([musicRule()]);
   enterAudioMap($scene, 'inn', 'happy');
   $scene->holdFieldMusic();
   $scene->holdFieldMusic();
@@ -167,8 +160,7 @@ it('holds rest music through state changes and nested temporary scopes', functio
 });
 
 it('preserves cinematic ownership across map transfers, fades and a battle return', function (string $outcome) {
-  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([musicRule()]));
-  [$scene, , $audio] = makeFieldAudioScene();
+  [$scene, , $audio] = makeFieldAudioScene([musicRule()]);
   $scene->gameState->setSwitch('on_mission', true);
   enterAudioMap($scene, 'road', 'happy');
   $cue = $audio->beginCinematicMusic(new CinematicMusicRequest('sighting', false, fadeOut: 1, completionBehavior: 'restore_previous'));
@@ -227,3 +219,29 @@ it('rejects malformed rules rather than silently activating an override', functi
   'empty maps' => [[musicRule(['maps' => []])]],
   'wildcard maps' => [[musicRule(['maps' => ['temple/*']])]],
 ]);
+
+it('keeps each project score through another project opening and a field return', function () {
+  $firstRules = [musicRule(['track' => 'first-score', 'maps' => ['town']])];
+  $secondRules = [musicRule(['track' => null, 'maps' => ['town']])];
+
+  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog($firstRules));
+  [$first, , $firstAudio, $firstManager] = makeFieldAudioScene($firstRules);
+  $first->gameState->setSwitch('on_mission', true);
+  enterAudioMap($first, 'town', 'first-map-theme');
+  expect($firstAudio->currentBackgroundMusic)->toBe('first-score');
+
+  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog($secondRules));
+  [$second, , $secondAudio] = makeFieldAudioScene($secondRules);
+  $second->gameState->setSwitch('on_mission', true);
+  enterAudioMap($second, 'town', 'second-map-theme');
+  expect($secondAudio->currentBackgroundMusic)->toBeNull();
+
+  $firstAudio->playBackgroundMusic('victory');
+  new ReflectionMethod($firstManager, 'applySceneBackgroundMusic')->invoke($firstManager, $first);
+  expect($firstAudio->currentBackgroundMusic)->toBe('first-score')
+    ->and($secondAudio->currentBackgroundMusic)->toBeNull();
+
+  $first->gameState->setSwitch('on_mission', false);
+  $first->refreshFieldMusic();
+  expect($firstAudio->currentBackgroundMusic)->toBe('first-map-theme');
+});

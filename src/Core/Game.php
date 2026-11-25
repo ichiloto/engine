@@ -7,7 +7,6 @@ use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
-use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Income\IncomeCatalog;
 use Ichiloto\Engine\Localization\WordForms;
 use Assegai\Collections\ItemList;
@@ -40,8 +39,7 @@ use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\Entities\Elements\ElementRegistry;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRegistry;
-use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
-use Ichiloto\Engine\Field\FieldActionRegistry;
+use Ichiloto\Engine\Events\Interpreter\Commands\{ScriptCommandCatalog, ScriptCommandRegistry};
 use Ichiloto\Engine\Scenes\Game\SavedGameResumeRegistry;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
@@ -60,7 +58,7 @@ use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererWindowClosed;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
-use Ichiloto\Engine\Scenes\Battle\BattleScene;
+use Ichiloto\Engine\Scenes\Battle\{BattleLoader, BattleScene};
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
@@ -80,6 +78,7 @@ use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Ichiloto\Engine\Util\Stores\ActorStore;
@@ -99,7 +98,35 @@ class Game implements CanRun, SubjectInterface
 
     private ?ProjectStateRegistry $projectStateRegistry = null;
     private ?GameLoader $gameLoader = null;
+    private ?BattleLoader $battleLoader = null;
     private ?SaveManager $saveManager = null;
+    private ?ConfigInterface $projectConfiguration = null;
+    private ?PlayerSettings $playerSettings = null;
+
+    /** The authored configuration loaded when this Game booted. Headless hosts may supply their own. */
+    public function getProjectConfiguration(): ?ConfigInterface
+    {
+        return $this->projectConfiguration;
+    }
+
+    public function getPlayerSettings(): ?PlayerSettings
+    {
+        return $this->playerSettings;
+    }
+
+    public function getBoundAudioManager(): ?AudioManager
+    {
+        return $this->audioManager ?? null;
+    }
+
+    /** Bind the playback service before the game begins using it. */
+    public function bindAudioManager(AudioManager $manager): void
+    {
+        if (isset($this->audioManager) || !$manager->isOwnedBy($this)) {
+            throw new \LogicException('Bind one audio manager owned by this Game.');
+        }
+        $this->audioManager = $manager;
+    }
 
     public function getSaveManager(): SaveManager
     {
@@ -134,12 +161,41 @@ class Game implements CanRun, SubjectInterface
     {
         return $this->gameLoader ?? throw new \LogicException('Bind this Game’s project loader before loading a campaign.');
     }
+
+    public function getBattleLoader(): BattleLoader
+    {
+        return $this->battleLoader ??= new BattleLoader($this);
+    }
+
+    /** Standalone save tools may use a Game without a bootstrapped project. */
+    public function getBoundGameLoader(): ?GameLoader
+    {
+        return $this->gameLoader;
+    }
+
+    /** Project scripts share the catalogue owned by their game and battle loaders. */
+    public function getProjectScriptCommands(): ScriptCommandCatalog
+    {
+        return $this->gameLoader?->getScriptCommands() ?? ScriptCommandRegistry::getCatalog();
+    }
+
     /** The bound project owns content paths; legacy terminal bootstrap uses its working directory. */
     public function getProjectAssetRoot(): string
     {
         return $this->gameLoader?->assetRoot
             ?? $this->getRendererRuntime()?->getAssetRoot()
             ?? getcwd() . '/assets';
+    }
+
+    /** Read the same actor catalogue as this Game’s loader. A standalone host reads its resolved project. */
+    public function getProjectActorStore(): ActorStore
+    {
+        return $this->gameLoader?->actorStore ?? new ActorStore($this->getProjectAssetRoot() . '/Data/Actors');
+    }
+
+    public function getWorldAbilities(): ?WorldAbilityCatalog
+    {
+        return $this->gameLoader?->getWorldAbilities();
     }
 
     /** Resolve the UI elements and presentation layers owned by this Game. */
@@ -161,6 +217,17 @@ class Game implements CanRun, SubjectInterface
     public function getModalManager(): ModalManager
     {
         return $this->modalManager ??= new ModalManager($this);
+    }
+
+    /** Scene and map events belong to the Game that dispatches them. */
+    public function getEventManager(): EventManager
+    {
+        return $this->eventManager ??= new EventManager();
+    }
+
+    public function getNotificationManager(): NotificationManager
+    {
+        return $this->notificationManager ??= new NotificationManager($this);
     }
 
     /** Install one explicitly constructed presenter before its first use. */
@@ -240,6 +307,7 @@ class Game implements CanRun, SubjectInterface
      */
     private bool $terminalCleanedUp = false;
     private bool $terminalInputConfigured = false;
+    private bool $terminalInputWasBlocking = true;
     private ?RendererRuntime $rendererRuntime = null;
     private ?RendererRegistry $rendererRegistry = null;
     private ?RendererLaunchIntent $rendererLaunchIntent = null;
@@ -555,12 +623,14 @@ class Game implements CanRun, SubjectInterface
 
         $this->terminalCleanedUp = true;
         $this->isRunning = false;
-        Timers::setFrameTick(null);
-        // Confirmation input must not become a field action while this frame unwinds.
-        try {
-            InputManager::resetState();
-        } catch (Throwable $error) {
-            $this->logCrash($error);
+        if (Console::getAttachedGame() === $this) {
+            Timers::setFrameTick(null);
+            // Confirmation input must not become a field action while this frame unwinds.
+            try {
+                InputManager::resetState();
+            } catch (Throwable $error) {
+                $this->logCrash($error);
+            }
         }
         // Release scene-owned work while its audio and rendering services
         // still exist. A broken scene must not prevent platform cleanup.
@@ -578,10 +648,15 @@ class Game implements CanRun, SubjectInterface
             $this->logCrash($error);
         }
 
+        // Detached hosts have their own services. The attached game owns shared input and output.
+        if (Console::getAttachedGame() !== $this) {
+            return;
+        }
         if ($this->terminalInputConfigured) {
             $this->terminalInputConfigured = false;
-            try { InputManager::disableNonBlockingMode(); } catch (Throwable) {}
-            try { InputManager::enableEcho(); } catch (Throwable) {}
+            if ($this->terminalInputWasBlocking) {
+                try { InputManager::disableNonBlockingMode(); } catch (Throwable) {}
+            }
             try { Console::restoreTerminalSettings(); } catch (Throwable) {}
         }
 
@@ -654,40 +729,45 @@ class Game implements CanRun, SubjectInterface
     private function initializeConfigStore(): void
     {
         EquipmentOptimizationPolicyRegistry::configureFromProject();
-        ScriptCommandRegistry::configureFromProject();
-        FieldActionRegistry::configureFromProject();
         $this->getSavedGameResumeRegistry()->configureFromProject();
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
         ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));
-        ConfigStore::put(PlayerSettings::class, new PlayerSettings(dataRoot: $this->launchDataRoot));
-        ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+        $this->playerSettings = new PlayerSettings(dataRoot: $this->launchDataRoot);
+        ConfigStore::put(PlayerSettings::class, $this->playerSettings);
+        $this->projectConfiguration = new ProjectConfig();
+        ConfigStore::put(ProjectConfig::class, $this->projectConfiguration);
         // The project's word forms reach the inflector before any name is inflected.
         WordForms::fromProject()->registerExceptions();
-        ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
         ConfigStore::put(IncomeCatalog::class, IncomeCatalog::fromProject());
-        ConfigStore::put(WorldAbilityCatalog::class, WorldAbilityCatalog::fromProject());
 
         ConfigStore::put(InputConfig::class, new InputConfig());
         ConfigStore::remove(ProgressionSettings::class);
         $systemPayload = asset('Data/system.php', true);
-        ConfigStore::put(ProgressionSettings::class, ProgressionSettings::fromSystemData($systemPayload));
+        $progressionSettings = ProgressionSettings::fromSystemData($systemPayload);
+        // Legacy direct ExperienceAwarder callers without an owning Game use this compatibility registration.
+        ConfigStore::put(ProgressionSettings::class, $progressionSettings);
         ConfigStore::remove(DashSettings::class);
-        ConfigStore::put(DashSettings::class, DashSettings::fromSystemData($systemPayload));
+        $dashSettings = DashSettings::fromSystemData($systemPayload);
+        ConfigStore::put(DashSettings::class, $dashSettings);
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
         $actorStore = new ActorStore(actionPointPolicy: ActionPointPolicy::fromBattleData($systemPayload['battle'] ?? []));
         ConfigStore::put(ActorStore::class, $actorStore);
-        ConfigStore::put(
-            BattleEntryRuleCatalog::class,
-            BattleEntryRuleCatalog::fromProject(
-                actorStore: $actorStore,
-            ),
-        );
         $itemStore = new ItemStore();
         ConfigStore::put(ItemStore::class, $itemStore);
-        $this->bindGameLoader(new GameLoader($this, $actorStore, $itemStore, getcwd() . '/assets'));
+        $enemies = new EnemyStore();
+        $loader = new GameLoader($this, $actorStore, $itemStore, getcwd() . '/assets',
+            enemyStore: $enemies, dashSettings: $dashSettings,
+            progressionSettings: $progressionSettings);
+        $loader->getScriptCommands(); // Validate project handlers before any scene loads.
+        $loader->getFieldActions(); // Validate the project's handler before starting gameplay.
+        $this->bindGameLoader($loader);
+        // Validate authored score rules before entering any scene.
+        $loader->getFieldMusicCatalog();
+        ConfigStore::put(BattleEntryRuleCatalog::class, $loader->getBattleEntryRules());
+        ConfigStore::put(WorldAbilityCatalog::class, $loader->getWorldAbilities());
         ConfigStore::put(KnowledgeCatalog::class, KnowledgeCatalog::fromProject());
-        ConfigStore::put(EnemyStore::class, new EnemyStore());
+        ConfigStore::put(EnemyStore::class, $enemies);
     }
 
     /**
@@ -819,11 +899,11 @@ class Game implements CanRun, SubjectInterface
      */
     private function initializeManagers(): void
     {
-        $this->audioManager = AudioManager::getInstance($this);
+        AudioManager::getInstance($this);
         $this->getSceneManager();
-        $this->eventManager = EventManager::getInstance($this);
+        $this->getEventManager();
         $this->modalManager = ModalManager::getInstance($this);
-        $this->notificationManager = NotificationManager::getInstance($this);
+        $this->getNotificationManager();
         InputManager::init($this);
         $this->engine = BattleEngineFactory::create($this, BattleEngineType::TRADITIONAL);
     }
@@ -1174,10 +1254,13 @@ class Game implements CanRun, SubjectInterface
         $this->rendererRuntime?->start($this->name, $this->width, $this->height, $this->rendererRuntime === null ? null
             : ApplicationIcon::getAssetPath(ConfigStore::has(AppConfig::class) ? config(AppConfig::class, ApplicationIcon::KEY) : null,
                 $this->rendererRuntime->getAssetRoot()));
-        if (InputManager::requiresTerminalInput()) {
-            Console::saveTerminalSettings();
+        if (!$this->terminalInputConfigured && InputManager::requiresTerminalInput()) {
+            $this->terminalInputWasBlocking = stream_get_meta_data(STDIN)['blocked'] ?? true;
             $this->terminalInputConfigured = true;
-            InputManager::disableEcho();
+            Console::saveTerminalSettings();
+            if (Console::hasSavedTerminalSettings()) {
+                InputManager::disableEcho();
+            }
             InputManager::enableNonBlockingMode();
         }
     }

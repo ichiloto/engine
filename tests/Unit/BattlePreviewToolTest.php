@@ -1,5 +1,8 @@
 <?php
 
+use Tests\Support\Rendering\RendererPipePeer;
+
+require_once __DIR__ . '/../Support/Rendering/RendererPipePeer.php';
 require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
 
 function runBattlePreviewTool(array $arguments, bool $acknowledgeSelection = true, bool $cleanupFails = false, ?string $input = null, bool $pipeRenderer = false): array
@@ -49,33 +52,28 @@ return static function (string $root, bool $reduced, ?array $subjects = null): a
 PHP;
     file_put_contents($fixturePath, str_replace(['ACK_SELECTION', 'CLEANUP_FAILS'],
         [$acknowledgeSelection ? 'true' : 'false', $cleanupFails ? 'true' : 'false'], $fixture));
-    $rendererPath = $directory . '/renderer';
+    $rendererPath = RendererPipePeer::getExecutablePath();
     $capturePath = $directory . '/wire.ndjson';
-    if ($pipeRenderer) {
-        file_put_contents($rendererPath, '#!' . PHP_BINARY . "\n<?php\n\$argv = "
-            . var_export([$rendererPath, 'dialogue_preview', $capturePath], true)
-            . '; require ' . var_export(__DIR__ . '/../Fixtures/Renderer/renderer-stub.php', true) . ';');
-        chmod($rendererPath, 0755);
-    }
+    $environment = $pipeRenderer ? RendererPipePeer::getEnvironment('dialogue_preview', $capturePath) : null;
     $process = null;
     try {
         $process = proc_open([PHP_BINARY, dirname(__DIR__, 2) . '/tools/gpui-battle-preview.php',
             '--asset-root=' . $directory, '--fixture=' . $fixturePath, '--duration=' . ($pipeRenderer ? 2 : 1),
             ...($pipeRenderer ? ['--renderer=' . $rendererPath] : ['--no-launch']), ...$arguments],
-            [0 => $input === null ? ['file', '/dev/null', 'r'] : ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+            [0 => $input === null ? ['file', '/dev/null', 'r'] : ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, env_vars: $environment);
         expect(is_resource($process))->toBeTrue();
         if ($input !== null) { fwrite($pipes[0], $input); fclose($pipes[0]); }
         $stdout = stream_get_contents($pipes[1]);
         $stderr = stream_get_contents($pipes[2]);
         fclose($pipes[1]); fclose($pipes[2]);
         $exit = proc_close($process); $process = null;
-        expect(scandir($directory))->toBe(['.', '..', 'fixture.php', ...($pipeRenderer ? ['renderer', 'wire.ndjson'] : [])]);
+        expect(scandir($directory))->toBe(['.', '..', 'fixture.php', ...($pipeRenderer ? ['wire.ndjson'] : [])]);
         $wire = is_file($capturePath) ? array_map(static fn(string $line): array => json_decode($line, true, flags: JSON_THROW_ON_ERROR),
             file($capturePath, FILE_IGNORE_NEW_LINES)) : [];
         return compact('exit', 'stdout', 'stderr', 'directory', 'wire');
     } finally {
         if (is_resource($process)) { proc_terminate($process); proc_close($process); }
-        foreach ([$rendererPath, $capturePath] as $file) { if (is_file($file)) { unlink($file); } }
+        if (is_file($capturePath)) { unlink($capturePath); }
         unlink($fixturePath);
         rmdir($directory);
     }

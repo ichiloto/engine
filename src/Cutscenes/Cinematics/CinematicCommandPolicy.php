@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use Ichiloto\Engine\Field\MapDoorReference;
 use InvalidArgumentException;
 
@@ -10,9 +11,10 @@ use InvalidArgumentException;
 final class CinematicCommandPolicy
 {
   /** @param array<int, array<string, mixed>> $commands */
-  public static function assertAuthoredSkipSafe(array $commands, string $cinematicId): void
+  public static function assertAuthoredSkipSafe(array $commands, string $cinematicId,
+    ?ScriptCommandCatalog $scriptCommands = null): void
   {
-    self::inspectSkipCommands($commands, $cinematicId, 'script');
+    self::inspectSkipCommands($commands, $cinematicId, 'script', $scriptCommands ?? ScriptCommandRegistry::getCatalog());
   }
 
   /** @param array<int, array<string, mixed>> $commands */
@@ -39,7 +41,8 @@ final class CinematicCommandPolicy
   }
 
   /** @param array<int, array<string, mixed>> $commands */
-  private static function inspectSkipCommands(array $commands, string $cinematicId, string $path): void
+  private static function inspectSkipCommands(array $commands, string $cinematicId, string $path,
+    ScriptCommandCatalog $scriptCommands): void
   {
     foreach ($commands as $index => $command) {
       $commandPath = sprintf('%s[%d]', $path, $index + 1);
@@ -52,7 +55,7 @@ final class CinematicCommandPolicy
         ));
       }
 
-      if (ScriptCommandRegistry::getCatalog()->isRegistered($type)) {
+      if ($scriptCommands->isRegistered($type)) {
         throw self::failure($cinematicId, $commandPath, sprintf(
           'authored skipping cannot prove registered command "%s" safe; registered commands are rejected conservatively.',
           $type,
@@ -67,7 +70,7 @@ final class CinematicCommandPolicy
       }
 
       if (in_array($type, ['sequence', 'framing'], true)) {
-        self::inspectSkipCommands($command['commands'], $cinematicId, "$commandPath/$type");
+        self::inspectSkipCommands($command['commands'], $cinematicId, "$commandPath/$type", $scriptCommands);
         continue;
       }
 
@@ -77,7 +80,7 @@ final class CinematicCommandPolicy
             ? trim(strval($lane['id'] ?? $laneIndex))
             : strval($laneIndex);
           $laneCommands = is_array($lane) && ! array_is_list($lane) ? $lane['commands'] : $lane;
-          self::inspectSkipCommands($laneCommands, $cinematicId, "$commandPath/parallel[$laneId]");
+          self::inspectSkipCommands($laneCommands, $cinematicId, "$commandPath/parallel[$laneId]", $scriptCommands);
         }
         continue;
       }
@@ -85,7 +88,7 @@ final class CinematicCommandPolicy
       if ($type === 'branch') {
         foreach (['then', 'else'] as $arm) {
           if (array_key_exists($arm, $command)) {
-            self::inspectSkipCommands($command[$arm], $cinematicId, "$commandPath/branch:$arm");
+            self::inspectSkipCommands($command[$arm], $cinematicId, "$commandPath/branch:$arm", $scriptCommands);
           }
         }
         continue;
@@ -93,18 +96,19 @@ final class CinematicCommandPolicy
 
       if ($type === 'play_storybook' && array_key_exists(CinematicCommandSchema::STORYBOOK_FINISH_FIELD, $command)) {
         $finish = CinematicCommandSchema::STORYBOOK_FINISH_FIELD;
-        self::inspectSkipCommands($command[$finish], $cinematicId, "$commandPath/$finish");
+        self::inspectSkipCommands($command[$finish], $cinematicId, "$commandPath/$finish", $scriptCommands);
       }
 
       if ($type === 'choice') {
         foreach ($command['options'] as $optionIndex => $option) {
           if (array_key_exists('then', $option)) {
-            self::inspectSkipCommands($option['then'], $cinematicId, sprintf('%s/choice[%d]', $commandPath, $optionIndex + 1));
+            self::inspectSkipCommands($option['then'], $cinematicId, sprintf('%s/choice[%d]', $commandPath, $optionIndex + 1),
+              $scriptCommands);
           }
         }
 
         if (array_key_exists('cancel', $command)) {
-          self::inspectSkipCommands($command['cancel'], $cinematicId, "$commandPath/choice:cancel");
+          self::inspectSkipCommands($command['cancel'], $cinematicId, "$commandPath/choice:cancel", $scriptCommands);
         }
       }
     }

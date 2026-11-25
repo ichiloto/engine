@@ -12,7 +12,6 @@ use Ichiloto\Engine\Animations\Timelines\EffectSegmentComposition;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
-use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\InherentAttack;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
@@ -96,7 +95,7 @@ final class BattleEffectResources
   private function resolveActionTimelines(CharacterInterface $actor, BattleAction $action): array
   {
     if ($action instanceof SkillBattleAction) {
-      $this->summons ??= BattleCommandCatalog::getBattleSummonLibrary() ?? new SummonCutsceneLibrary(
+      $this->summons ??= new SummonCutsceneLibrary(
         $this->effects->assetRoot . '/Cutscenes/Summons', cacheForBattle: true, assetRoot: $this->effects->assetRoot);
       $summon = $this->summons->loadCompiledOrCompileByLinkedActionId($action->skill->name, EffectPresentation::GRAPHICAL);
       if ($summon !== null) { return [$summon]; }

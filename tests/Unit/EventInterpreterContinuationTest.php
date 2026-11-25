@@ -278,10 +278,6 @@ class EventTestMapManager extends MapManager
   public bool $shouldScroll = false;
   public int $renderCount = 0;
 
-  public function __construct()
-  {
-  }
-
   public function canMoveTo(int $x, int $y, ?\Ichiloto\Engine\Events\Enumerations\CollisionType &$collisionType = null): bool
   {
     if (isset($this->blocked["{$x}:{$y}"])) {
@@ -413,7 +409,7 @@ class EventTestGameScene extends GameScene
     $this->hasDeferredAutoSave = false;
     $this->currentMapId = 'map-a';
     $this->camera = new EventTestCamera();
-    $this->mapManager = new EventTestMapManager();
+    $this->mapManager = new EventTestMapManager($this->getGame(), $this);
     $this->party = new Party();
     $this->bestiary = new Bestiary();
     $this->knowledge = new KnowledgeProgressService(new KnowledgeCatalog([
@@ -509,7 +505,6 @@ function makeEventRuntime(): array
 
 it('reveals an adjacent sensed passage through Action and restores its opening from the normal saved event state', function () {
   [$scene, $interpreter] = makeEventRuntime();
-  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($scene->mapManager, $scene);
   $player = new EventTestPlayer(new Vector2(0, 0));
   $scene->installPlayer($player);
   $source = ['class' => \Ichiloto\Engine\Events\Triggers\PassageEventTrigger::class,
@@ -3740,7 +3735,7 @@ final class InnTestConfirmDialogue extends ConfirmDialogue
     parent::__construct('Keeper', 'Rest for 30 G?');
   }
 
-  public function show(): void
+  public function showForGame(Game $game): void
   {
     $this->shown++;
     $this->selectedChoice = $this->answer;
@@ -3777,6 +3772,24 @@ it('runs a project command with its script context and continues in the same fra
     ->and(RegisteredTestCarriageCommand::$calls)->toBe([['npc:map-a:driver', 'driver', 'harbour']])
     ->and($scene->gameState->getSwitch('carriage_hired'))->toBeTrue()
     ->and($scene->gameState->hasStoryEvent('carriage_left'))->toBeTrue();
+});
+
+it('keeps strict cinematic command validation with the interpreter that will run the command', function () {
+  [$scene, $interpreter] = makeRegisteredCommandRuntime();
+  $otherCatalog = ScriptCommandCatalog::createEngineCatalog();
+  $previous = \Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry::getCatalog();
+  \Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry::configure($otherCatalog);
+  try {
+    $session = $interpreter->start([['type' => 'sequence', 'commands' => [
+      ['type' => 'hire_carriage', 'destination' => 'harbour'],
+    ]]], 'project-cinematic', strictCommands: true);
+    $interpreter->update(0.0);
+
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->gameState->getSwitch('carriage_hired'))->toBeTrue();
+  } finally {
+    \Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry::configure($previous);
+  }
 });
 
 it('waits on a project command operation one field tick at a time', function () {

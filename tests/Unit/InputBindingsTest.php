@@ -97,12 +97,12 @@ it('lists the rebindable actions with their keys', function () {
 
   $actions = array_column($bindings->all(), 'action');
 
-  // Back is deliberately absent: escape is how every screen is left,
-  // including the rebinding screen.
-  expect($actions)->toBe(['action', 'up', 'info', 'menu_page_previous', 'menu_page_next', 'character_next', 'character_previous', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'])
+  // The global escape action remains locked. Battle selection has its own rebindable action.
+  expect($actions)->toBe(['action', 'up', 'info', 'menu_page_previous', 'menu_page_next', 'character_next', 'character_previous', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'battle_back', 'dialogue_auto', 'secondary_action', 'quick_save'])
     ->and($bindings->describeKeys('action'))->toBe('Space, Enter')
     ->and($bindings->describeKeys('up'))->toBe('↑, W')
-    ->and($bindings->describeKeys('info'))->toBe('i, I');
+    ->and($bindings->describeKeys('info'))->toBe('i, I')
+    ->and($bindings->describeKeys('battle_back'))->toBe('C, c');
 });
 
 it('rebinds an action immediately without rewriting authored input', function () {
@@ -207,7 +207,7 @@ it('discovers a fully conflicted Info default as unbound and permits an explicit
   $authored = ['custom' => ['description' => 'Custom action.', 'keys' => [KeyCode::i, KeyCode::I]]];
   $config = installBindings($authored);
   $bindings = new InputBindings();
-  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info', 'menu_page_previous', 'menu_page_next', 'character_next', 'character_previous', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'])
+  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info', 'menu_page_previous', 'menu_page_next', 'character_next', 'character_previous', 'map_view', 'map_size', 'map_zoom', 'map_recenter', 'battle_back', 'dialogue_auto', 'secondary_action', 'quick_save'])
     ->and($bindings->describeKeys('info'))->toBe('Unbound')
     ->and($bindings->controlForAction('info'))->toBeNull()
     ->and($config->all())->toBe($authored)->and($config->written)->toBeEmpty();

@@ -3,6 +3,7 @@
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\EventType;
@@ -109,6 +110,7 @@ final class ShutdownInputField extends GameScene
   public function __construct(ShutdownInputGame $game)
   {
     $this->sceneManager = $game->sceneManager;
+    $this->gameState = new GameState();
     $this->eventManager = EventManager::getInstance($game);
     $this->uiManager = new ReflectionClass(UIManager::class)->newInstanceWithoutConstructor();
     new ReflectionProperty(UIManager::class, 'uiElements')->setValue($this->uiManager, new ItemList(UIElementInterface::class));
@@ -183,7 +185,6 @@ beforeEach(function () {
     ConfigStore::class, Timers::class, Debug::class, AudioManager::class] as $class) {
     $this->staticBefore[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false,
     'output' => null, 'terminalOutputStream' => null] as $name => $value) {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);
@@ -255,6 +256,26 @@ it('ends the field frame after the actual quit confirmation aliases the action k
   }
 })->with(['scripted', 'terminal', 'renderer']);
 
+it('keeps the running game console input and frame pump when a detached game is collected', function () {
+  InputManager::handleInput();
+  $tick = static function (): void {};
+  $present = static function (): void {};
+  Timers::setFrameTick($tick, $present);
+
+  $detached = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $reference = WeakReference::create($detached);
+  unset($detached);
+
+  Console::write('Running game', 0, 0);
+  expect($reference->get())->toBeNull()
+    ->and(Console::getAttachedGame())->toBe($this->game)
+    ->and(Console::getBuffer()[0])->toStartWith('Running game')
+    ->and(InputManager::getPressedKeyCode())->toBe(KeyCode::q)
+    ->and($this->input->resets)->toBe(0)
+    ->and(new ReflectionProperty(Timers::class, 'frameTick')->getValue())->toBe($tick)
+    ->and(new ReflectionProperty(Timers::class, 'framePresent')->getValue())->toBe($present);
+});
+
 it('does not navigate wander or refresh field music after an interaction stops the scene', function () {
   InputManager::setBinding('right', [KeyCode::ENTER]);
   $this->input->keys = [KeyCode::ENTER];
@@ -286,6 +307,7 @@ it('clears cached input even if source reset fails and still completes scene and
   $this->game->quit();
   expect(InputManager::getPressedKeyCode())->toBeNull()
     ->and(Input::isKeyUp(KeyCode::ENTER))->toBeFalse()
+    ->and(Console::getAttachedGame())->toBeNull()
     ->and($this->scene->camera->stops)->toBe(1)
     ->and($this->game->audioManager->shutdowns)->toBe(1)
     ->and($this->input->resets)->toBe(1)

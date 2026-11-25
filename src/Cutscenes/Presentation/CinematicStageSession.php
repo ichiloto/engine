@@ -77,9 +77,8 @@ final class CinematicStageSession
   {
     if (!$this->isPresenting($reducedMotion)) { return null; }
     try {
-      $frame = $reducedMotion && isset($this->timeline->defaults['reducedMotionSamples'])
-        ? $this->stage->getFrameAtSample($this->currentFrame, $this->timeline->getReducedMotionSampleFrame($this->currentFrame))
-        : $this->stage->getFrame($this->currentFrame, $reducedMotion);
+      $frame = $this->stage->getFrame($this->currentFrame, $reducedMotion,
+        $this->timeline->defaults['reducedMotionSamples'] ?? null);
       return CinematicStagePresentation::compose($frame,
         \Ichiloto\Engine\Animations\Timelines\EffectMotionScope::filterSegments($this->timeline->playbackSegments, $reducedMotion),
         $this->assetRoot, $width, $height, $imageFlips, retainSourceAtViewport: $retainSourceAtViewport);

@@ -8,6 +8,7 @@ use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
 use Ichiloto\Engine\Scenes\Arena\ProjectBattleTest;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ActorStore;
+use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\BattleCommandType;
@@ -301,6 +302,7 @@ it('fights every battle with a fresh party and troop, so a beaten troop and a le
     public function __destruct() {}
   };
   new ReflectionProperty(Ichiloto\Engine\Core\Game::class, 'sceneManager')->setValue($game, $manager);
+  $game->bindGameLoader(createTestGameLoader($game, $this->actors, $this->items, $this->root . '/assets', $enemies));
   $scene = new class($game) extends Ichiloto\Engine\Scenes\Arena\ArenaScene {
     public function __construct(private Ichiloto\Engine\Core\Game $testGame) {}
     public function getGame(): Ichiloto\Engine\Core\Game { return $this->testGame; }
@@ -353,6 +355,7 @@ it('fights in the chosen arena, as a battle setting, and in the default without 
     public function __destruct() {}
   };
   new ReflectionProperty(Ichiloto\Engine\Core\Game::class, 'sceneManager')->setValue($game, $manager);
+  $game->bindGameLoader(createTestGameLoader($game, $this->actors, $this->items, $this->root . '/assets', $enemies));
   $scene = new class($game) extends Ichiloto\Engine\Scenes\Arena\ArenaScene {
     public function __construct(private Ichiloto\Engine\Core\Game $testGame) {}
     public function getGame(): Ichiloto\Engine\Core\Game { return $this->testGame; }
@@ -431,22 +434,56 @@ it('takes a project\'s battle test from system data, the starting party when it 
   expect(fn() => Ichiloto\Engine\Scenes\Arena\ProjectBattleTest::loadFromProject())->toThrow(InvalidArgumentException::class, 'list of members');
 });
 
-it('opens the arena on the project\'s battle test party and puts the list on its troop without fighting', function () {
+it('uses the selected project for battle preflight, the arena list, and the ensuing fight', function () {
+  writeBattleLoadoutSources($this->root);
+  file_put_contents($this->root . '/assets/Data/states.php', '<?php return [["id" => "charged", "name" => "Charged"]];');
   file_put_contents($this->root . '/assets/Data/system.php', "<?php return " . var_export(['title' => 'Test', 'currency' => [],
     'startingPositions' => ['player' => []], 'startingParty' => ['veteran'],
-    'battleTest' => ['troop' => 'bats', 'members' => [['actor' => 'hero', 'level' => 4]]]], true) . ';');
-  ConfigStore::put(ActorStore::class, $this->actors);
-  ConfigStore::put(ItemStore::class, $this->items);
+    'battle' => ['partySize' => 2, 'actionPoints' => ['basicAttackGain' => 8]],
+    'battleTest' => ['troop' => 'bats', 'members' => [['actor' => 'hero', 'level' => 4,
+      'states' => ['charged'], 'skills' => ['Test Strike']]], 'inventory' => [['item' => 'item.potion', 'quantity' => 3]]]], true) . ';');
+  mkdir($this->root . '/assets/Graphics/Enemies', 0777, true);
+  file_put_contents($this->root . '/assets/Graphics/Enemies/bat.txt', "b\n");
+  $bat = new Ichiloto\Engine\Entities\Enemies\Enemy('Bat', 1, new Ichiloto\Engine\Entities\Stats(currentHp: 11, totalHp: 11),
+    'bat', new Ichiloto\Engine\Battle\BattleRewards(0, 0, []), []);
+  $enemies = new class extends EnemyStore { public function __construct() {} };
+  $enemies->set('Bat', $bat);
+  $troop = ['name' => 'Bats', 'enemies' => [['enemy' => 'Bat', 'position' => [2, 1]]]];
+  file_put_contents($this->root . '/assets/Data/troops.php',
+    '<?php return ' . var_export([['name' => 'Empty', 'enemies' => []], $troop], true) . ';');
   $game = new class extends Ichiloto\Engine\Core\Game {
     public function __construct() { $this->options = []; }
     public function __destruct() {}
   };
+  $game->bindGameLoader(createTestGameLoader($game, $this->actors, $this->items, $this->root . '/assets', $enemies));
+  $battle = null;
+  $manager = new class($game, $battle) extends Ichiloto\Engine\Scenes\SceneManager {
+    public function __construct(private Ichiloto\Engine\Core\Game $owner, private mixed &$battle) {}
+    public function loadBattleScene(Ichiloto\Engine\Entities\Party $party, Ichiloto\Engine\Entities\Troop $troop,
+      array $events = [], array $extraSettings = []): void
+    {
+      $this->battle = $this->owner->getBattleLoader()->newConfig($party, $troop, $events, $extraSettings);
+    }
+  };
+  new ReflectionProperty(Ichiloto\Engine\Core\Game::class, 'sceneManager')->setValue($game, $manager);
+  $foreign = $this->root . '/foreign';
+  mkdir($foreign . '/assets/Data', 0777, true);
+  file_put_contents($foreign . '/assets/Data/system.php',
+    '<?php return ["title" => "Other", "startingParty" => ["unknown"], "battle" => ["partySize" => 8]];');
+  file_put_contents($foreign . '/assets/Data/troops.php', '<?php return [["name" => "Foreign", "enemies" => []]];');
+  file_put_contents($foreign . '/assets/Data/items.php', '<?php return [new Ichiloto\Engine\Entities\Inventory\Items\Item("Foreign", "", "", 1)];');
+  chdir($foreign);
+  ConfigStore::put(ActorStore::class, new ActorStore(definitions: []));
+  ConfigStore::put(ItemStore::class, new ItemStore());
+  ConfigStore::put(EnemyStore::class, new class extends EnemyStore { public function __construct() {} });
+  $preset = ProjectBattleTest::fromSystemData(require $this->root . '/assets/Data/system.php');
+  expect(Ichiloto\Engine\Core\GameLaunchPreflight::validate($game, new Ichiloto\Engine\Core\GameLaunchContext(battleTest: $preset)))
+    ->toBeNull();
   $scene = new class($game) extends Ichiloto\Engine\Scenes\Arena\ArenaScene {
     public function __construct(private Ichiloto\Engine\Core\Game $testGame) {}
     public function getGame(): Ichiloto\Engine\Core\Game { return $this->testGame; }
   };
-  $troop = static fn(string $name): object => (object) ['name' => $name];
-  new ReflectionProperty(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'troops')->setValue($scene, [$troop('Rats'), $troop('Bats')]);
+  new ReflectionMethod(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'loadTroops')->invoke($scene);
   $editor = new ReflectionMethod(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'createEditor')->invoke($scene);
   new ReflectionProperty(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'editor')->setValue($scene, $editor);
   $selected = new ReflectionMethod(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'selectTroopByName')->invoke($scene, 'bats');
@@ -455,7 +492,15 @@ it('opens the arena on the project\'s battle test party and puts the list on its
     ->and($editor->setup->members[0]->level)->toBe(4)
     ->and($selected)->toBeTrue()
     ->and($editor->troopIndex)->toBe(1)
-    ->and($editor->focus)->toBe(Ichiloto\Engine\Scenes\Arena\ArenaSetupEditor::TROOPS);
+    ->and($editor->focus)->toBe(Ichiloto\Engine\Scenes\Arena\ArenaSetupEditor::TROOPS)
+    ->and($battle)->toBeNull();
+  expect($scene->fightByName('Bats'))->toBeTrue()
+    ->and($battle?->party->battleSize)->toBe(2)
+    ->and($battle->party->leader->hasState('charged'))->toBeTrue()
+    ->and($battle->party->leader->battleCommandLoadout?->additionalSkills)->toContain('Test Strike')
+    ->and($battle->party->inventory->all->toArray()[0]->quantity)->toBe(3)
+    ->and($battle->troop->members->toArray()[0]->stats->currentHp)->toBe(11)
+    ->and($battle->settings['actionPoints'])->toBe(['basicAttackGain' => 8]);
 });
 
 it('offers each member only what the setup would accept, the same choices for the arena and the editors', function () {

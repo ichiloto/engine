@@ -29,6 +29,7 @@ final class BattleTestChoices
     private readonly ActorStore $actors,
     private readonly ItemStore $items,
     private readonly BattleTestLoadoutCatalog $loadouts,
+    private readonly ?string $assetRoot = null,
   ) {}
 
   /** @return list<string> The actor's equipment slot names, in its own order. */
@@ -105,7 +106,7 @@ final class BattleTestChoices
       }
       $candidate = $setup->withMember($memberIndex, $member->withSummons(array_values(array_unique([...$member->summons, $choice['id']]))));
 
-      return $candidate->getProblems($this->actors, $this->items) === [];
+      return $candidate->getProblems($this->actors, $this->items, assetRoot: $this->assetRoot) === [];
     }));
   }
 
@@ -132,13 +133,13 @@ final class BattleTestChoices
     }
     if ($field === 'states') {
       return [['id' => null, 'name' => '(None)'], ...array_values(array_map(
-        static fn(State $state): array => ['id' => $state->id, 'name' => $state->name], StateRegistry::all()))];
+        static fn(State $state): array => ['id' => $state->id, 'name' => $state->name], StateRegistry::all($this->assetRoot)))];
     }
     $resource = BattleTestResource::tryFrom($field);
     if ($resource === null || ($resource === BattleTestResource::AP && !$this->offersActionPoints())) {
       return [];
     }
-    $character = $setup->createMemberCharacter($member, $this->actors, $this->items);
+    $character = $setup->createMemberCharacter($member, $this->actors, $this->items, $this->assetRoot);
     return $this->getVitalChoices($member, $character, $resource);
   }
 
@@ -153,7 +154,7 @@ final class BattleTestChoices
     if ($member === null) {
       return [];
     }
-    $character = $setup->createMemberCharacter($member, $this->actors, $this->items);
+    $character = $setup->createMemberCharacter($member, $this->actors, $this->items, $this->assetRoot);
     $vitals = [];
     foreach (BattleTestResource::cases() as $resource) {
       if ($resource === BattleTestResource::AP && !$this->offersActionPoints()) {
@@ -269,7 +270,7 @@ final class BattleTestChoices
       return 0;
     }
 
-    return $resource->getMaximum($setup->createMemberCharacter($member, $this->actors, $this->items)->stats);
+    return $resource->getMaximum($setup->createMemberCharacter($member, $this->actors, $this->items, $this->assetRoot)->stats);
   }
 
   /**
@@ -317,6 +318,6 @@ final class BattleTestChoices
   /** The actor as authored, to read its slots, level and role from. */
   private function createProbe(string $actorId): Character
   {
-    return $this->actors->require($actorId, 'the battle test setup')->createCharacter();
+    return $this->actors->require($actorId, 'the battle test setup')->createCharacter(assetRoot: $this->assetRoot, items: $this->items);
   }
 }

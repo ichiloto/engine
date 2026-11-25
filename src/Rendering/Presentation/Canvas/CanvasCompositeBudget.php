@@ -68,7 +68,8 @@ final class CanvasCompositeBudget
           $work += self::getCoverageDabWork($data, $composite);
         } elseif ($operation->textureStrip !== null) {
           $work += self::getClippedArea($composite, ...$operation->textureStrip->getBounds())
-            * (16 + 2 * (int)ceil(log(count($operation->textureStrip->knots), 2)));
+            * (16 + 2 * (int)ceil(log(count($operation->textureStrip->knots), 2))
+              + ($operation->textureStrip->clipPlane === null ? 0 : 8));
         } else {
           $work += self::getOperationWork($data, $composite);
         }

@@ -48,8 +48,9 @@ function makeS2Transport(string $scenario = 'normal', array $overrides = [], ?st
 {
   $command = [PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', $scenario];
   if ($capture !== null) { $command[] = $capture; }
+  // Use the runtime startup budget unless the test is exercising a specific startup deadline.
   $transport = new ProcessRendererTransport(new RendererProcessConfig(...array_replace([
-    'command' => $command, 'startupTimeout' => 1.0, 'shutdownTimeout' => 0.5, 'terminationTimeout' => 0.1,
+    'command' => $command, 'shutdownTimeout' => 0.5, 'terminationTimeout' => 0.1,
   ], $overrides)));
   RendererTransportTestHandles::$transports[] = $transport;
   return $transport;
@@ -145,6 +146,7 @@ it('traces bounded startup milestones without consuming events or changing resta
     function (): int { return $this->traceTime += 1_000_000; });
   $session = new RendererSessionConfig('Private startup title', \getTestTemporaryDirectory(), protocol: $protocol);
   $transport = makeS2Transport($scenario, ['ioBudgetBytes' => $budget]);
+  $startupTimeout = new RendererProcessConfig([PHP_BINARY])->startupTimeout;
   $helloBytes = strlen($session->hello()->encode());
   for ($attempt = 0; $attempt < 2; $attempt++) {
     $transport->start($session);
@@ -153,7 +155,7 @@ it('traces bounded startup milestones without consuming events or changing resta
     expect(array_column($records, 'stage'))->toBe([
       'transport.startup.begin', 'transport.startup.child.launched', 'transport.startup.hello.queued',
       'transport.startup.hello.pipe_drained', 'transport.startup.ready.accepted',
-    ])->and($records[0]['timeout_seconds'])->toBe(1.0)->and($records[0]['protocol'])->toBe($protocol->value);
+    ])->and($records[0]['timeout_seconds'])->toBe($startupTimeout)->and($records[0]['protocol'])->toBe($protocol->value);
     expect($records[1]['child_pid'])->toBeGreaterThan(0)->and($records[1]['child_running'])->toBeTrue()
       ->and($records[1]['state'])->toBe(RendererTransportState::STARTING->name)
       ->and($records[1]['child_exit_code'])->toBe(-1)->and($records[1]['child_signaled'])->toBeFalse()

@@ -116,6 +116,7 @@ abstract class EventTrigger implements EventTriggerInterface
     ?array $cue = null,
     array $facing = [],
     protected(set) EventEngagement $engagement = EventEngagement::INSIDE,
+    protected readonly ?string $projectAssetRoot = null,
   )
   {
     $this->area = $area instanceof Rect ? CellArea::fromRect($area) : $area;

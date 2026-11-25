@@ -171,13 +171,16 @@ final readonly class BattlerPose
   public function getArtwork(string $assetRoot, float $elapsedSeconds, bool $reducedMotion = false,
     ?float $impactAtSeconds = null, ?float $durationSeconds = null,
     BattlePoseSequence $sequence = BattlePoseSequence::MAIN, bool $useFarPose = false,
-    ?BattlePoseAngleVariant $arrivalPose = null): ?BattlerArtwork
+    ?BattlePoseAngleVariant $arrivalPose = null, ?float $elapsedFromImpactSeconds = null): ?BattlerArtwork
   {
     if (!is_finite($elapsedSeconds) || $elapsedSeconds < 0) {
       throw new InvalidArgumentException('Battle pose elapsed time must be finite and non-negative.');
     }
     if ($impactAtSeconds !== null && (!is_finite($impactAtSeconds) || $impactAtSeconds < 0)) {
       throw new InvalidArgumentException('A pose impact time must be finite and non-negative.');
+    }
+    if ($elapsedFromImpactSeconds !== null && ($impactAtSeconds === null || !is_finite($elapsedFromImpactSeconds))) {
+      throw new InvalidArgumentException('A pose impact-relative time requires an impact and finite elapsed time.');
     }
     if ($durationSeconds !== null && (!is_finite($durationSeconds) || $durationSeconds <= 0)) {
       throw new InvalidArgumentException('An explicit pose duration must be finite and positive.');
@@ -192,7 +195,8 @@ final readonly class BattlerPose
       $index = min(count($frames) - 1, EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, $durationSeconds / count($frames)));
     }
     if ($main && !$reducedMotion && $this->impactFrame !== null && $impactAtSeconds !== null) {
-      if ($elapsedSeconds < $impactAtSeconds) {
+      $relative = $elapsedFromImpactSeconds ?? ($elapsedSeconds - $impactAtSeconds);
+      if ($relative < 0) {
         // Preserve natural anticipation, hold its final entry, compress only a short lead-in.
         $duration = $this->impactFrame / $this->fps;
         $index = $duration > $impactAtSeconds
@@ -202,7 +206,7 @@ final readonly class BattlerPose
         if ($this->impactFrame === 0) { $reducedMotion = true; }
       } else {
         $index = $this->impactFrame + EffectPlaybackTiming::getFrameCountForElapsed(
-          $elapsedSeconds - $impactAtSeconds, 1 / $this->fps);
+          $relative, 1 / $this->fps);
       }
     }
     $source = $reducedMotion ? $this->restFrame : $frames[

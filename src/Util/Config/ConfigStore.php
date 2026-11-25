@@ -54,6 +54,28 @@ final class ConfigStore
   }
 
   /**
+   * Expose a host's configuration to legacy readers for one operation. Null masks an entry.
+   *
+   * @template TResult
+   * @param array<class-string, ConfigInterface|null> $overrides
+   * @param callable(): TResult $operation
+   * @return TResult
+   */
+  public static function withOverrides(array $overrides, callable $operation): mixed
+  {
+    $previous = array_intersect_key(self::$store, $overrides);
+    try {
+      foreach ($overrides as $class => $config) {
+        if ($config === null) { self::remove($class); }
+        else { self::put($class, $config); }
+      }
+      return $operation();
+    } finally {
+      self::$store = $previous + array_diff_key(self::$store, $overrides);
+    }
+  }
+
+  /**
    * Checks if the config store has the given config class.
    *
    * @param class-string $configClass The config class.

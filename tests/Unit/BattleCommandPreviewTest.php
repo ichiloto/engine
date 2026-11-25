@@ -99,6 +99,31 @@ it('previews real summon atlas layers and cues deterministically without combat 
     ->and($first->diagnostics)->toBeEmpty();
 });
 
+it('changes the bound action drawing on the exact tick after a late pose anchor', function () {
+  writeTestPng($this->root . '/pose-clock.png', 16, 16);
+  $effect = new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($this->root)->compile('pose-clock', [
+    'fps' => 24, 'lengthFrames' => 90, 'restFrame' => 65, 'poseSyncFrame' => 65, 'poseClock' => 'target',
+    'effectTiming' => ['mode' => 'frame', 'frame' => 65],
+    'tracks' => [['id' => 'mark', 'type' => 'image', 'presentation' => 'graphical', 'asset' => 'effect.png',
+      'keyframes' => [['frame' => 65, 'duration' => 1]]]],
+  ], forBattle: true);
+  $pose = new \Ichiloto\Engine\Battle\Presentation\BattlerPose('pose-clock.png',
+    columns: 2, frames: [0, 1], fps: 12, loop: false, impactFrame: 0);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.2, .2, .2, .2, .2, .2, .2),
+    target: $effect, actionPoseOverride: $pose);
+  $preview = new BattleCommandPreview($this->battle, $plan, $this->actor, [$this->target],
+    BattlePoseRole::MAGIC, $this->catalog, $this->root);
+  $transition = $plan->getCommandFrameForAuthoredFrame('target', 67);
+  $crop = static function (int $tick, bool $reduced = false) use ($preview): int {
+    $frame = $preview->getFrameAtIndex($tick, reducedMotion: $reduced);
+    return array_find($frame->canvas->images, static fn(CanvasImage $image): bool =>
+      $image->asset === 'pose-clock.png')->sourceRect->x;
+  };
+  expect($crop($transition - 1))->toBe(0)
+    ->and($crop($transition))->toBe(8)
+    ->and($crop($transition, true))->toBe(0);
+});
+
 it('replaces the arena during an owned stage and restores it exactly on seek or cancellation', function (bool $foregroundContinues) {
   $source = $this->definition->toTimelineArray();
   $source['stage'] = ['canvas' => ['width' => 400, 'height' => 300],
@@ -279,4 +304,126 @@ it('checks actual capture positions before painting including normal advance and
     expect($diagnostics)->toBe([]);
   }
   expect(serialize([$this->actor->stats, $this->target->stats, $second->stats]))->toBe($before);
+})->with([false, true]);
+
+/** Synthetic renderer capability negotiation uses the same battler/effect composer as live battle. */
+function createCapabilityBattlePreview(object $fixture, array $tracks, bool $mirrored = false,
+  bool $aquatic = false, bool $edgeTarget = false, ?\Ichiloto\Engine\Battle\Presentation\BattlerPose $pose = null): array
+{
+  $battle = new BattleConfig($fixture->battle->party, new Troop('Capability troop', [$fixture->target],
+    graphicalFormation: [getStageSlot($edgeTarget ? 24 : ($mirrored ? 300 : 100), $edgeTarget ? 96 : 200,
+      48, 96, groundBottom: 250)]));
+  $catalog = new BattlePresentationCatalog($fixture->catalog->arenas, $fixture->catalog->actors,
+    $fixture->catalog->enemies, ui: new BattleCanvasLayout(400, 300, uiCellWidth: 2, uiCellHeight: 4,
+      ground: new BattleGround(bottom: 250),
+      partySlots: [getStageSlot($mirrored ? 80 : 320, 200, 48, 96, groundBottom: 250)]),
+    defaultArena: 'preview', enemyGrounding: $aquatic ? ['Preview Target' =>
+      new \Ichiloto\Engine\Battle\Presentation\BattlerGrounding(elevation: -.25,
+        contact: \Ichiloto\Engine\Battle\Presentation\BattlerContact::RIPPLE)] : []);
+  $data = ['fps' => 24, 'lengthFrames' => 4, 'tracks' => $tracks];
+  if ($pose !== null) {
+    $data += ['restFrame' => 1, 'targetCaptureFrame' => 0,
+      'targetContactSequence' => ['firstFrame' => 1, 'lastFrame' => 1, 'direction' => 'west', 'tracks' => ['hit']]];
+  }
+  $compiled = (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator($fixture->root))
+    ->compile('synthetic-capability', $data, forBattle: true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1,.1,.1,.1,.1,.1,.1),
+    target: $compiled, actionPoseOverride: $pose);
+  $preview = new BattleCommandPreview($battle, $plan, $fixture->actor, [$fixture->target],
+    BattlePoseRole::ATTACK, $catalog, $fixture->root);
+  return [$preview, $plan->getCommandFrameForAuthoredFrame('target', $pose === null ? 0 : 1)];
+}
+
+it('uses caller mask-flip support for mirrored preview tints without losing the battlefield', function (bool $byTime) {
+  [$preview, $frame] = createCapabilityBattlePreview($this, [[
+    'id' => 'tint', 'type' => 'battler-tint', 'anchor' => 'target',
+    'keyframes' => [['frame' => 0, 'duration' => 4,
+      'payload' => ['color' => ['kind' => 'rgb', 'r' => 240, 'g' => 20, 'b' => 30], 'strength' => .5]]],
+  ]], mirrored: true);
+  $read = fn(bool $supported) => $byTime
+    ? $preview->getFrameAtTime($frame / BattleCommandTimeline::FPS, maskFlips: $supported)
+    : $preview->getFrameAtIndex($frame, maskFlips: $supported);
+  $limited = $read(false);
+  expect(implode(' ', $limited->diagnostics))->toContain('cannot mirror image-alpha masks')
+    ->and(array_column($limited->canvas->images, 'id'))->toContain('arena');
+  $capable = $read(true);
+  expect($capable->diagnostics)->toBeEmpty()
+    ->and(array_any($capable->canvas->composites,
+      fn($composite) => str_starts_with($composite->id, 'command-tints-layer-')))->toBeTrue()
+    ->and($this->actor->stats->currentHp)->toBe(100)->and($this->target->stats->currentHp)->toBe(100);
+})->with([false, true]);
+
+it('refuses unsupported mirrored preview bodies using the live-facing diagnostic', function (bool $byTime) {
+  [$preview, $frame] = createCapabilityBattlePreview($this, [[
+    'id' => 'tone', 'type' => 'tone', 'anchor' => 'target',
+    'keyframes' => [['frame' => 0, 'duration' => 4, 'payload' => ['brightness' => .7]]],
+  ]], mirrored: true);
+  $read = fn(bool $supported) => $byTime
+    ? $preview->getFrameAtTime($frame / BattleCommandTimeline::FPS, imageFlips: $supported)
+    : $preview->getFrameAtIndex($frame, imageFlips: $supported);
+  expect(fn() => $read(false))->toThrow(RuntimeException::class, 'cannot mirror a battler')
+    ->and($read(true)->diagnostics)->toBeEmpty()
+    ->and($this->actor->stats->currentHp)->toBe(100)->and($this->target->stats->currentHp)->toBe(100);
+})->with([false, true]);
+
+it('uses caller image-tone support without altering preview combat or Terminal output', function (bool $byTime) {
+  [$preview, $frame] = createCapabilityBattlePreview($this, [[
+    'id' => 'tone', 'type' => 'tone', 'anchor' => 'target',
+    'keyframes' => [['frame' => 0, 'duration' => 4, 'payload' => ['brightness' => .7]]],
+  ]]);
+  $read = fn(bool $supported) => $byTime
+    ? $preview->getFrameAtTime($frame / BattleCommandTimeline::FPS, imageTones: $supported)
+    : $preview->getFrameAtIndex($frame, imageTones: $supported);
+  $limited = $read(false); $capable = $read(true);
+  $find = fn($canvas) => array_find($canvas->images,
+    fn($image) => $image->id === 'combatant-' . spl_object_id($this->target));
+  expect(implode(' ', $limited->diagnostics))->toContain('cannot apply the authored battler image tone')
+    ->and($find($limited->canvas)->brightness)->toBe(1.0)
+    ->and($find($capable->canvas)->brightness)->toBe(.7)->and($capable->diagnostics)->toBeEmpty()
+    ->and($limited->terminalLines)->toBe($capable->terminalLines)
+    ->and($this->actor->stats->currentMp)->toBe(40)->and($this->target->stats->currentHp)->toBe(100);
+})->with([false, true]);
+
+it('uses caller bottom-fade support for aquatic preview bodies', function (bool $byTime) {
+  [$preview, $frame] = createCapabilityBattlePreview($this, [[
+    'id' => 'tone', 'type' => 'tone', 'anchor' => 'target',
+    'keyframes' => [['frame' => 0, 'duration' => 4, 'payload' => ['brightness' => 1.0]]],
+  ]], aquatic: true);
+  $read = fn(bool $supported) => $byTime
+    ? $preview->getFrameAtTime($frame / BattleCommandTimeline::FPS, bottomFade: $supported)
+    : $preview->getFrameAtIndex($frame, bottomFade: $supported);
+  $find = fn($canvas) => array_find($canvas->images,
+    fn($image) => $image->id === 'combatant-' . spl_object_id($this->target));
+  $limited = $read(false); $capable = $read(true);
+  expect($find($limited->canvas)->bottomFade)->toBeNull()
+    ->and($find($capable->canvas)->bottomFade)->not->toBeNull()
+    ->and($limited->diagnostics)->toBeEmpty()->and($capable->diagnostics)->toBeEmpty()
+    ->and($limited->terminalLines)->toBe($capable->terminalLines)
+    ->and($this->target->stats->currentHp)->toBe(100);
+})->with([false, true]);
+
+it('refuses a clipped captured beam when the preview canvas lacks clipping', function (bool $byTime) {
+  writeTestPng($this->root . '/beam.png', 400, 40);
+  $pose = new \Ichiloto\Engine\Battle\Presentation\BattlerPose('body.png', frames: [0], fps: 24,
+    loop: false, impactFrame: 0, attachmentPoints: [
+      ['cell' => 0, 'name' => 'release', 'point' => ['x' => .5, 'y' => .5]]]);
+  [$preview, $frame] = createCapabilityBattlePreview($this, [[
+    'id' => 'beam', 'type' => 'image', 'presentation' => 'graphical', 'asset' => 'beam.png',
+    'anchor' => 'caster', 'attachmentPoint' => 'release', 'detachFrame' => 0, 'facing' => 'west',
+    'pivot' => ['x' => .9, 'y' => .5],
+    'flight' => ['mode' => 'beam', 'route' => 'straight', 'tipX' => .1, 'arrivalFrame' => 1,
+      'fallback' => 'horizontal-exit'], 'keyframes' => [['frame' => 1, 'duration' => 3]],
+  ], [
+    'id' => 'hit', 'type' => 'image', 'presentation' => 'graphical', 'asset' => 'effect.png',
+    'anchor' => 'target', 'keyframes' => [['frame' => 1, 'duration' => 3]],
+  ]], edgeTarget: true, pose: $pose);
+  $read = fn(bool $supported) => $byTime
+    ? $preview->getFrameAtTime($frame / BattleCommandTimeline::FPS, imageRotation: true, imageClips: $supported)
+    : $preview->getFrameAtIndex($frame, imageRotation: true, imageClips: $supported);
+  $limited = $read(false); $capable = $read(true);
+  expect(implode(' ', $limited->diagnostics))->toContain('cannot clip the authored captured beam')
+    ->and($capable->diagnostics)->toBeEmpty()
+    ->and(array_any($capable->canvas->images, fn($image) => str_contains($image->id, 'target-beam')
+      && $image->clipRect !== null))->toBeTrue()
+    ->and($this->actor->stats->currentHp)->toBe(100)->and($this->target->stats->currentHp)->toBe(100);
 })->with([false, true]);

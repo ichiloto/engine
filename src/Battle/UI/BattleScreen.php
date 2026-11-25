@@ -181,16 +181,17 @@ class BattleScreen implements CanRender, CanUpdate
   public function __construct(protected BattleScene $battleScene)
   {
     $this->screenDimensions = $this->resolveScreenDimensions();
-    $borderPack = config(ProjectConfig::class, 'ui.menu.border', new DefaultBorderPack());
+    $configuration = ProjectConfig::findForGame($battleScene->getGame());
+    $borderPack = $configuration?->get('ui.menu.border', new DefaultBorderPack()) ?? new DefaultBorderPack();
 
     if (! $borderPack instanceof BorderPackInterface) {
       throw new InvalidArgumentException('The border pack must implement the BorderPackInterface.');
     }
 
     $this->borderPack = $borderPack;
-    $this->pacing = BattlePacing::fromConfig();
+    $this->pacing = BattlePacing::fromConfig($configuration);
     $this->selectionColor = $this->resolveSelectionColor(
-      config(ProjectConfig::class, 'ui.battle.selection_color', Color::LIGHT_BLUE)
+      $configuration?->get('ui.battle.selection_color', Color::LIGHT_BLUE)
     );
     $this->alertDuration = $this->pacing->getMessageDurationSeconds();
     $this->initializeWindows();
@@ -205,9 +206,10 @@ class BattleScreen implements CanRender, CanUpdate
   protected function initializeWindows(): void
   {
     $this->fieldWindow = new BattleFieldWindow($this);
+    $game = $this->battleScene->getGame();
     $this->fieldWindow->setConditionEffects(\Ichiloto\Engine\Battle\Presentation\BattleConditionEffects::createFromConfig(
-      new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary(
-        $this->battleScene->getGame()->getProjectAssetRoot())));
+      new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($game->getProjectAssetRoot()),
+      ProjectConfig::findForGame($game)));
     $this->messageWindow = new BattleMessageWindow($this);
     $this->commandWindow = new BattleCommandWindow($this);
     $this->commandContextWindow = new BattleCommandContextWindow($this);

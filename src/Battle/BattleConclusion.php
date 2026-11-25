@@ -67,7 +67,9 @@ final readonly class BattleConclusion
       }
     }
 
-    $progressionResults = ExperienceAwarder::awardParty($this->party, $experience, $skillPoints);
+    $progressionResults = ExperienceAwarder::awardParty(
+      $this->party, $experience, $skillPoints, $this->game->getBoundGameLoader()?->getProgressionSettings(),
+    );
     $levelUps = array_values(array_filter(
       $progressionResults,
       static fn($result): bool => $result->levelledUp(),

@@ -31,7 +31,7 @@ class EnterShopAction extends FieldAction
   public function execute(ActionContextInterface $context): void
   {
     foreach ($this->trigger->dialogue ?? [] as $dialogue) {
-      $dialogue->show();
+      $dialogue->showForGame($context->scene->getGame());
     }
 
     $this->trigger->offer->open($context->scene);

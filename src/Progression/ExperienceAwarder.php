@@ -19,7 +19,12 @@ final class ExperienceAwarder
   {
   }
 
-  public static function award(Character $character, int $experience, int $skillPoints = 0): ExperienceAwardResult
+  public static function award(
+    Character $character,
+    int $experience,
+    int $skillPoints = 0,
+    ?ProgressionSettings $settings = null,
+  ): ExperienceAwardResult
   {
     if ($experience < 0) {
       throw new InvalidArgumentException('Experience awards cannot be negative.');
@@ -28,7 +33,7 @@ final class ExperienceAwarder
       throw new InvalidArgumentException('Mastery point awards cannot be negative.');
     }
 
-    $settings = ConfigStore::has(ProgressionSettings::class)
+    $settings ??= ConfigStore::has(ProgressionSettings::class)
       ? ConfigStore::get(ProgressionSettings::class)
       : new ProgressionSettings();
     if (! $settings instanceof ProgressionSettings) {
@@ -60,10 +65,15 @@ final class ExperienceAwarder
    *
    * @return ExperienceAwardResult[]
    */
-  public static function awardParty(Party $party, int $experience, int $skillPoints = 0): array
+  public static function awardParty(
+    Party $party,
+    int $experience,
+    int $skillPoints = 0,
+    ?ProgressionSettings $settings = null,
+  ): array
   {
     return array_map(
-      static fn(Character $character): ExperienceAwardResult => self::award($character, $experience, $skillPoints),
+      static fn(Character $character): ExperienceAwardResult => self::award($character, $experience, $skillPoints, $settings),
       $party->members->toArray(),
     );
   }

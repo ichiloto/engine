@@ -219,9 +219,10 @@ it('automatically attaches one runtime before deciding terminal input ownership'
   expect($this->transport->shutdowns)->toBe(1)->and(InputManager::getInputSource())->toBeInstanceOf(TerminalInputSource::class);
 });
 
-it('keeps absent or terminal intent on the existing terminal input lifecycle', function (?string $id) {
+it('keeps absent or terminal intent on the existing terminal input lifecycle', function (?string $id, bool $wasBlocking) {
   putenv($id === null ? 'ICHILOTO_RENDERER' : 'ICHILOTO_RENDERER=' . $id);
   $game = new LaunchIntentGameProbe($this->registry);
+  stream_set_blocking(STDIN, $wasBlocking);
   try {
     $game->startInput();
     expect(Console::isTerminalOutputEnabled())->toBeTrue()
@@ -234,10 +235,33 @@ it('keeps absent or terminal intent on the existing terminal input lifecycle', f
     expect($this->creations)->toBe(0)
       ->and(fn() => $game->useRendererRuntime($this->runtime))->toThrow(LogicException::class);
   } finally { $game->quit(); }
-  expect(stream_get_meta_data(STDIN)['blocked'])->toBeTrue()
+  expect(stream_get_meta_data(STDIN)['blocked'])->toBe($wasBlocking)
     ->and(new ReflectionProperty(Game::class, 'terminalInputConfigured')->getValue($game))->toBeFalse()
     ->and($this->transport->shutdowns)->toBe(0);
-})->with([null, '', 'terminal']);
+})->with([null, '', 'terminal'])->with(['inherited blocking' => true, 'inherited nonblocking' => false]);
+
+it('keeps redirected standard input and an injected terminal stream with their owners', function () {
+  putenv('ICHILOTO_RENDERER=terminal');
+  $stream = fopen('php://temp', 'w+');
+  fwrite($stream, 'w');
+  rewind($stream);
+  $source = new TerminalInputSource($stream);
+  InputManager::setInputSource($source);
+  $game = new LaunchIntentGameProbe($this->registry);
+  try {
+    $before = stream_get_meta_data(STDIN)['blocked'];
+    $game->startInput();
+    expect(new ReflectionProperty(Game::class, 'terminalInputConfigured')->getValue($game))->toBeFalse()
+      ->and(stream_get_meta_data(STDIN)['blocked'])->toBe($before)
+      ->and($source->poll()?->value)->toBe('w');
+    $game->quit();
+    expect(stream_get_meta_data(STDIN)['blocked'])->toBe($before)
+      ->and(is_resource($stream))->toBeTrue();
+  } finally {
+    $game->quit();
+    fclose($stream);
+  }
+});
 
 it('honors explicit runtime attachment without consulting even invalid launch intent', function (string $environment) {
   putenv('ICHILOTO_RENDERER=' . $environment);

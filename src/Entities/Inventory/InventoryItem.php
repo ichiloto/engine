@@ -245,7 +245,7 @@ abstract class InventoryItem implements InventoryItemInterface
   }
 
   /** Reconstructs static fields from the current project definition. */
-  public function completeDeferredSaveHydration(?array $data = null): void
+  public function completeDeferredSaveHydration(?array $data = null, ?ItemStore $store = null): void
   {
     $data ??= $this->deferredSaveData;
 
@@ -254,7 +254,7 @@ abstract class InventoryItem implements InventoryItemInterface
     }
 
     $reference = trim(strval($data['definitionId'] ?? $data['id'] ?? $data['name'] ?? ''));
-    $store = ConfigStore::get(ItemStore::class);
+    $store ??= ConfigStore::get(ItemStore::class);
 
     if (! $store instanceof ItemStore || $reference === '') {
       throw new InvalidArgumentException(sprintf(

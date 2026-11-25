@@ -17,6 +17,8 @@ use Ichiloto\Engine\Events\Interpreter\EventStorybookOutcomePresentationInterfac
 use Ichiloto\Engine\Messaging\Storybook\StorybookOutcome;
 use Ichiloto\Engine\Events\Interpreter\EventStorybookPresentationInterface;
 use Ichiloto\Engine\Messaging\Storybook\StorybookDefinition;
+use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
+use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\PassiveGame;
@@ -207,4 +209,44 @@ it('requires an outcome-aware reader only for a nonempty after-reading branch', 
     expect($session->status)->toBe(EventExecutionStatus::FAILED)
         ->and($session->failureMessage)->toContain('reports a reading outcome')
         ->and($this->bookSurface->shown)->toBeEmpty();
+});
+
+it('loads authored trigger scripts and their selected books from the owning game project', function (): void {
+    $owner = createTestDirectory('owning-event-project-');
+    foreach ([$owner => 'owning', $this->bookRoot => 'unrelated'] as $root => $label) {
+        if (!is_dir($root . '/assets/Data/Storybooks')) { mkdir($root . '/assets/Data/Storybooks', 0700, true); }
+        mkdir($root . '/assets/Events');
+        file_put_contents($root . '/assets/Data/Storybooks/selected.php', '<?php return ' . var_export([
+            'id' => 'selected', 'title' => ucfirst($label) . ' book', 'narrator' => 'Traveller',
+            'pages' => [['id' => 'page', 'text' => 'Story text.']],
+        ], true) . ';');
+        file_put_contents($root . '/assets/Events/entry.php', '<?php return ' . var_export([
+            ['type' => 'set_switch', 'name' => $label . '-entry'],
+            ['type' => 'common_event', 'id' => 'chapter'],
+        ], true) . ';');
+        file_put_contents($root . '/assets/Events/chapter.php', '<?php return ' . var_export([
+            ['type' => 'set_switch', 'name' => $label . '-chapter'],
+            ['type' => 'play_storybook', 'storybook' => 'selected'],
+        ], true) . ';');
+    }
+    $game = new PassiveGame();
+    $loader = createTestGameLoader($game, assetRoot: $owner . '/assets');
+    $game->bindGameLoader($loader);
+    $scene = new StorybookEventScene($game);
+    $runner = new EventInterpreter($scene, $this->bookSurface, $this->bookCatalog);
+    // The named trigger is prepared in the same project that owns the scene.
+    $trigger = EventTriggerFactory::create([
+        'class' => ScriptEventTrigger::class,
+        'area' => ['cells' => [[1, 1]]], 'data' => ['scriptId' => 'entry'],
+    ], 'synthetic/room', $loader->assetRoot);
+    $session = $runner->run($trigger->script);
+    expect($session->status)->toBe(EventExecutionStatus::YIELDED)
+        ->and($this->bookSurface->shown[0]->title)->toBe('Owning book')
+        ->and($scene->gameState->getSwitch('owning-entry'))->toBeTrue()
+        ->and($scene->gameState->getSwitch('owning-chapter'))->toBeTrue()
+        ->and($scene->gameState->getSwitch('unrelated-entry'))->toBeFalse()
+        ->and($scene->gameState->getSwitch('unrelated-chapter'))->toBeFalse();
+    $this->bookSurface->complete = true;
+    $runner->update(0);
+    expect($session->status)->toBe(EventExecutionStatus::COMPLETED);
 });

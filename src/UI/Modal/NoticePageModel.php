@@ -24,6 +24,7 @@ final class NoticePageModel
         public readonly array $pages,
         public readonly bool $graphical,
         private readonly ?NoticeContent $notice,
+        private readonly array $noticeHints,
     ) {}
 
     public string $message { get => $this->pages[$this->index]; }
@@ -51,7 +52,7 @@ final class NoticePageModel
         }
         $pages = array_map(static fn(array $page): string => implode("\n", $page),
             array_chunk(TerminalText::wrapParagraphsToWidth($message, $columns), $rows)) ?: [''];
-        return new self($title, $sourceMessage, $pages, false, $source->notice);
+        return new self($title, $sourceMessage, $pages, false, $source->notice, $source->noticeHints);
     }
 
     /** The graphical theme owns the reading area; the same layout feeds windows and captures. */
@@ -60,7 +61,8 @@ final class NoticePageModel
         self::assertAcknowledgement($source);
         $reading = MenuModalPresentation::measureReadingArea($canvas, $source, $theme);
         $pages = MenuTextWrap::paginate($source->message, $reading['messageColumns'], $reading['maximumRows']);
-        return new self($source->title, $source->sourceMessage ?? $source->message, $pages ?: [''], true, $source->notice);
+        return new self($source->title, $source->sourceMessage ?? $source->message, $pages ?: [''], true,
+            $source->notice, $source->noticeHints);
     }
 
     /** False leaves the last page selected; the host owns final dismissal. */
@@ -74,7 +76,7 @@ final class NoticePageModel
     public function getModalPresentation(): ModalPresentation
     {
         return new ModalPresentation($this->title, $this->message, [$this->hasNextPage ? 'Next' : 'OK'], 0,
-            singleConfirmation: true, notice: $this->notice, sourceMessage: $this->sourceMessage);
+            singleConfirmation: true, notice: $this->notice, sourceMessage: $this->sourceMessage, noticeHints: $this->noticeHints);
     }
 
     private static function assertAcknowledgement(ModalPresentation $source): void

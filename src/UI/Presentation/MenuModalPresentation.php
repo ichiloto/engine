@@ -55,7 +55,7 @@ final class MenuModalPresentation
     $messageWidth = $width - ($artSize > 0 ? $artSize + $gap : 0);
     $messageColumns = max(1, (int)floor($messageWidth / $m->cellWidth));
     $titleHeight = $modal->title === '' ? 0 : count(MenuCanvas::wrap($modal->title, $columns)) * $m->cellHeight;
-    $noticeHints = $notice?->getActionHints() ?? [];
+    $noticeHints = $modal->noticeHints;
     $noticeHintHeight = $noticeHints === [] ? 0 : MenuActionHints::height($noticeHints, $theme, $messageWidth, required: true);
     $hints = [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')];
     $hintHeight = MenuActionHints::height($hints, $theme, $width);

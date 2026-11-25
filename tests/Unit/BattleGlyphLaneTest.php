@@ -20,11 +20,13 @@ function glyphLaneFixture(): array
 
 it('compiles independent Terminal cell art and preserves it through source editing', function () {
   $data = glyphLaneFixture();
+  $data['tracks'][0]['keyframes'][0]['payload']['reach'] = 0.5;
   $data['tracks'][0] = SummonCutsceneTrack::fromArray($data['tracks'][0])->toArray();
   $effect = (new EffectTimelineValidator('/does-not-exist'))->compile('single-lane', $data, forBattle: true, presentation: EffectPresentation::TERMINAL);
   expect($effect->hasTerminalContent)->toBeTrue()->and($effect->playbackSegments)->toHaveCount(2)
     ->and($effect->defaults['terminalLaneCaptureFrame'])->toBe(1)
     ->and($effect->playbackSegments[0]['drawCommands'][0]['payload']['head'])->toBe([' /','<=',' \\'])
+    ->and($effect->playbackSegments[0]['drawCommands'][0]['payload']['reach'])->toBe(0.5)
     ->and($effect->defaults)->not->toHaveKey('targetCaptureFrame');
   expect((new EffectTimelineValidator(''))->compile('graphic', $data, forBattle: true)->playbackSegments)->toBe([])
     ->and(fn() => (new EffectTimelineValidator(''))->compile('ambient', $data, presentation: EffectPresentation::TERMINAL))->toThrow(InvalidArgumentException::class)
@@ -54,6 +56,10 @@ it('rejects invalid lane schemas before playback', function (Closure $change) {
   [fn(array &$d) => $d['tracks'][0]['keyframes'][0]['payload']['head'] = ["X\nY"]],
   [fn(array &$d) => $d['tracks'][0]['keyframes'][0]['payload']['head'] = [str_repeat('X',33)]],
   [fn(array &$d) => $d['tracks'][0]['keyframes'][0]['payload']['shaft'] = ['-']],
+  [fn(array &$d) => $d['tracks'][0]['keyframes'][0]['payload']['reach'] = -0.01],
+  [fn(array &$d) => $d['tracks'][0]['keyframes'][0]['payload']['reach'] = 1.01],
+  [fn(array &$d) => $d['tracks'][0]['keyframes'][0]['payload']['reach'] = INF],
+  [fn(array &$d) => $d['tracks'][0]['keyframes'][0]['payload']['reach'] = '0.5'],
   [fn(array &$d) => $d['tracks'][0]['keyframes'][0]['color'] = 'future-neon'],
   [fn(array &$d) => $d['playback'] = 'loop'],
   [function(array &$d) { unset($d['fps']); $d['cadence'] = 'battle-phase'; }],
@@ -89,6 +95,20 @@ it('draws one oriented head, tiles the shaft and occludes unrelated bodies witho
   foreach ($clipped as $draw) { expect($draw['x'])->toBeGreaterThanOrEqual(30)->and($draw['x']+TerminalText::displayWidth($draw['text']))->toBeLessThanOrEqual(40); }
   expect(implode('',array_column($clipped,'text')))->not->toContain('<','>');
 })->with([false,true]);
+
+it('reveals a prefix of the same captured path and reaches the captured endpoint in full', function (?int $recipient) {
+  $snapshot = new TerminalBattleLaneSnapshot(['x' => 30, 'y' => 10], [42 => ['x' => 10, 'y' => 6]], [], true,
+    ['x' => 29, 'y' => 12], [42 => ['x' => 9, 'y' => 8]]);
+  $stencil = ['head' => ['<'], 'shaft' => ['-'], 'facing' => 'west'];
+  $draw = static fn(array $payload): array => TerminalBattleGlyphLane::compose($snapshot, $payload, null, 1, 1, 40, 20, $recipient);
+  $head = static fn(array $draws): array => array_find($draws, static fn(array $run): bool => str_contains($run['text'], '<'));
+  $middle = $head($draw($stencil + ['reach' => 0.5]));
+  $full = $draw($stencil + ['reach' => 1.0]);
+  expect([$middle['x'], $middle['y']])->toBe($recipient === null ? [20, 8] : [19, 10])
+    ->and([$head($full)['x'], $head($full)['y']])->toBe($recipient === null ? [10, 6] : [9, 8])
+    ->and($draw($stencil))->toBe($full)
+    ->and($draw($stencil + ['reach' => 0.0]))->toBe([]);
+})->with([null, 42]);
 
 it('clips an entire wide head cell and never leaves a continuation half at the edge', function () {
   $snapshot = new TerminalBattleLaneSnapshot(['x'=>40,'y'=>4],[42=>['x'=>5,'y'=>4]],[],true);

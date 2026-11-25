@@ -244,7 +244,11 @@ it('emits only whole wide glyphs within physical bounds on every native path', f
     ->and(Console::getBuffer())->toBe($buffer)
     ->and(Console::presentationSnapshot())->toEqual($snapshot);
 })->with(['immediate', 'batched', 'recompose', 'full', 'region'])
-  ->with(["\e[31m\u{754C}\e[0m", "\u{1F5E1}\u{FE0F}", "\u{754C}\u{0301}"])
+  ->with([
+  'ANSI foreground and wide glyph' => "\e[31m\u{754C}\e[0m",
+  'emoji variation selector' => "\u{1F5E1}\u{FE0F}",
+  'wide glyph and combining mark' => "\u{754C}\u{0301}",
+])
   ->with([3, 4, 5]);
 
 it('repairs a complete wide glyph when a region targets either half of it', function (int $x) {

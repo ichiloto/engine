@@ -147,7 +147,6 @@ beforeEach(function () {
     }
     $this->fixtureRoot = createTestDirectory('scene-excursion-checkpoint-');
     $this->managers = [];
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
     Debug::configure(['log_directory' => $this->fixtureRoot . '/logs']);
     ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['audio' => ['music' => false, 'sfx' => false]]));
     ConfigStore::put(PlaySettings::class, new PlaySettings(['screenDimensions' => ['width' => 40, 'height' => 12]]));

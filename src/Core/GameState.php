@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Core;
 
 use Ichiloto\Engine\Progression\TutorialPhase;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
+use Ichiloto\Engine\Quests\QuestManager;
 
 /**
  * The persistent world-state store.
@@ -60,6 +62,35 @@ class GameState
 
   /** @var array<string, int> Recorded gameplay counters, separate from authored variables. */
   private array $playStatistics = [];
+
+  /** @var \WeakReference<QuestManager>|null Runtime progression never enters saved world state. */
+  private ?\WeakReference $questManager = null;
+
+  public function bindQuestManager(QuestManager $manager): void
+  {
+    $this->questManager = \WeakReference::create($manager);
+  }
+
+  public function getQuestManager(): ?QuestManager
+  {
+    $manager = $this->questManager?->get();
+    return $manager !== null && !$manager->isReleased ? $manager : null;
+  }
+
+  public function releaseQuestManager(QuestManager $owner, ?QuestManager $previous): void
+  {
+    if ($this->questManager?->get() === $owner) {
+      $this->questManager = $previous === null ? null : \WeakReference::create($previous);
+    }
+  }
+
+  /** Project definitions follow this runtime state and are excluded from its saved data. */
+  public function __construct(public readonly ?WorldAbilityCatalog $worldAbilities = null) {}
+
+  public function getWorldAbilities(): ?WorldAbilityCatalog
+  {
+    return $this->worldAbilities ?? WorldAbilityCatalog::findInstalledCatalog();
+  }
 
   public function getPlayStatistic(PlayStatistic $statistic): int
   {
@@ -368,9 +399,9 @@ class GameState
    * @param array<string, mixed> $data
    * @return self
    */
-  public static function fromArray(array $data): self
+  public static function fromArray(array $data, ?WorldAbilityCatalog $worldAbilities = null): self
   {
-    $state = new self();
+    $state = new self($worldAbilities);
 
     foreach (is_array($data['playStatistics'] ?? null) ? $data['playStatistics'] : [] as $name => $count) {
       $statistic = is_string($name) ? PlayStatistic::tryFrom($name) : null;

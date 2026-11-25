@@ -13,7 +13,6 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationWorldPreparation;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\Console\Console;
 
-use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRenderAt;
 use Ichiloto\Engine\Core\Rect;
@@ -42,10 +41,6 @@ use InvalidArgumentException;
  */
 class MapManager implements CanRenderAt
 {
-  /**
-   * @var MapManager|null The instance of the MapManager.
-   */
-  protected static ?self $instance = null;
   /**
    * @var array<int, string[]> The tile map.
    */
@@ -157,25 +152,25 @@ class MapManager implements CanRenderAt
    * @param Game $game The game instance.
    * @param GameScene $gameScene The game scene.
    */
-  protected function __construct(
+  public function __construct(
     protected Game $game,
     protected(set) GameScene $gameScene)
   {
   }
 
   /**
-   * Returns the instance of the MapManager.
+   * Resolves the map manager owned by the given scene.
    *
    * @param Game $game The game instance.
    * @return MapManager The instance of the MapManager.
    */
   public static function getInstance(Game $game, GameScene $gameScene): self
   {
-    if (!self::$instance) {
-      self::$instance = new self($game, $gameScene);
+    if ($gameScene->getGame() !== $game) {
+      throw new InvalidArgumentException('The field scene belongs to another Game.');
     }
 
-    return self::$instance;
+    return $gameScene->getMapManager();
   }
 
   /**
@@ -381,7 +376,7 @@ class MapManager implements CanRenderAt
     $bedIssues = \Ichiloto\Engine\Field\Validation\MapBedRule::inspect($mapId, $map, $source['worldObjects'], $collisions);
     if ($bedIssues !== []) { throw new \InvalidArgumentException($bedIssues[0]->message); }
     foreach ($map['events'] ?? [] as $event) {
-      $trigger = EventTriggerFactory::create($event, $mapId !== '' ? $mapId : null);
+      $trigger = EventTriggerFactory::create($event, $mapId !== '' ? $mapId : null, $this->getAssetRoot());
       if ($trigger instanceof \Ichiloto\Engine\Events\Triggers\PassageEventTrigger) {
         $trigger::validateFloor($trigger->area, $collisions);
       }
@@ -965,7 +960,7 @@ class MapManager implements CanRenderAt
     $triggers = [];
     foreach ($events as $eventData) {
       $eventTrigger = $eventData instanceof \Ichiloto\Engine\Events\Triggers\EventTrigger
-        ? $eventData : EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null);
+        ? $eventData : EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null, $this->getAssetRoot());
       $eventTrigger->bind($gameState, $this->gameScene->party);
       if (
         ! $eventTrigger->isReusable &&
@@ -1003,7 +998,7 @@ class MapManager implements CanRenderAt
    */
   protected function getCollisionDictionary(): array
   {
-    $collisionDictionaryFilename = Path::join(Path::getCurrentWorkingDirectory(), 'assets/Maps/collisions.php');
+    $collisionDictionaryFilename = $this->getAssetRoot() . '/Maps/collisions.php';
     return $this->loadCollisionDictionary($collisionDictionaryFilename);
   }
 
@@ -1150,7 +1145,7 @@ class MapManager implements CanRenderAt
    */
   protected function resolveMapPaths(string $filename): array
   {
-    return MapSourceReader::resolvePaths(Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Maps'), $filename);
+    return MapSourceReader::resolvePaths($this->getAssetRoot() . '/Maps', $filename);
   }
   /**
    * Reads a split map definition from `.data.php`, `.map.php`, and `.event.php` files.
@@ -1325,7 +1320,7 @@ class MapManager implements CanRenderAt
   /** The project's asset root, where tilesets and their sheets live. */
   private function getAssetRoot(): string
   {
-    return Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+    return $this->game->getProjectAssetRoot();
   }
 
   /**

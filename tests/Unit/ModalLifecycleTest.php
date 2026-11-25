@@ -4,7 +4,6 @@ use Tests\Support\PassiveGame;
 use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Modal\AlertModal;
@@ -162,7 +161,6 @@ beforeEach(function () {
   $console->getProperty('frameRows')->setValue(null, []);
   $console->getProperty('terminalHandedBack')->setValue(null, false);
 
-  (new ReflectionProperty(EventManager::class, 'instance'))->setValue(null, null);
 });
 
 afterEach(function () {
@@ -170,7 +168,6 @@ afterEach(function () {
     new ReflectionProperty(Timers::class, $name)->setValue(null, $value);
   }
   ConfigStore::remove(PlaySettings::class);
-  (new ReflectionProperty(EventManager::class, 'instance'))->setValue(null, null);
 });
 
 it('erases the centered alert footprint rather than an obsolete origin', function () {

@@ -46,12 +46,12 @@ final class MasteryCatalog
   }
 
   /** The catalogue of the project the game runs from, read once. */
-  public static function getProjectCatalog(): self
+  public static function getProjectCatalog(?string $assetRoot = null): self
   {
-    $assetRoot = Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+    $assetRoot ??= Path::join(Path::getCurrentWorkingDirectory(), 'assets');
     if (! isset(self::$projectCatalogs[$assetRoot])) {
-      $catalog = self::load($assetRoot, SkillCatalog::getProjectCatalog());
-      foreach ([...$catalog->problems, ...$catalog->findCurriculumProblems(ClassStore::all())] as $problem) {
+      $catalog = self::load($assetRoot, SkillCatalog::getProjectCatalog($assetRoot));
+      foreach ([...$catalog->problems, ...$catalog->findCurriculumProblems(ClassStore::all($assetRoot))] as $problem) {
         Debug::warn(sprintf('Mastery maps: %s', $problem));
       }
       self::$projectCatalogs[$assetRoot] = $catalog;

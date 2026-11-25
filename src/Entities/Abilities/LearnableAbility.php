@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities\Abilities;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 
 /**
  * Tracks an ability that can be learned along with its unlock requirements.
@@ -34,10 +35,10 @@ class LearnableAbility
    * @param array<string, mixed> $data The serialized learnable-ability data.
    * @return self|null The reconstructed learnable ability, if it exists.
    */
-  public static function fromArray(array $data): ?self
+  public static function fromArray(array $data, ?SkillCatalog $skills = null): ?self
   {
     $skillName = strval($data['skill'] ?? '');
-    $skill = AbilityLibrary::find($skillName);
+    $skill = ($skills ?? SkillCatalog::getProjectCatalog())->findSkill($skillName);
 
     if (! $skill instanceof SpecialSkill) {
       return null;

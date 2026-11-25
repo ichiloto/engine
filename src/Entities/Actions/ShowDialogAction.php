@@ -21,7 +21,7 @@ class ShowDialogAction extends FieldAction
   {
     foreach ($this->trigger->dialogue as $dialogue) {
       $dialogue->prepareFieldPresentation($context->scene);
-      $dialogue->show();
+      $dialogue->showForGame($context->scene->getGame());
     }
 
     // Finishing the conversation completes the trigger: completion writes

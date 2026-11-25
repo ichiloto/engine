@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Field\DashSettings;
 use Ichiloto\Engine\Field\PlayerDash;
@@ -8,6 +9,8 @@ use Ichiloto\Engine\IO\ControlHint;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputBindings;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Progression\PowerUnlockShowcase;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Rendering\FieldMetric;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
@@ -149,6 +152,29 @@ it('offers no dash in the Terminal, which cannot report a held control, and hide
   ConfigStore::put(DashSettings::class, new DashSettings());
   [$controls, $config] = $listed();
   expect($controls)->not->toContain('dash')->and($config)->not->toContain('always_dash');
+});
+
+it('shows what holding the rebound dash control does in both power hints', function () {
+  InputManager::setInputSource($source = new FakeHeldInputSource());
+  InputManager::setBindings(['dash' => ['keys' => [KeyCode::r]]]);
+  ConfigStore::put(DashSettings::class, new DashSettings(true, 2.0));
+  $catalog = new WorldAbilityCatalog([['id' => 'fast-movement', 'name' => 'Dash',
+    'description' => 'Run faster.', 'firstUse' => ['hints' => [['action' => 'dash', 'label' => 'Hold to run']]]]]);
+  $firstUse = $catalog->getAbility('fast-movement')->firstUse;
+  $notice = PowerUnlockShowcase::getNotices($catalog, ['fast-movement'], new GameState())[0];
+  $source->press('key_r', KeyCode::r);
+  InputManager::handleInput();
+
+  expect(PlayerDash::getSpeedMultiplier())->toBe(2.0)
+    ->and($notice->getActionHints()[0]->label)->toBe('Hold to run')
+    ->and($firstUse->getActionHints()[0]->label)->toBe('Hold to run');
+
+  $this->config->set(PlayerDash::CONFIG_ALWAYS_DASH, true);
+  expect(PlayerDash::getSpeedMultiplier())->toBe(1.0)
+    ->and($notice->getActionHints()[0]->label)->toBe('Hold to walk')
+    ->and($firstUse->getActionHints()[0]->label)->toBe('Hold to walk')
+    ->and($notice->getActionHints()[0]->control)->toEqual(ControlHint::keyboard(KeyCode::r))
+    ->and($firstUse->getActionHints()[0]->control)->toEqual(ControlHint::keyboard(KeyCode::r));
 });
 
 it('gates actual dashing on current story state without changing the players Always Dash choice', function () {

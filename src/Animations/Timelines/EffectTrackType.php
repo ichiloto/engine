@@ -20,13 +20,20 @@ enum EffectTrackType: string
   case FIELD_COLOR = 'field-color';
   case BATTLER_MOTION = 'battler-motion';
   case BATTLER_TINT = 'battler-tint';
+  case BATTLER_REACTION = 'battler-reaction';
 
   public function requiresGraphicalPresentation(): bool
   {
-    return in_array($this, [self::TRAIL, self::TETHER, self::FIELD_MOTION, self::FIELD_COLOR, self::BATTLER_MOTION, self::BATTLER_TINT], true);
+    return in_array($this, [self::TRAIL, self::TETHER, self::FIELD_MOTION, self::FIELD_COLOR, self::BATTLER_MOTION, self::BATTLER_TINT, self::BATTLER_REACTION], true);
   }
 
   public function requiresTerminalPresentation(): bool { return $this === self::GLYPH_LANE; }
+
+  public function getDefaultPresentation(EffectMotionScope $motion): string
+  {
+    if ($this->requiresTerminalPresentation()) { return 'terminal'; }
+    return $this->requiresGraphicalPresentation() || $motion !== EffectMotionScope::ALL ? 'graphical' : 'all';
+  }
 
   /** @return list<string> Shared track vocabulary, filtered by consumer profile. */
   public static function getSupportedValues(bool $forBattle = false, bool $forSummon = false): array

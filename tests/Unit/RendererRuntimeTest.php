@@ -3,7 +3,6 @@
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\CinematicMusicRequest;
-use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Core\Vector2;
@@ -1019,16 +1018,14 @@ it('presents layered field ownership through the real field runtime and clears i
     requiredCapabilities: ['sprite_source_rect']), $this->transport);
   $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect"]}')];
   $this->runtime->start('Fixture ownership', 12, 4);
-  $scene = makeBareScene(GameScene::class);
+  [$scene, $map] = makeFieldAudioScene();
   $layers = new MapLayerSet([new MapLayer('floor', 1, false, 'floor', '     '),
     new MapLayer('fixtures', 2, false, 'fixtures', '## #i')]);
   $camera = new Camera($scene, 12, 4, worldSpace: $layers->getComposedGrid());
   new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
-  $map = makeBareScene(MapManager::class);
-  foreach (['gameScene' => $scene, 'layers' => $layers, 'tileMap' => $camera->worldSpace] as $name => $value) {
+  foreach (['layers' => $layers, 'tileMap' => $camera->worldSpace] as $name => $value) {
     new ReflectionProperty(MapManager::class, $name)->setValue($map, $value);
   }
-  new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $map);
   $player = $this->getStubBuilder(Player::class)->disableOriginalConstructor()
     ->onlyMethods(['getGraphicalSpriteDefinition'])->getStub();
   $player->method('getGraphicalSpriteDefinition')->willReturn(null);
@@ -1077,16 +1074,13 @@ it('uses the same field eligibility for the terrain world and Player and clears 
     requiredCapabilities:['sprite_source_rect']), $this->transport);
   $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect"]}')];
   $this->runtime->start('Terrain',12,4);
-  $scene = makeBareScene(GameScene::class);
+  [$scene, $map, , $sceneManager] = makeFieldAudioScene();
   $camera = new Camera($scene,12,4,worldSpace:array_fill(0,4,array_fill(0,12,';')));
   new ReflectionProperty(GameScene::class,'camera')->setValue($scene,$camera);
-  $map = makeBareScene(MapManager::class);
-  new ReflectionProperty(MapManager::class,'gameScene')->setValue($map,$scene);
   new ReflectionProperty(MapManager::class,'tileMap')->setValue($map,$camera->worldSpace);
   new ReflectionProperty(MapManager::class,'layers')->setValue($map, new MapLayerSet([
     new MapLayer('terrain', 1, false, 'field', implode("\n", array_fill(0, 4, str_repeat(';', 12)))),
   ], legacy: true));
-  new ReflectionProperty(GameScene::class,'mapManager')->setValue($scene,$map);
   $player = $this->getStubBuilder(Player::class)->disableOriginalConstructor()
     ->onlyMethods(['getGraphicalSpriteDefinition'])->getStub();
   $player->method('getGraphicalSpriteDefinition')->willReturn(null);
@@ -1096,11 +1090,7 @@ it('uses the same field eligibility for the terrain world and Player and clears 
   new ReflectionProperty(GameScene::class,'fieldState')->setValue($scene,$field);
   new ReflectionProperty(GameScene::class,'state')->setValue($scene,$field);
   // Staging graphical cast asks the scene's Game for the running renderer's asset root.
-  [$game] = makeSceneAudioGame();
-  $game->useRendererRuntime($this->runtime);
-  $sceneManager = makeBareScene(SceneManager::class);
-  new ReflectionProperty(SceneManager::class, 'game')->setValue($sceneManager, $game);
-  new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene, $sceneManager);
+  $sceneManager->game->useRendererRuntime($this->runtime);
   $stage = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager($scene);
   new ReflectionProperty(GameScene::class,'cinematicStage')->setValue($scene,$stage);
   $cast = $stage->add(['id' => 'runner', 'sprite' => '@', 'x' => 3, 'y' => 2,
@@ -1189,17 +1179,13 @@ it('preserves the maximum protocol grid for runtimes without tile capability req
 
 it('keeps scenario and temporary music ownership identical during terminal and renderer waits', function (bool $graphical) {
   $game = new RendererRuntimeGameProbe();
-  [$scene, $map, , $manager] = makeFieldAudioScene();
-  $audio = new RecordingAudioManager($game);
-  new ReflectionProperty(SceneManager::class, 'game')->setValue($manager, $game);
-  new ReflectionProperty(Game::class, 'sceneManager')->setValue($game, $manager);
-  new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audio);
-  new ReflectionProperty(Game::class, 'notificationManager')->setValue($game, new RendererRuntimeNotifications());
-  new ReflectionProperty(GameScene::class, 'state')->setValue($scene, makeBareScene(FieldState::class));
-  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([[
+  [$scene, $map, $audio, $manager] = makeFieldAudioScene([[
     'id' => 'mission', 'track' => 'mission-theme',
     'conditions' => [['type' => 'switch', 'name' => 'on_mission']],
-  ]]));
+  ]], $game);
+  new ReflectionProperty(Game::class, 'sceneManager')->setValue($game, $manager);
+  new ReflectionProperty(Game::class, 'notificationManager')->setValue($game, new RendererRuntimeNotifications());
+  new ReflectionProperty(GameScene::class, 'state')->setValue($scene, makeBareScene(FieldState::class));
   if ($graphical) { $game->useRendererRuntime($this->runtime); $game->startInput(); }
 
   $enter = function (string $track) use ($scene, $map): void {
@@ -1244,13 +1230,9 @@ it('keeps scenario and temporary music ownership identical during terminal and r
 
 it('cleans up scenario audio exactly once when native close interrupts a held field cue', function () {
   $game = new RendererRuntimeGameProbe();
-  [$scene, , , $manager] = makeFieldAudioScene();
-  $audio = new RecordingAudioManager($game);
-  new ReflectionProperty(SceneManager::class, 'game')->setValue($manager, $game);
-  new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audio);
-  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([[
+  [$scene, , $audio] = makeFieldAudioScene([[
     'id' => 'mission', 'track' => 'mission-theme', 'conditions' => [],
-  ]]));
+  ]], $game);
   $scene->refreshFieldMusic();
   $transport = $this->transport;
   $game->onUpdate = function () use ($game, $scene, $audio, $transport): void {

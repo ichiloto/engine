@@ -150,8 +150,6 @@ beforeEach(function () {
   $this->input = InputManager::getInputSource();
   $this->bindings = InputManager::getBindings();
   $this->delta = new ReflectionProperty(Time::class, 'deltaTime')->getValue();
-  $this->event = new ReflectionProperty(EventManager::class, 'instance')->getValue();
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   $this->configs = new ReflectionProperty(ConfigStore::class, 'store')->getValue();
   new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, []);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));

@@ -43,9 +43,13 @@ use Ichiloto\Engine\UI\Modal\ModalPresentation;
 use Ichiloto\Engine\Messaging\Dialogue\ChoiceDialogue;
 use Ichiloto\Engine\Messaging\Dialogue\ChoiceKind;
 use Ichiloto\Engine\Messaging\Dialogue\ConfirmDialogue;
+use Ichiloto\Engine\Messaging\Dialogue\Dialogue;
+use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\UI\Modal\PromptModal;
 use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\UI\Presentation\MenuModalPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
@@ -143,8 +147,6 @@ beforeEach(function () {
   }
   Timers::setFrameTick(null);
   ActionHints::useProvider(null);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
-  new ReflectionProperty(NotificationManager::class, 'instance')->setValue(null, null);
   $this->root = \getTestTemporaryDirectory() . '/ichiloto-menu-modal-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   modalMenuPng($this->root . '/art.png');
@@ -1003,16 +1005,46 @@ it('presents a confirmation by its authored kind: a decision as buttons, an answ
 
 it('starts a confirmation on its authored choice, Yes when it names none', function (array $data, int $start) {
   ($this->startCanvas)();
-  // Confirming at once takes the choice the focus started on.
+  // The owning Game presents the authored starting choice even in a detached Console scope.
+  new ReflectionProperty(Console::class, 'game')->setValue(null, null);
   InputManager::setInputSource(new FakeInputSource(null, KeyCode::ENTER));
   $confirm = ConfirmDialogue::fromArray($data);
-  $confirm->show();
+  $confirm->showForGame($this->game);
   expect($confirm->selectedChoice)->toBe($start);
 })->with([
   'a decision that starts on No' => [['text' => 'Leave without saving?', 'kind' => 'decision', 'defaultChoice' => 1], 1],
   'an answer that starts on No' => [['name' => 'Innkeeper', 'text' => 'Sell the heirloom?', 'defaultChoice' => 1], 1],
   'an answer that names no start' => [['name' => 'Innkeeper', 'text' => 'Stay the night?'], 0],
 ]);
+
+it('uses the presenting Game’s dialogue position, rate and accessibility scale', function () {
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub([
+    'ui' => ['dialogue' => ['speed' => 90, 'window' => ['position' => WindowPosition::BOTTOM]]],
+    'accessibility' => ['textSpeedScale' => 3],
+  ]));
+  $game = new ModalMenuGame();
+  $configuration = new SceneAudioConfigStub([
+    'ui' => ['dialogue' => ['message' => ['speed' => 25], 'window' => ['position' => WindowPosition::TOP]]],
+    'accessibility' => ['textSpeedScale' => 2],
+  ]);
+  new ReflectionProperty(Game::class, 'projectConfiguration')->setValue($game, $configuration);
+  $modals = new class($game) extends ModalManager {
+    public array $page = [];
+
+    public function showText(string $message, string $title = '', string $help = '', ?WindowPosition $position = null,
+      float $charactersPerSecond = 1, ?DialoguePlayback $playback = null, ?DialogueContext $presentation = null): void
+    {
+      $this->page = [$message, $title, $position, $charactersPerSecond, $presentation];
+    }
+  };
+  $game->bindModalManager($modals);
+  $page = new Dialogue('Guide', 'Follow the lanterns.');
+  $page->showForGame($game);
+
+  expect($modals->page)->toBe(['Follow the lanterns.', 'Guide', WindowPosition::TOP, 25.0, $page->presentation])
+    ->and(dialogue_speed($game))->toBe(50.0)
+    ->and(dialogue_speed())->toBe(270.0);
+});
 
 it('refuses a starting choice that is not one of the choices', function (mixed $start, string $message) {
   expect(fn() => ConfirmDialogue::fromArray(['text' => 'Rest?', 'defaultChoice' => $start]))

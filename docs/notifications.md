@@ -6,6 +6,11 @@ quest, achievement, and field updates. Their timing is resolved centrally by
 semantic `SHORT`, `MEDIUM`, and `LONG` presets instead of duplicating timing
 values at each call site.
 
+Each `Game` owns its notification queue and its event dispatcher. Map and
+scene events resume notices for that Game. Notification sounds use that
+Game's initialized audio service, and an oversized notice uses its modal
+queue. The same lookups serve the normal game and preview hosts.
+
 ## Content and attention
 
 Transient notices have a one-line headline and at most two short body lines,

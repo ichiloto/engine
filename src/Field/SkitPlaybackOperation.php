@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Field;
 
 use Closure;
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Events\Interpreter\EventPendingOperationInterface;
 use Ichiloto\Engine\Events\Interpreter\EventPlayedDialoguePresentationInterface;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
@@ -28,8 +29,9 @@ final class SkitPlaybackOperation implements EventPendingOperationInterface
         private readonly ?AudioManager $audio,
         private readonly Closure $isInterrupted,
         private readonly Closure $onFinish,
+        ?Game $game = null,
     ) {
-        $this->playback = new DialoguePlayback($audio);
+        $this->playback = new DialoguePlayback($audio, game: $game);
     }
 
     public function update(float $deltaSeconds): bool

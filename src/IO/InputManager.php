@@ -142,6 +142,24 @@ class InputManager
     self::$config = self::getBindingsWithDefaults($bindings);
   }
 
+  /**
+   * Resolve controls in a host's bindings for one operation without changing input state.
+   *
+   * @template TResult
+   * @param callable(): TResult $operation
+   * @return TResult
+   */
+  public static function withBindings(array $bindings, callable $operation): mixed
+  {
+    $previous = self::$config;
+    try {
+      self::setBindings($bindings);
+      return $operation();
+    } finally {
+      self::$config = $previous;
+    }
+  }
+
   /** Reads authored semantic actions and Engine defaults without installing input or player overrides. */
   public static function getProjectBindings(string $projectRoot): array
   {
@@ -199,6 +217,12 @@ class InputManager
         $bindings[$action]['controllers'] = self::MENU_PAGE_CONTROLLERS[$action];
       }
     }
+
+    // Battle selection has its own Back action. Escape is already used to pause battle.
+    $bindings['battle_back'] ??= [
+      'description' => 'Return to the previous choice or character in battle.',
+      'keys' => [KeyCode::C, KeyCode::c],
+    ];
 
     if (! array_key_exists('dialogue_auto', $bindings)) {
       $bindings['dialogue_auto'] = self::getDefaultDialogueAutoBinding($bindings);
@@ -295,7 +319,8 @@ class InputManager
   /** Only the terminal source needs Game to claim STDIN's interactive modes. */
   public static function requiresTerminalInput(): bool
   {
-    return self::getInputSource() instanceof TerminalInputSource;
+    $source = self::getInputSource();
+    return $source instanceof TerminalInputSource && $source->usesStandardInput();
   }
 
   /**
@@ -479,11 +504,12 @@ class InputManager
    * Checks if a button is pressed.
    *
    * @param string $name The name of the button to check.
+   * @param Game|null $game Owner of any project-specific action policy.
    * @return bool Returns true if the button is pressed, false otherwise.
    */
-  public static function isButtonDown(string $name): bool
+  public static function isButtonDown(string $name, ?Game $game = null): bool
   {
-    if ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return false; }
+    if ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled($game)) { return false; }
     $button = self::$config[$name] ?? [];
     return self::isAnyKeyPressed($button['keys'] ?? []);
   }
@@ -603,12 +629,16 @@ class InputManager
   public static function disableEcho(): void
   {
     // The owning Game snapshots/restores the full session. Ctrl+Q must reach the input source, not XON.
-    system('stty cbreak -echo -ixon -ixoff');
+    if (Console::hasInteractiveTerminalInput()) {
+      system('stty cbreak -echo -ixon -ixoff');
+    }
   }
 
   public static function enableEcho(): void
   {
-    system('stty -cbreak echo');
+    if (Console::hasInteractiveTerminalInput()) {
+      system('stty -cbreak echo');
+    }
 
     // Turn on cursor blinking
     Console::cursor()->enableBlinking();

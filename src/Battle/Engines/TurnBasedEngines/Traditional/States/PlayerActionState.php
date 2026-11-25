@@ -148,7 +148,8 @@ class PlayerActionState extends TurnState
         $command = $this->getSelectedCommand($context);
         if ($command?->type === BattleCommandType::ATTACK) {
           $option = $this->heldAttackOption ?? array_find(BattleCommandCatalog::buildOptions($actor,
-            $context->party, $command->type, $this->getReservedItemCounts($context), $context->getGameState()),
+            $context->party, $command->type, $this->getReservedItemCounts($context), $context->getGameState(),
+            $this->engine->battleConfig->getContent()),
             static fn(BattleCommandOption $option): bool => !$option->action instanceof CrisisSkillBattleAction);
         }
       } else { $option = $this->getSelectedOption($context); }
@@ -272,7 +273,7 @@ class PlayerActionState extends TurnState
    */
   protected function handleActions(TurnStateExecutionContext $context): void
   {
-    if (Input::isAnyKeyPressed(BattleControlHints::INFO_KEYS)) {
+    if (Input::isButtonPressed('info')) {
       $this->showFocusedInfo($context);
     }
 
@@ -287,7 +288,7 @@ class PlayerActionState extends TurnState
       };
     }
 
-    if (! Input::isAnyKeyPressed(BattleControlHints::BACK_KEYS)) {
+    if (! Input::isButtonPressed('battle_back')) {
       return;
     }
 
@@ -356,6 +357,7 @@ class PlayerActionState extends TurnState
       $context->party,
       $context->getGameState(),
       $this->engine->battleConfig->getEscapePolicy(),
+      $this->engine->battleConfig->getContent(),
     );
     $this->heldAttackOption = null;
     $this->directAttackSelection = false;
@@ -383,7 +385,8 @@ class PlayerActionState extends TurnState
         return false;
       }
       if ($command !== BattleCommandType::SUMMON) { return true; }
-      $options = BattleCommandCatalog::buildOptions($actor, $context->party, $command, gameState: $context->getGameState());
+      $options = BattleCommandCatalog::buildOptions($actor, $context->party, $command,
+        gameState: $context->getGameState(), content: $this->engine->battleConfig->getContent());
       return array_any($options, fn(BattleCommandOption $option): bool =>
         $option->isAffordable($actor->stats->currentMp, $actor->stats->currentAp) && $this->getEligibleOptionTargets($context, $option) !== []);
     };
@@ -476,6 +479,7 @@ class PlayerActionState extends TurnState
       $command->type,
       $this->getReservedItemCounts($context),
       $context->getGameState(),
+      $this->engine->battleConfig->getContent(),
     );
 
     $this->directAttackSelection = false;

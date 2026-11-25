@@ -9,7 +9,6 @@ use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
-use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 
 /**
@@ -166,7 +165,7 @@ class SelectItemTargetMode extends ItemMenuMode
     if ($item->quantity === 0) {
       $this->inventory->all->remove($item);
     }
-    QuestManager::current()?->syncCollectObjectives();
+    $this->inventory->notifyInventoryChanged();
 
     if ($this->state->getGameScene()->getGame()->hasStopped()) { return; }
     $this->state->statusPanel->updateContent();

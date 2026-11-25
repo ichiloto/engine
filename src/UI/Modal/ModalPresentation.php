@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Modal;
 
+use Ichiloto\Engine\IO\ActionHint;
 use InvalidArgumentException;
 
 /** One read-only view of the modal owner, never a second selection or outcome model. */
@@ -11,18 +12,21 @@ final readonly class ModalPresentation
 {
   /** @var non-empty-list<string> */
   public array $choices;
+  /** @var list<ActionHint> */
+  public array $noticeHints;
 
   /**
    * @param non-empty-list<string> $choices The modal's choices, in order.
    * @param bool $vertical Stacks the choices one above another instead of in a row.
    * @param ModalChoiceStyle $choiceStyle What the choices are: the modal's buttons, or answers in a conversation
    *   drawn as a list (always stacked).
+   * @param list<ActionHint>|null $noticeHints Resolved controls supplied by the notice owner.
    */
   public function __construct(public string $title, public string $message, array $choices,
     public int $activeIndex, public bool $vertical = false, public bool $singleConfirmation = false,
     public ?QuantityPresentation $quantity = null, public ?NoticeContent $notice = null,
     public ?string $sourceMessage = null, public ?StorybookPresentation $storybook = null,
-    public ModalChoiceStyle $choiceStyle = ModalChoiceStyle::BUTTONS)
+    public ModalChoiceStyle $choiceStyle = ModalChoiceStyle::BUTTONS, ?array $noticeHints = null)
   {
     if (!array_is_list($choices) || $choices === [] || !isset($choices[$activeIndex])) {
       throw new InvalidArgumentException('Modal presentation requires choices and a valid owner-selected index.');
@@ -51,5 +55,6 @@ final readonly class ModalPresentation
       $copy[] = $choice;
     }
     $this->choices = $copy;
+    $this->noticeHints = $noticeHints ?? $notice?->getActionHints() ?? [];
   }
 }

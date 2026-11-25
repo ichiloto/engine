@@ -1,9 +1,40 @@
 <?php
 
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
+use Ichiloto\Engine\Animations\Animation;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline;
+
+it('keeps a shared impact at the authored delay even after the active artwork has ended', function () {
+  $timings = BattleTurnTimings::fromTotalDuration(1.0);
+  $binding = Animation::fromArray(['id' => 1, 'name' => 'Ward', 'targetImpactSeconds' => 0.8]);
+  expect($binding->toArray()['targetImpactSeconds'])->toBe(0.8)
+    ->and(Animation::fromArray(['name' => 'Old'])->toArray())->not->toHaveKey('targetImpactSeconds');
+
+  foreach ([10, 12] as $fps) {
+    $effect = new CompiledEffectTimeline('ward', '', fps: $fps, defaults: ['lengthFrames' => 8]);
+    $plan = new BattleCommandTimeline($timings, target: $effect, targetImpactSeconds: $binding->targetImpactSeconds);
+    $start = $plan->phases['target']['start'];
+    $end = $start + (int)ceil(8 / $fps * 120);
+    expect($plan->impactFrame - $start)->toBe(96)
+      ->and($plan->phases['reaction']['start'] - $start)->toBe(96)
+      ->and($plan->getAuthoredFrameAtCommandFrame('target', $end - 1))->toBe(7)
+      ->and($plan->getAuthoredFrameAtCommandFrame('target', $end))->toBeNull();
+  }
+});
+
+it('rejects simultaneous battle resolution owners and invalid target delays', function () {
+  $timings = BattleTurnTimings::fromTotalDuration(1.0);
+  $effect = new CompiledEffectTimeline('ward', '', fps: 10, defaults: ['lengthFrames' => 8],
+    cueSchedule: [['id' => 'impact', 'type' => 'applyEffect', 'frame' => 1, 'payload' => []]]);
+  expect(fn() => new BattleCommandTimeline($timings, target: $effect, targetImpactSeconds: 0.0))
+    ->toThrow(InvalidArgumentException::class, 'Clear the target effect impact timing')
+    ->and(fn() => Animation::fromArray(['targetImpactSeconds' => '0.8']))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => Animation::fromArray(['targetImpactSeconds' => -0.25]))->toThrow(InvalidArgumentException::class);
+  $immediate = new BattleCommandTimeline($timings, targetImpactSeconds: 0.0);
+  expect($immediate->impactFrame)->toBe($immediate->phases['target']['start']);
+});
 
 it('removes the empty announcement cue and reading hold while retaining authored effect cadence and impact', function () {
   $timings = new BattleTurnTimings(.1, .5, .2, .3, .1, .2, .1);

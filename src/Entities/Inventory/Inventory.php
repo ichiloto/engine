@@ -34,21 +34,18 @@ class Inventory
   public function releaseQuestManager(QuestManager $owner, ?QuestManager $previous): void
   {
     if ((self::$questManagers[$this] ?? null)?->get() !== $owner) { return; }
-    if ($previous !== null && !$previous->isReleased) { $this->bindQuestManager($previous); }
-    // Retain a retired binding when there is no predecessor, so legacy global delivery stays quiet.
+    if ($previous !== null && !$previous->isReleased) {
+      $this->bindQuestManager($previous);
+    } else {
+      unset(self::$questManagers[$this]);
+    }
   }
 
-  private function notifyInventoryChanged(): void
+  /** Report an inventory change, including a field menu's direct stack update. */
+  public function notifyInventoryChanged(): void
   {
-    $binding = self::$questManagers[$this] ?? null;
-    if ($binding !== null) {
-      $manager = $binding->get();
-      if ($manager !== null && !$manager->isReleased) { $manager->syncCollectObjectives(); }
-      return;
-    }
-    // An explicitly owned catalogue can be loaded before a campaign acquires progression.
-    if (isset(self::$projectStores[$this])) { return; }
-    QuestManager::current()?->syncCollectObjectives();
+    $manager = (self::$questManagers[$this] ?? null)?->get();
+    if ($manager !== null && !$manager->isReleased) { $manager->syncCollectObjectives(); }
   }
 
   /** Bind the catalogue of the project that owns this campaign inventory. */

@@ -2070,22 +2070,18 @@ it('cancels both real parallel lanes when they compete for independent framing p
 });
 
 it('runs a direct-reference framing phase from a real reusable common event', function (): void {
-  mkdir($this->assetRoot . '/assets/Events', 0777, true);
-  file_put_contents($this->assetRoot . '/assets/Events/shared-phase.php', '<?php return ' . var_export([
+  mkdir($this->assetRoot . '/Events', 0777, true);
+  file_put_contents($this->assetRoot . '/Events/shared-phase.php', '<?php return ' . var_export([
     ['type' => 'framing', 'subjects' => [['kind' => 'npc', 'id' => 'guide']],
       'commands' => [['type' => 'wait', 'seconds' => .1]]],
   ], true) . ';');
-  $before = getcwd();
-  try {
-    chdir($this->assetRoot);
-    $this->scene->cinematicController->start(subjectOwnershipDefinition([
-      ['type' => 'common_event', 'id' => 'shared-phase'], ['type' => 'wait', 'seconds' => 10],
-    ], ['cast' => []]));
-    expect($this->scene->cinematicController->getFramingSubjects())->toBe([$this->npc]);
-    $this->scene->eventInterpreter->update(.1);
-    expect($this->scene->cinematicController->getCurrentFramingScope())->toBeNull()
-      ->and($this->scene->cinematicController->active())->not->toBeNull();
-  } finally { chdir($before); }
+  $this->scene->cinematicController->start(subjectOwnershipDefinition([
+    ['type' => 'common_event', 'id' => 'shared-phase'], ['type' => 'wait', 'seconds' => 10],
+  ], ['cast' => []]));
+  expect($this->scene->cinematicController->getFramingSubjects())->toBe([$this->npc]);
+  $this->scene->eventInterpreter->update(.1);
+  expect($this->scene->cinematicController->getCurrentFramingScope())->toBeNull()
+    ->and($this->scene->cinematicController->active())->not->toBeNull();
 });
 
 

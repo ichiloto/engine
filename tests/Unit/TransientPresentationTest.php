@@ -166,7 +166,6 @@ beforeEach(function () {
     'output' => null, 'terminalOutputStream' => null] as $name => $value) {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);
   }
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   Console::syncDimensions(80, 24);
   Console::setLayerTracking(true);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 24]));

@@ -235,12 +235,12 @@ function putAudioProjectConfig(array $values): void
  * @param AudioBackendInterface[]|null $backends
  */
 function makeCounterTickManager(array $audio = ['sfx' => true, 'master_volume' => 100], bool $bindsExpTally = false,
-  ?array $backends = null): TestableAudioManager
+  ?array $backends = null, ?Game $game = null): TestableAudioManager
 {
   $root = makeAudioAssetsRoot(['tick.wav', 'tally.wav']);
   $sounds = ['counter' => "$root/tick.wav", ...($bindsExpTally ? ['exp_tally' => "$root/tally.wav"] : [])];
   putAudioProjectConfig(['audio' => [...$audio, 'sounds' => [...$sounds, ...($audio['sounds'] ?? [])]]]);
-  return new TestableAudioManager(makeAudioTestGame(), $backends ?? [new FakeAudioBackend()]);
+  return new TestableAudioManager($game ?? makeAudioTestGame(), $backends ?? [new FakeAudioBackend()]);
 }
 
 /**

@@ -15,6 +15,7 @@ use Ichiloto\Engine\Exceptions\WrongProjectSaveException;
 use Ichiloto\Engine\IO\Saves\SavedGame;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
+use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Throwable;
 
 /**
@@ -66,7 +67,7 @@ final readonly class SaveCompatibilityPipeline
     ];
   }
 
-  public function load(string $serializedPayload, string $savePath, ?int $destinationSlot = null): SavedGame
+  public function load(string $serializedPayload, string $savePath, ?int $destinationSlot = null, ?GameLoader $loader = null): SavedGame
   {
     $decoded = $this->unserializePayload($serializedPayload, $savePath);
     $envelope = $this->detectEnvelope($decoded, $savePath);
@@ -194,7 +195,7 @@ final readonly class SaveCompatibilityPipeline
       throw new CorruptSaveException(sprintf('Save file payload is incomplete: %s', $savePath));
     }
 
-    $config = new SaveContentResolver($this->manifest, $savePath)->resolve($config);
+    $config = new SaveContentResolver($this->manifest, $savePath, $loader)->resolve($config);
 
     foreach ($postResolutionMigrations as $migration) {
       try {
