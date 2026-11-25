@@ -19,6 +19,9 @@ use RuntimeException;
 /** Menu-local modal projection. Existing modal owners retain input, selection and outcomes. */
 final class MenuModalPresentation
 {
+  private const int MINIMUM_CONTENT_COLUMNS = 36;
+  private const int COMPACT_QUESTION_ROWS = 3;
+
   /** A stacked scene must compose all owners together, rather than baking its top modal into the base. */
   public static function requiresSceneComposition(UIManager $ui, string $assetRoot): bool
   {
@@ -34,19 +37,43 @@ final class MenuModalPresentation
    */
   public static function measureReadingArea(PresentationCanvas $base, ModalPresentation $modal, MenuPresentationCatalog $theme): array
   {
-    $m = $theme->metrics; $p = $m->panelPadding; $gap = $m->sectionGap;
+    $m = $theme->metrics; $gap = $m->sectionGap;
     $longest = static fn(string $text): int => max(array_map(mb_strlen(...), explode("\n",
       TerminalText::stripAnsi(TerminalText::formatStyles(MenuTextWrap::normalizeText($text))))));
     $buttonWidths = array_map(fn(string $label) => $longest($label) * $m->cellWidth + 2 * $theme->rows->metrics->padding, $modal->choices);
     $choicesWidth = $modal->singleConfirmation ? 2 * $buttonWidths[0]
       : ($modal->vertical ? max($buttonWidths) : array_sum($buttonWidths) + (count($buttonWidths) - 1) * $gap);
-    $naturalWidth = max(36 * $m->cellWidth, $longest($modal->title) * $m->cellWidth,
-      $longest($modal->sourceMessage ?? $modal->message) * $m->cellWidth, $choicesWidth);
+    $controlsWidth = max(self::MINIMUM_CONTENT_COLUMNS * $m->cellWidth,
+      $longest($modal->title) * $m->cellWidth, $choicesWidth);
+    $question = $modal->sourceMessage ?? $modal->message;
+    $naturalWidth = max($controlsWidth, $longest($question) * $m->cellWidth);
     if ($modal->quantity !== null) {
       $naturalWidth = max($naturalWidth, (2 * strlen((string)$modal->quantity->maximum) + 3) * $m->cellWidth
         + 2 * ($m->cellHeight + $gap));
     }
-    $width = (int)floor(min($base->width * 2 / 3 - 2 * $p, $naturalWidth) / $m->cellWidth) * $m->cellWidth;
+    $viewportWidth = $base->width * 2 / 3 - 2 * $m->panelPadding;
+    $fitWidth = static fn (float $preferred): int =>
+      (int)floor(min($viewportWidth, $preferred) / $m->cellWidth) * $m->cellWidth;
+    $width = $fitWidth($naturalWidth);
+    $compactWidth = $fitWidth($controlsWidth);
+    if ($modal->choiceStyle === ModalChoiceStyle::LIST && $compactWidth < $width) {
+      $compact = self::measureAtWidth($base, $modal, $theme, $compactWidth);
+      // A short question can wrap above its answers without making every row as wide as the full sentence.
+      $questionRows = count(MenuCanvas::wrap($question, $compact['messageColumns']));
+      if ($questionRows <= min(self::COMPACT_QUESTION_ROWS, $compact['maximumRows'])) {
+        return $compact;
+      }
+    }
+    $reading = self::measureAtWidth($base, $modal, $theme, $width);
+
+    if ($reading['maximumRows'] < 1) { throw new RuntimeException('Modal controls leave no finite reading area.'); }
+    return $reading;
+  }
+
+  private static function measureAtWidth(PresentationCanvas $base, ModalPresentation $modal,
+    MenuPresentationCatalog $theme, int $width): array
+  {
+    $m = $theme->metrics; $p = $m->panelPadding; $gap = $m->sectionGap;
     $columns = max(1, (int)floor($width / $m->cellWidth));
     $notice = $modal->notice;
     $hasArt = ($notice?->actorId !== null && isset($theme->portraits[$notice->actorId]))
@@ -62,10 +89,12 @@ final class MenuModalPresentation
     $quantityHeight = $modal->quantity === null ? 0 : 2 * $m->cellHeight + $gap;
     $availableBody = $base->height - 4 * $p - $titleHeight - $quantityHeight - $hintHeight
       - 2 * $gap - ($hintHeight > 0 ? $gap : 0) - self::getControlHeight($modal, $theme) - $m->cellHeight;
-    if ($artSize > $availableBody) { throw new RuntimeException('Modal artwork exceeds its finite reading viewport.'); }
+    if ($artSize > 0 && $artSize > $availableBody) {
+      throw new RuntimeException('Modal artwork exceeds its finite reading viewport.');
+    }
     $maximumRows = (int)floor(($availableBody - $noticeHintHeight - ($noticeHintHeight > 0 ? $gap : 0)) / $m->cellHeight);
-    if ($maximumRows < 1) { throw new RuntimeException('Modal controls leave no finite reading area.'); }
-    return compact('width', 'columns', 'artSize', 'messageWidth', 'messageColumns', 'titleHeight', 'noticeHints', 'noticeHintHeight', 'maximumRows');
+    return compact('width', 'columns', 'artSize', 'messageWidth', 'messageColumns', 'titleHeight', 'noticeHints',
+      'noticeHintHeight', 'maximumRows');
   }
 
   public static function compose(PresentationCanvas $base, ModalPresentation $modal,

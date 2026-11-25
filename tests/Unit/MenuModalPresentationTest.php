@@ -416,6 +416,35 @@ it('sizes compact dialogs from current text and wraps long content at the same b
     ->and($text->grid->cellWidth)->toBe($theme->metrics->cellWidth)->and($text->grid->cellHeight)->toBe($theme->metrics->cellHeight);
 })->with([false, true]);
 
+it('wraps dialogue questions above a compact answer list when the complete prompt fits', function (bool $art) {
+  $theme = new MenuPresentationCatalog($this->root, modalMenuTheme($art));
+  $base = new PresentationCanvas(1350, 720);
+  $question = 'The gardener has already lit the lanterns. Would you like to walk with her?';
+  $answer = new ModalPresentation('Gardener', $question, ['Yes', 'No'], 1,
+    vertical: true, choiceStyle: ModalChoiceStyle::LIST);
+  $decision = new ModalPresentation('Gardener', $question, ['Yes', 'No'], 1, vertical: true);
+  $list = MenuModalPresentation::compose($base, $answer, $theme);
+  $buttons = MenuModalPresentation::compose($base, $decision, $theme);
+  $bounds = getModalMenuFrameBounds($list);
+  $prompt = array_find($list->textLayers, fn($layer) => $layer->id === 'menu-modal-message');
+  $selectedCursor = array_find($list->images, fn($image) => str_contains($image->id, 'menu-modal-choice-1-cursor'));
+
+  expect($bounds->width)->toBeLessThan(getModalMenuFrameBounds($buttons)->width)
+    ->and($bounds->x + $bounds->width / 2)->toBe($base->width / 2.0)
+    ->and($prompt->grid->rows)->toBeBetween(2, 3)
+    ->and(implode('', array_column($prompt->runs, 'text')))->toBe($question)
+    ->and($selectedCursor)->not->toBeNull();
+
+  $longQuestion = str_repeat('The next passage is beyond the bridge. ', 5) . 'Would you like to go?';
+  $longAnswer = new ModalPresentation('Gardener', $longQuestion, ['Yes', 'No'], 1,
+    vertical: true, choiceStyle: ModalChoiceStyle::LIST);
+  $longList = MenuModalPresentation::compose($base, $longAnswer, $theme);
+  $longPrompt = array_find($longList->textLayers, fn($layer) => $layer->id === 'menu-modal-message');
+
+  expect(getModalMenuFrameBounds($longList)->width)->toBeGreaterThan($bounds->width)
+    ->and(implode('', array_column($longPrompt->runs, 'text')))->toBe($longQuestion);
+})->with([false, true]);
+
 it('marks only single-confirmation Alert snapshots for the acknowledgement layout', function () {
   expect(new AlertModal($this->game, 'Complete', 'Alert')->getModalPresentation()->singleConfirmation)->toBeTrue()
     ->and(new ConfirmModal($this->game, 'Proceed?', 'Confirm')->getModalPresentation()->singleConfirmation)->toBeFalse()
