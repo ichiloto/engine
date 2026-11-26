@@ -176,19 +176,24 @@ final class BattleCommandCatalog
       ));
     }
 
-    $crisis = self::getAvailableCrisisOption($character, $party, $gameState);
+    $crisis = self::getAvailableCrisisOption($character, $party, $gameState, $content);
     if ($crisis !== null) { $options[] = $crisis; }
     return $options;
   }
 
   /** One live actor/form technique, shared by held command selection and event-only submenus. */
   public static function getAvailableCrisisOption(Character $character, ?Party $party = null,
-    ?GameState $gameState = null): ?BattleCommandOption
+    ?GameState $gameState = null, ?BattleContent $content = null): ?BattleCommandOption
   {
     $ability = $character->crisisAbility;
-    $skill = $ability?->getAvailableSkill($character, $gameState, $party);
-    return $skill === null || $ability === null ? null : self::createSkillOption($skill,
-      new CrisisSkillBattleAction($skill, $ability, $character->actorId, $gameState, $party));
+    if ($ability === null || !$ability->isActive($character)) { return null; }
+
+    $content = self::resolveContent($character, $content);
+    $catalog = $content?->getSkillCatalog() ?? SkillCatalog::getProjectCatalog($character->projectAssetRoot);
+    $skill = $ability->getUnlockedSkill($character, $gameState, $party, $catalog);
+
+    return $skill === null ? null : self::createSkillOption($skill,
+      new CrisisSkillBattleAction($skill, $ability, $character->actorId, $gameState, $party, $catalog), $content);
   }
 
   /**

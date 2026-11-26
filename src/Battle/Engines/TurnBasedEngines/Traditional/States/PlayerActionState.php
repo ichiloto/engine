@@ -177,7 +177,8 @@ class PlayerActionState extends TurnState
   {
     if ($this->selectionMode !== self::MODE_COMMAND) { return; }
     $available = $this->activeCharacter !== null && Input::isHeldInputAvailable()
-      ? BattleCommandCatalog::getAvailableCrisisOption($this->activeCharacter, $context->party, $context->getGameState()) : null;
+      ? BattleCommandCatalog::getAvailableCrisisOption($this->activeCharacter, $context->party, $context->getGameState(),
+        $this->engine->battleConfig->getContent()) : null;
     $command = $this->getSelectedCommand($context);
     $canReveal = $available !== null && $command?->type === BattleCommandType::ATTACK;
     $this->heldAttackOption = $canReveal && Input::isButtonHeld('right') ? $available : null;
