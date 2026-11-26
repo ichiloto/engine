@@ -4,11 +4,14 @@ namespace Ichiloto\Engine\Field;
 
 use Closure;
 use Assegai\Util\Path;
+use FilesystemIterator;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Field\Validation\MapEventResolver;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use InvalidArgumentException;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 
 /**
  * Reads a map's authored files into the gameplay source the field runs on:
@@ -30,6 +33,27 @@ final class MapSourceReader
    */
   private function __construct()
   {
+  }
+
+  /** @return list<string> Map IDs from directories holding a matching map data file. */
+  public static function findMapIds(string $mapsDirectory): array
+  {
+    if (! is_dir($mapsDirectory)) {
+      return [];
+    }
+
+    $ids = [];
+    $rootLength = strlen(rtrim($mapsDirectory, DIRECTORY_SEPARATOR)) + 1;
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($mapsDirectory, FilesystemIterator::SKIP_DOTS));
+    foreach ($files as $file) {
+      $directory = $file->getPath();
+      if ($file->getFilename() === basename($directory) . '.data.php') {
+        $ids[] = str_replace(DIRECTORY_SEPARATOR, '/', substr($directory, $rootLength));
+      }
+    }
+
+    sort($ids);
+    return $ids;
   }
 
   /**

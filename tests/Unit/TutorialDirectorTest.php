@@ -1,11 +1,14 @@
 <?php
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandReference;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\Game\States\FieldState;
+use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\IO\ActionHintProvider;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\ControlHint;
@@ -13,6 +16,10 @@ use Ichiloto\Engine\Progression\TutorialCatalog;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialPhase;
 use Ichiloto\Engine\Progression\TutorialStartContext;
+use Ichiloto\Engine\UI\UIManager;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Tests\Support\PassiveGame;
 
 function makeTutorialDirector(GameState $state, bool $automatic = false, ?string $onFinish = null, array $startConditions = []): TutorialDirector
 {
@@ -182,6 +189,35 @@ it('registers a tutorial picker and queues a field lesson without suspending the
     )->operation)->toBeNull()
     ->and($state->getTutorialPhase('guide.sample'))->toBe(TutorialPhase::PENDING)
     ->and($director->getActiveTutorial())->toBeNull();
+});
+
+it('starts a pending field lesson using the playing game’s automatic tutorial preference', function () {
+  $game = new PassiveGame();
+  $manager = makeTestSceneManager($game);
+  $state = GameState::fromArray([
+    'switches' => ['available' => true],
+    'tutorials' => ['guide.sample' => 'pending'],
+  ]);
+  $director = makeTutorialDirector($state, automatic: true);
+  new ReflectionProperty(Game::class, 'projectConfiguration')->setValue($game, new SceneAudioConfigStub([
+    'ui' => ['tutorials' => ['automatic_prompts' => true]],
+  ]));
+  $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['reconcileFieldPresentation'])->getMock();
+  $field = $this->getMockBuilder(FieldState::class)->setConstructorArgs([new SceneStateContext($scene)])
+    ->onlyMethods(['handleActions', 'handleNavigation', 'renderPresentationOverlay'])->getMock();
+  new ReflectionProperty($scene, 'sceneManager')->setValue($scene, $manager);
+  new ReflectionProperty($scene, 'state')->setValue($scene, $field);
+  new ReflectionProperty($scene, 'gameState')->setValue($scene, $state);
+  new ReflectionProperty($scene, 'tutorialDirector')->setValue($scene, $director);
+  new ReflectionProperty($scene, 'uiManager')->setValue($scene, new UIManager($game));
+  new ReflectionProperty($manager, 'currentScene')->setValue($manager, $scene);
+
+  $other = new SceneAudioConfigStub(['ui' => ['tutorials' => ['automatic_prompts' => false]]]);
+  ConfigStore::withOverrides([ProjectConfig::class => $other], function () use ($field, $director): void {
+    $field->execute();
+    expect($director->getActiveTutorial()?->id)->toBe('guide.sample');
+  });
 });
 
 it('keeps a story handoff pending across save and interruption until its completion is acknowledged', function () {

@@ -570,38 +570,59 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     float $motionSeconds = 0.0, CameraMotionEasing $easing = CameraMotionEasing::SMOOTHSTEP,
     ?FieldSpriteBounds $visibleArea = null): bool
   {
+    return $this->frameBoundsInAreas($owner, $subjects, [$safeArea], $motionSeconds, $easing, $visibleArea);
+  }
+
+  /** @param list<FieldSpriteBounds> $safeAreas In order of presentation preference. */
+  public function frameBoundsInAreas(object $owner, FieldSpriteBounds $subjects, array $safeAreas,
+    float $motionSeconds = 0.0, CameraMotionEasing $easing = CameraMotionEasing::SMOOTHSTEP,
+    ?FieldSpriteBounds $visibleArea = null): bool
+  {
     $this->assertMotionSeconds($motionSeconds);
+    $visibleArea ??= new FieldSpriteBounds(0, 0, $this->screen->getWidth(), $this->screen->getHeight());
+    $this->assertFramingBounds($subjects);
+    $this->assertFramingBounds($visibleArea);
+    $range = null;
+    foreach ($safeAreas as $area) {
+      $this->assertFramingBounds($area);
+      if ($area->left < $visibleArea->left || $area->top < $visibleArea->top
+        || $area->right > $visibleArea->right || $area->bottom > $visibleArea->bottom) {
+        throw new InvalidArgumentException('The camera safe area must fit its current viewport.');
+      }
+      $minX = ceil($subjects->right - $area->right); $maxX = floor($subjects->left - $area->left);
+      $minY = ceil($subjects->bottom - $area->bottom); $maxY = floor($subjects->top - $area->top);
+      if ($minX <= $maxX && $minY <= $maxY) {
+        $range = [$minX, $maxX, $minY, $maxY];
+        break;
+      }
+    }
+    if ($range === null) { $this->clearFraming($owner); return false; }
     $before = $this->getWorldOrigin();
     $authoredMovement = $this->framingPositionRevision !== null
       && $this->framingPositionRevision !== $this->positionRevision;
-    $visibleArea ??= new FieldSpriteBounds(0, 0, $this->screen->getWidth(), $this->screen->getHeight());
-    foreach ([$subjects, $safeArea, $visibleArea] as $bounds) {
-      foreach ([$bounds->left, $bounds->top, $bounds->right, $bounds->bottom] as $value) {
-        if (!is_finite($value)) { throw new InvalidArgumentException('Camera framing bounds must be finite.'); }
-      }
-      if ($bounds->right <= $bounds->left || $bounds->bottom <= $bounds->top) {
-        throw new InvalidArgumentException('Camera framing bounds need positive extents.');
-      }
-    }
-    if ($safeArea->left < $visibleArea->left || $safeArea->top < $visibleArea->top
-      || $safeArea->right > $visibleArea->right || $safeArea->bottom > $visibleArea->bottom) {
-      throw new InvalidArgumentException('The camera safe area must fit its current viewport.');
-    }
-    $minX = ceil($subjects->right - $safeArea->right); $maxX = floor($subjects->left - $safeArea->left);
-    $minY = ceil($subjects->bottom - $safeArea->bottom); $maxY = floor($subjects->top - $safeArea->top);
-    if ($minX > $maxX || $minY > $maxY) { $this->clearFraming($owner); return false; }
     $origin = $this->framingOwner === $owner && $this->framingOrigin !== null
       && $this->framingPositionRevision === $this->positionRevision
         ? $this->getWorldOrigin() : $this->getUnframedWorldOrigin();
+    [$minX, $maxX, $minY, $maxY] = $range;
     $x = clamp($origin['x'], $minX, $maxX); $y = clamp($origin['y'], $minY, $maxY);
     SpriteValidation::validateSigned32BitRange($x); SpriteValidation::validateSigned32BitRange($y);
     $this->framingOrigin = new Vector2($x, $y);
-    $this->framingRange = [$minX, $maxX, $minY, $maxY];
+    $this->framingRange = $range;
     $this->framingOwner = $owner;
     $this->framingPositionRevision = $this->positionRevision;
     $this->updatePresentationMotion($before, $this->transition?->remainingSeconds ?? ($authoredMovement ? 0.0 : $motionSeconds),
       $this->transition?->easing ?? $easing, keepTiming: $this->transition !== null);
     return true;
+  }
+
+  private function assertFramingBounds(FieldSpriteBounds $bounds): void
+  {
+    foreach ([$bounds->left, $bounds->top, $bounds->right, $bounds->bottom] as $value) {
+      if (!is_finite($value)) { throw new InvalidArgumentException('Camera framing bounds must be finite.'); }
+    }
+    if ($bounds->right <= $bounds->left || $bounds->bottom <= $bounds->top) {
+      throw new InvalidArgumentException('Camera framing bounds need positive extents.');
+    }
   }
 
   /** Closing an older overlay never releases a newer owner's view. */

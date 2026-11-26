@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 use Assegai\Collections\Stack;
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Battle\Insight\RevealFact;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Console\Console;
@@ -54,6 +57,7 @@ use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ItemStore;
+use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Tests\Support\Input\FakeInputSource;
 use Tests\Support\Input\FakeRendererTransport;
 use Tests\Support\Rendering\RetainedFrameState;
@@ -110,11 +114,12 @@ function journalMenuPng(string $path, int $width = 53, int $height = 37): void
     . $chunk('IDAT', gzcompress(str_repeat("\0" . str_repeat("\xAA\xBB\xCC\xFF", $width), $height))) . $chunk('IEND', ''));
 }
 
-function journalMenuOwner(object $fixture, bool $records): QuestMenuState|RecordsMenuState
+function journalMenuOwner(object $fixture, bool $records, bool $openFieldIndex = true): QuestMenuState|RecordsMenuState
 {
   $state = $records ? new RecordsMenuState(new SceneStateContext($fixture->scene)) : new QuestMenuState(new SceneStateContext($fixture->scene));
   new ReflectionProperty($fixture->scene, 'state')->setValue($fixture->scene, $state);
   $state->enter();
+  if ($records && $openFieldIndex) { journalMenuKey($state, KeyCode::Q); }
   return $state;
 }
 
@@ -163,11 +168,15 @@ beforeEach(function () {
   new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($this->scene, makeBareScene(LocationHUDWindow::class));
   new ReflectionProperty($this->scene, 'uiManager')->setValue($this->scene, $ui);
   $this->quests = makeBareScene(QuestManager::class);
+  new ReflectionProperty($this->quests, 'game')->setValue($this->quests, $this->game);
   new ReflectionProperty($this->quests, 'gameScene')->setValue($this->quests, $this->scene);
   new ReflectionProperty($this->quests, 'log')->setValue($this->quests, new QuestLog());
   $items = makeBareScene(ItemStore::class);
   $items->set('reward.tonic', new Item('Reward Tonic', 'Current reward.', '!', 1, id: 'reward.tonic'));
-  ConfigStore::put(ItemStore::class, $items);
+  new ReflectionProperty(Game::class, 'itemStore')->setValue($this->game, $items);
+  $foreignItems = makeBareScene(ItemStore::class);
+  $foreignItems->set('reward.tonic', new Item('Foreign Tonic', 'Other project.', '!', 1, id: 'reward.tonic'));
+  ConfigStore::put(ItemStore::class, $foreignItems);
   $objective = new QuestObjective(QuestObjectiveType::TALK_TO, 'private-target', 2, 'Ask the witness.', 'SECRET REVEALED TARGET', [['type' => 'switch', 'name' => 'reveal', 'value' => true]]);
   $this->longText = implode("\n", array_map(fn($i) => sprintf('Authored line %03d with manual and S-Potion.', $i), range(1, 60)));
   $entries = [];
@@ -217,6 +226,46 @@ afterEach(function () {
   $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
   foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
   rmdir($this->root);
+});
+
+it('opens Records on the campaign’s achievements while the process is outside its project directory', function () {
+  $cwd = getcwd();
+  try {
+    chdir($this->root);
+    $state = journalMenuOwner($this, true, openFieldIndex: false);
+    $content = $state->getPresentationContent();
+    expect($content->tabs[$content->tabIndex])->toStartWith('Achievements')
+      ->and(array_column($content->rows, 'label'))->toBe(['???', '* Public record']);
+  } finally {
+    chdir($cwd);
+  }
+});
+
+it('shows the campaign’s revealed enemy values when another project supplies the process store', function () {
+  $enemyStores = [];
+  foreach ([120, 999] as $hp) {
+    $foe = makeBareScene(Enemy::class);
+    new ReflectionProperty($foe, 'name')->setValue($foe, 'Synthetic Foe');
+    new ReflectionProperty($foe, 'stats')->setValue($foe, new Stats(totalHp: $hp));
+    new ReflectionProperty($foe, 'knowledgeSubjectId')->setValue($foe, 'creature.synthetic');
+    $store = makeBareScene(EnemyStore::class);
+    $store->set('Synthetic Foe', $foe);
+    $enemyStores[] = $store;
+  }
+  [$campaign, $foreign] = $enemyStores;
+  $this->game->bindGameLoader(createTestGameLoader($this->game, assetRoot: $this->root, enemies: $campaign));
+  ConfigStore::put(EnemyStore::class, $foreign);
+  $knowledge = new KnowledgeProgressService(new KnowledgeCatalog([
+    'recordTypes' => ['creature'],
+    'subjects' => [['id' => 'creature.synthetic', 'recordType' => 'creature', 'displayName' => 'Synthetic Foe',
+      'quickCard' => 'Encountered in battle.']],
+  ]));
+  $knowledge->recordEnemyReveal($foe, RevealFact::HP);
+  new ReflectionProperty($this->scene, 'knowledge')->setValue($this->scene, $knowledge);
+
+  $state = journalMenuOwner($this, true);
+  $entries = $state->getPresentationContent()->details->getEntries();
+  expect(array_find($entries, static fn($entry): bool => $entry->label === 'HP')?->text)->toBe('120');
 });
 
 it('keeps owner content and focus identical through two themes within serialized budgets', function (bool $records, bool $alternative) {
@@ -601,6 +650,44 @@ it('keeps Records header and column headings stable while showing authored Guide
   expect($headers[0])->toEqual($headers[1])->toEqual($headers[2])
     ->and($this->flags->toArray())->toBe($snapshot);
 })->with([false, true])->with([[1350, 720], [1280, 720], [960, 540]]);
+
+it('shows the playing project’s summon details on its discovered Field Index entry', function (): void {
+  $this->game->bindGameLoader(createTestGameLoader($this->game, assetRoot: $this->root));
+  $otherProject = createTestDirectory('records-other-project');
+  $sources = [
+    $this->root => 'Lore from the playing project.',
+    $otherProject . '/assets' => 'Lore from a different project.',
+  ];
+  foreach ($sources as $assetRoot => $lore) {
+    $folder = $assetRoot . '/Cutscenes/Summons/contract';
+    mkdir($folder, 0777, true);
+    file_put_contents($folder . '/contract.data.php', '<?php return ' . var_export([
+      'id' => 'contract', 'name' => 'Contract', 'lore' => $lore,
+    ], true) . ';');
+    file_put_contents($folder . '/contract.timeline.php',
+      "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
+  }
+  $knowledge = new KnowledgeProgressService(new KnowledgeCatalog([
+    'recordTypes' => ['summon'],
+    'subjects' => [['id' => 'summon.contract', 'recordType' => 'summon',
+      'displayName' => 'Contract', 'summon' => 'contract']],
+  ]));
+  $knowledge->discoverSubject('summon.contract');
+  new ReflectionProperty($this->scene, 'knowledge')->setValue($this->scene, $knowledge);
+
+  $previous = getcwd();
+  try {
+    chdir($otherProject);
+    $state = journalMenuOwner($this, true);
+    $content = $state->getPresentationContent();
+    expect($content->tabs[$content->tabIndex])->toStartWith('Field Index');
+    $entries = array_merge(...$content->details->sections);
+    expect(array_column($entries, 'text'))->toContain($sources[$this->root])
+      ->not->toContain($sources[$otherProject . '/assets']);
+  } finally {
+    chdir($previous);
+  }
+});
 
 it('opens encountered guides from Records and practises on the live menu without changing the save', function () {
   $entry = [

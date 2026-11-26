@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Battle\Insight\RevealFact;
 use Ichiloto\Engine\Cutscenes\Presentation\CinematicStageSession;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Progression\TutorialDefinition;
@@ -48,7 +49,7 @@ use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\SummonInfoSheet;
 use Ichiloto\Engine\UI\Presentation\EnemyInsightSheet;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
-use Ichiloto\Engine\Util\Stores\EnemyStore;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Text\TextPage;
 use Ichiloto\Engine\UI\Text\TextViewport;
@@ -82,8 +83,14 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   /** @var array<string, SummonCutsceneDefinition>|null The project's summons by id, read once the menu shows a record of one. */
   private ?array $summons = null;
 
-  public static function projectHasRecords(): bool
+  /** Use the active campaign in a menu. Standalone callers can still query the current project. */
+  public static function projectHasRecords(?GameScene $scene = null): bool
   {
+    if ($scene !== null) {
+      return $scene->tutorialDirector !== null || ($scene->achievementManager?->achievements ?? []) !== []
+        || (($scene->knowledge ?? null)?->catalog->subjects() ?? []) !== [];
+    }
+
     $catalog = ConfigStore::get(KnowledgeCatalog::class);
     return AchievementManager::projectHasAchievements()
       || ($catalog instanceof KnowledgeCatalog && $catalog->subjects() !== []);
@@ -99,10 +106,11 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
     $this->displayedPage = null;
     $this->summons = null;
     $this->viewingDetail = false;
+    $scene = $this->getGameScene();
     $this->tab = match (true) {
-      AchievementManager::projectHasAchievements() => RecordsMenuTab::ACHIEVEMENTS,
-      $this->getGameScene()->knowledge->catalog->subjects() !== [] => RecordsMenuTab::FIELD_INDEX,
-      $this->getGameScene()->tutorialDirector !== null => RecordsMenuTab::GUIDE,
+      ($scene->achievementManager?->achievements ?? []) !== [] => RecordsMenuTab::ACHIEVEMENTS,
+      $scene->knowledge->catalog->subjects() !== [] => RecordsMenuTab::FIELD_INDEX,
+      $scene->tutorialDirector !== null => RecordsMenuTab::GUIDE,
       default => RecordsMenuTab::FIELD_INDEX,
     };
     $this->activeIndex = 0;
@@ -379,17 +387,21 @@ class RecordsMenuState extends GameSceneState implements CanvasProviderInterface
   /** @return list<Enemy> The project's enemies this subject is the record of, as authored. */
   private function findEnemies(KnowledgeSubject $subject): array
   {
-    $store = ConfigStore::has(EnemyStore::class) ? ConfigStore::get(EnemyStore::class) : null;
-    if (! $store instanceof EnemyStore) { return []; }
-    $catalog = $this->getGameScene()->knowledge->catalog;
+    $scene = $this->getGameScene();
+    $knowledge = $scene->knowledge;
+    if (! array_any(RevealFact::cases(), static fn(RevealFact $fact): bool => $knowledge->isFactRecorded($subject->id, $fact))) {
+      return [];
+    }
+    $loader = $scene->getGame()->getGameLoader();
 
-    return array_values(array_filter($store->all(),
-      static fn(Enemy $enemy): bool => $catalog->subjectForEnemy($enemy)?->id === $subject->id));
+    return array_values(array_filter($loader->getEnemyStore()->all(),
+      static fn(Enemy $enemy): bool => $knowledge->catalog->subjectForEnemy($enemy)?->id === $subject->id));
   }
 
   private function findSummon(string $id): ?SummonCutsceneDefinition
   {
-    $this->summons ??= array_column((new SummonCutsceneLibrary())->load(), null, 'id');
+    $this->summons ??= array_column(
+      (new SummonCutsceneLibrary(assetRoot: $this->getGameScene()->getGame()->getProjectAssetRoot()))->load(), null, 'id');
     return $this->summons[$id] ?? null;
   }
 

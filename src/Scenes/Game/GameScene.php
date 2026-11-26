@@ -206,6 +206,13 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
             : (isset($this->sceneManager) && $this->getGame()->getRendererRuntime()?->supports($capability) === true);
     }
 
+    /** Field frame composition keeps a step's slide only when the renderer can present it. */
+    public function canPresentFieldMotion(): bool
+    {
+        return $this->fieldViewport !== null && !Accessibility::prefersReducedMotion()
+            && $this->supportsScenePresentation(RendererSessionConfig::FIELD_MOTION);
+    }
+
     /** Explicit graphical camera transitions use their own negotiated capability. */
     public function canPresentCameraMotion(): bool
     {

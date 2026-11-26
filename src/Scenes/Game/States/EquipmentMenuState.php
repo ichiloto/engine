@@ -215,9 +215,10 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
   {
     $this->resetMenuPresentation();
     Console::clear();
-    $this->getGameScene()->locationHUDWindow->deactivate();
-    $this->character ??= $this->getGameScene()->party->leader;
-    $this->summonDefinitions = SummonsMenuState::loadSummons($this->getGameScene()->gameState, $this->party);
+    $scene = $this->getGameScene();
+    $scene->locationHUDWindow->deactivate();
+    $this->character ??= $scene->party->leader;
+    $this->summonDefinitions = SummonsMenuState::loadSummons($scene->gameState, $this->party, $scene->getGame()->getProjectAssetRoot());
     $this->calculateMargins();
     $this->initializeMenuUI();
     $this->setMode(new EquipmentMenuCommandSelectionMode($this));

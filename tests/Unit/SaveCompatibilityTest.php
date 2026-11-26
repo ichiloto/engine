@@ -1585,3 +1585,37 @@ it('migrates a selected actor reference with the permanent saved actor', functio
     ->and($loaded->party->leader->actorId)->toBe('Renamed')
     ->and($loaded->party->leader)->toBe($loaded->party->members[0]);
 });
+
+it('projects recorded save positions through shared map migrations and remembers every layout at one version', function () {
+  $manifest = SaveCompatibilityManifest::fromArray('recorded-stages', [
+    'contentVersion' => 2,
+    'migrations' => [
+      ['from' => 0, 'to' => 1, 'mapShifts' => [['map' => 'old', 'axis' => 'x', 'at' => 1, 'by' => 2]]],
+      ['from' => 1, 'to' => 2, 'mapRetirements' => [[
+        'map' => 'old', 'into' => 'current', 'to' => [2, 1],
+        'landings' => [['x' => 4, 'y' => 1, 'width' => 1, 'height' => 1, 'to' => [3, 1]]],
+      ]]],
+    ],
+  ]);
+  $history = [
+    ['version' => 0, 'maps' => ['old' => [[2, 1]]]],
+    ['version' => 0, 'maps' => ['old' => [[0, 1]]]],
+    ['version' => 2, 'maps' => ['current' => [[4, 1]]]],
+  ];
+
+  expect($manifest->projectSavePositions($history, 'test position history'))->toBe([
+    'current' => ['3,1' => [3, 1], '2,1' => [2, 1], '4,1' => [4, 1]],
+  ]);
+});
+
+it('requires carried positions to be recorded after an opaque migration', function () {
+  $manifest = SaveCompatibilityManifest::fromArray('recorded-stages', [
+    'contentVersion' => 1,
+    'migrations' => [['from' => 0, 'to' => 1, 'class' => 'Project\\CustomSaveMigration']],
+  ], migrationResolution: ContentMigrationResolution::WHEN_REQUIRED);
+  $history = [['version' => 0, 'maps' => ['home' => [[2, 1]]]]];
+
+  expect(static fn() => $manifest->projectSavePositions($history, 'test position history'))->toThrow(
+    InvalidSaveCompatibilityManifestException::class, 'Record the carried positions after that migration',
+  );
+});

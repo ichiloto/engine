@@ -43,6 +43,7 @@ use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 use Ichiloto\Engine\Scenes\Game\States\SaveMenuState;
 use Ichiloto\Engine\Scenes\Game\States\StatusViewState;
+use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
@@ -71,6 +72,45 @@ class MainMenuPresentationGame extends Game
   public function __construct() {}
   public function __destruct() {}
 }
+
+it('opens and equips an earned contract from the playing project after the working directory changes', function (): void {
+  $this->game->bindGameLoader(createTestGameLoader($this->game, assetRoot: $this->root));
+  $folder = $this->root . '/Cutscenes/Summons/contract';
+  mkdir($folder, 0777, true);
+  file_put_contents($folder . '/contract.data.php', "<?php return [
+    'id' => 'contract', 'name' => 'Owned Contract', 'wielders' => ['exclusive' => true],
+    'availability' => ['conditions' => [['type' => 'switch', 'name' => 'earned']]],
+  ];");
+  file_put_contents($folder . '/contract.timeline.php',
+    "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
+  $otherProject = createTestDirectory('main-menu-other-project');
+  $previous = getcwd();
+  try {
+    chdir($otherProject);
+    $hasSummons = fn(): bool => array_any($this->state->mainMenu->getItems()->toArray(),
+      static fn($item): bool => $item instanceof OpenSummonsMenuCommand);
+    $this->state->enter();
+    expect($hasSummons())->toBeFalse();
+
+    $this->scene->gameState->setSwitch('earned');
+    $this->state->enter();
+    expect($hasSummons())->toBeTrue();
+
+    $summons = new SummonsMenuState($this->state->context);
+    $summons->openLibrary();
+    $summons->enter();
+    expect(array_column($summons->getPresentationContent()->rows, 'label'))->toBe(['Owned Contract']);
+    $summons->exit();
+
+    $this->party->leader->assignSummon('contract');
+    $equipment = new EquipmentMenuState($this->state->context);
+    $equipment->enter();
+    expect($equipment->getSummonSlot()?->getAssignedNames())->toBe(['Owned Contract']);
+    $equipment->exit();
+  } finally {
+    chdir($previous);
+  }
+});
 
 class MainMenuPresentationProbe extends MainMenuState
 {
@@ -214,6 +254,23 @@ afterEach(function () {
   foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
   rmdir($this->root);
   expect($menu->get())->toBeNull();
+});
+
+it('offers the owning campaign’s quests and records before any are earned', function () {
+  $quests = makeBareScene(\Ichiloto\Engine\Quests\QuestManager::class);
+  new ReflectionProperty($quests, 'quests')->setValue($quests, [
+    'first' => new \Ichiloto\Engine\Quests\Quest('first', 'First Quest', 'Ask the guide.'),
+  ]);
+  new ReflectionProperty($this->scene, 'questManager')->setValue($this->scene, $quests);
+  $catalog = new \Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog(['recordTypes' => ['place'], 'subjects' => [
+    ['id' => 'place.origin', 'recordType' => 'place', 'displayName' => 'Origin', 'quickCard' => 'A place to begin.'],
+  ]]);
+  $knowledge = new \Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService($catalog);
+  new ReflectionProperty($this->scene, 'knowledge')->setValue($this->scene, $knowledge);
+
+  $this->state->enter();
+  expect(array_map(get_class(...), $this->state->mainMenu->getItems()->toArray()))
+    ->toContain(OpenQuestsMenuCommand::class, OpenRecordsMenuCommand::class);
 });
 
 it('projects all current fields and commands through two themes with independent unique portraits', function () {

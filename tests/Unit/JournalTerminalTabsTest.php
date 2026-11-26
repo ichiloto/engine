@@ -35,6 +35,7 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeInputSource;
+use Tests\Support\PassiveGame;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 
@@ -100,6 +101,7 @@ beforeEach(function () {
   new ReflectionProperty($this->scene, 'gameState')->setValue($this->scene, new GameState());
   new ReflectionProperty($this->scene, 'party')->setValue($this->scene, new Party());
   $quests = makeBareScene(QuestManager::class);
+  new ReflectionProperty($quests, 'game')->setValue($quests, new PassiveGame());
   $log = new QuestLog();
   $definitions = [];
   foreach (['active', 'completed'] as $id) {
@@ -169,6 +171,7 @@ it('fits Records panels and aligned table headings in compact and full Terminal 
   Console::syncDimensions($width, $height);
   $state = new JournalTerminalRecordsState(new SceneStateContext($this->scene));
   $state->enter();
+  journalTerminalKey($state, KeyCode::Q);
   foreach ([$state->header(), $state->list(), $state->info()] as $panel) {
     expect($panel->getPosition()->y)->toBeGreaterThanOrEqual(0)
       ->and($panel->getPosition()->y + $panel->getHeight())->toBeLessThanOrEqual($height)
@@ -204,6 +207,7 @@ it('puts list pagination in the supported bottom-left border and uses every cont
     $state = new JournalTerminalQuestState(new SceneStateContext($this->scene));
   }
   $state->enter();
+  if ($records) { journalTerminalKey($state, KeyCode::Q); }
   $list = $state->list();
   $capacity = $list->getContentHeight() - ($records ? 1 : 0);
   foreach ([false, true] as $last) {
@@ -235,6 +239,7 @@ it('moves detail ranges to border help and keeps complete scrolling and back foc
     $state = new JournalTerminalQuestState(new SceneStateContext($this->scene));
   }
   $state->enter();
+  if ($records) { journalTerminalKey($state, KeyCode::Q); }
   journalTerminalKey($state, KeyCode::ENTER);
   $panel = $records ? $state->info() : $state->list();
   $seen = [];

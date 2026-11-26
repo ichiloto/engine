@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Events\Interpreter\Commands;
 
-use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Stores\ActorStore;
 use RuntimeException;
 use Ichiloto\Engine\Entities\RecruitmentLevelPolicy;
 use Ichiloto\Engine\Entities\RecruitmentPointPolicy;
@@ -21,8 +19,6 @@ final class RecruitActorCommand implements ScriptCommandHandlerInterface
     if (!is_string($reference) || trim($reference) === '') {
       throw new RuntimeException('recruit_actor requires an actor reference.');
     }
-    $store = ConfigStore::get(ActorStore::class);
-    if (!$store instanceof ActorStore) { throw new RuntimeException('recruit_actor requires the project actor catalogue.'); }
     $policy = $command['levelPolicy'] ?? RecruitmentLevelPolicy::AUTHORED->value;
     if (!is_string($policy) || ($policy = RecruitmentLevelPolicy::tryFrom($policy)) === null) {
       throw new RuntimeException('recruit_actor.levelPolicy must be authored or partyAverage.');
@@ -31,7 +27,9 @@ final class RecruitActorCommand implements ScriptCommandHandlerInterface
     if (!is_string($pointPolicy) || ($pointPolicy = RecruitmentPointPolicy::tryFrom($pointPolicy)) === null) {
       throw new RuntimeException('recruit_actor.spPolicy must be authored, partyAverageEarned or partyAverageEstimatedEarned.');
     }
-    $party->recruitActor($store->require($reference, 'recruiting a party member'), $policy, $pointPolicy);
+    $loader = $context->scene->getGame()->getGameLoader();
+    $party->recruitActor($loader->actorStore->require($reference, 'recruiting a party member'), $policy, $pointPolicy,
+      $loader->assetRoot, $loader->itemStore);
     return ScriptCommandOutcome::complete();
   }
 }

@@ -135,7 +135,7 @@ class QuestMenuState extends GameSceneState implements CanvasProviderInterface
           'icon' => $complete ? 'objective.complete' : 'objective.open', 'color' => $complete ? 'increase' : 'text'];
       }
       $sections[] = new JournalSection('Objectives', $objectives, 'journal.objectives');
-      if (($rewards = $quest->describeRewards()) !== '') {
+      if (($rewards = $manager?->describeRewards($quest) ?? '') !== '') {
         $sections[] = new JournalSection('Rewards', [['label' => 'Reward', 'text' => $rewards]], 'journal.rewards');
       }
     }

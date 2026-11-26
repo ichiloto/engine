@@ -5,17 +5,24 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Progression;
 
 use Closure;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\Quests\QuestLog;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use InvalidArgumentException;
 
 /** Owns a campaign's guided lesson across field and menu transitions. */
 final class TutorialDirector
 {
   public const string CONFIG_AUTOMATIC_PROMPTS = 'ui.tutorials.automatic_prompts';
+
+  public static function allowsAutomaticPrompts(Game $game): bool
+  {
+    return (bool) (ProjectConfig::findForGame($game)?->get(self::CONFIG_AUTOMATIC_PROMPTS, true) ?? true);
+  }
 
   private ?TutorialDefinition $active = null;
   private int $stepIndex = 0;

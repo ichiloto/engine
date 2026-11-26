@@ -48,6 +48,7 @@ use Ichiloto\Engine\Entities\Skills\SkillInvocation;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -147,6 +148,10 @@ it('offers Summon guidance only when the command owner can afford a summon and l
 
   try {
     $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
+    $ownedConfig = new class extends ProjectConfig {
+      protected function load(): array { return ['ui' => ['tutorials' => ['automatic_prompts' => false]]]; }
+    };
+    new ReflectionProperty(Game::class, 'projectConfiguration')->setValue($game, $ownedConfig);
     $party = new Party();
     $actor = new Character('Caller', 1, new Stats(currentHp: 100, currentMp: 1, totalMp: 10));
     $party->addMember($actor);
@@ -207,6 +212,10 @@ it('offers Summon guidance only when the command owner can afford a summon and l
     $showCommands();
     expect($saved->getTutorialPhase('battle.summon'))->toBeNull();
     $enemy->stats->currentHp = $hp;
+    $showCommands();
+    expect($saved->getTutorialPhase('battle.summon'))->toBe(TutorialPhase::PENDING)
+      ->and($director->getActiveTutorial())->toBeNull();
+    $ownedConfig->set(TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true);
     $showCommands();
     expect($saved->getTutorialPhase('battle.summon'))->toBe(TutorialPhase::PENDING)
       ->and($director->getActiveTutorial()?->id)->toBe('battle.summon')

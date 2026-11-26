@@ -80,7 +80,7 @@ final class ProjectReachability
     foreach ($mapSources as $mapId => $_) {
       if (!is_string($mapId) || trim($mapId) === '') { throw new InvalidArgumentException('In-memory maps require nonempty map ids.'); }
     }
-    $mapIds = array_values(array_unique([...self::findMapIds($mapsDirectory), ...array_keys($mapSources)]));
+    $mapIds = array_values(array_unique([...MapSourceReader::findMapIds($mapsDirectory), ...array_keys($mapSources)]));
     sort($mapIds);
     foreach ($mapIds as $mapId) {
       if (array_key_exists($mapId, $mapSources) && $mapSources[$mapId] === null) { continue; }
@@ -273,29 +273,6 @@ final class ProjectReachability
     }
 
     return $problems;
-  }
-
-  /** @return string[] Map IDs: each directory holding a data file named after it. */
-  private static function findMapIds(string $mapsDirectory): array
-  {
-    if (! is_dir($mapsDirectory)) {
-      return [];
-    }
-
-    $ids = [];
-    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($mapsDirectory, FilesystemIterator::SKIP_DOTS));
-
-    foreach ($files as $file) {
-      $directory = $file->getPath();
-
-      if ($file->getFilename() === basename($directory) . '.data.php') {
-        $ids[] = str_replace(DIRECTORY_SEPARATOR, '/', substr($directory, strlen(rtrim($mapsDirectory, DIRECTORY_SEPARATOR)) + 1));
-      }
-    }
-
-    sort($ids);
-
-    return $ids;
   }
 
   /** @return array<string, string> Common event and cinematic files, keyed by asset-relative path. */

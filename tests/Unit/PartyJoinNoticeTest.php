@@ -120,28 +120,23 @@ final class PartyJoinNoticeDeliveryProbe extends ModalManager
 }
 
 it('holds following field commands and completion until all real joins are acknowledged', function () {
-  $previousActors = ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null;
-  ConfigStore::put(ActorStore::class, new ActorStore(__DIR__ . '/../Fixtures/Actors'));
-  try {
-    $state = new \Ichiloto\Engine\Core\GameState();
-    new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, $state);
-    ($this->begin)();
-    $interpreter = new \Ichiloto\Engine\Events\Interpreter\EventInterpreter($this->scene,
-      scriptCommands: \Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog::createEngineCatalog());
-    $session = $interpreter->run([
-      ['type' => 'recruit_actor', 'actor' => 'actor.hero'],
-      ['type' => 'set_switch', 'name' => 'after_join', 'value' => true],
-    ]);
-    expect($state->getSwitch('after_join'))->toBeFalse()
-      ->and($session->status)->not->toBe(\Ichiloto\Engine\Events\Interpreter\EventExecutionStatus::COMPLETED);
-    $this->party->addMember(new Character('Another', 1, new Stats()));
-    $interpreter->update(0);
-    $this->modals->processPendingAlerts(); $interpreter->update(0);
-    expect($state->getSwitch('after_join'))->toBeFalse()->and(count($this->modals->delivered))->toBe(1);
-    $this->modals->processPendingAlerts(); $interpreter->update(0);
-    expect($state->getSwitch('after_join'))->toBeTrue()->and(count($this->modals->delivered))->toBe(2)
-      ->and($session->status)->toBe(\Ichiloto\Engine\Events\Interpreter\EventExecutionStatus::COMPLETED);
-  } finally {
-    $previousActors === null ? ConfigStore::remove(ActorStore::class) : ConfigStore::put(ActorStore::class, $previousActors);
-  }
+  $this->game->bindGameLoader(createTestGameLoader($this->game, new ActorStore(__DIR__ . '/../Fixtures/Actors')));
+  $state = new \Ichiloto\Engine\Core\GameState();
+  new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, $state);
+  ($this->begin)();
+  $interpreter = new \Ichiloto\Engine\Events\Interpreter\EventInterpreter($this->scene,
+    scriptCommands: \Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog::createEngineCatalog());
+  $session = $interpreter->run([
+    ['type' => 'recruit_actor', 'actor' => 'actor.hero'],
+    ['type' => 'set_switch', 'name' => 'after_join', 'value' => true],
+  ]);
+  expect($state->getSwitch('after_join'))->toBeFalse()
+    ->and($session->status)->not->toBe(\Ichiloto\Engine\Events\Interpreter\EventExecutionStatus::COMPLETED);
+  $this->party->addMember(new Character('Another', 1, new Stats()));
+  $interpreter->update(0);
+  $this->modals->processPendingAlerts(); $interpreter->update(0);
+  expect($state->getSwitch('after_join'))->toBeFalse()->and(count($this->modals->delivered))->toBe(1);
+  $this->modals->processPendingAlerts(); $interpreter->update(0);
+  expect($state->getSwitch('after_join'))->toBeTrue()->and(count($this->modals->delivered))->toBe(2)
+    ->and($session->status)->toBe(\Ichiloto\Engine\Events\Interpreter\EventExecutionStatus::COMPLETED);
 });

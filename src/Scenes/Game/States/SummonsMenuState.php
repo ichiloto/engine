@@ -28,7 +28,6 @@ use Ichiloto\Engine\UI\Presentation\{MenuCanvasState, MenuDetailSheet, MenuDetai
 use Ichiloto\Engine\UI\Text\{TerminalMenuRow, TextPage, TextViewport};
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /** Owned summons, separate information and holder flows, and the Equipment assignment context. */
 class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
@@ -81,9 +80,9 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /** Availability remains the authored world-state contract; no future eligibility roster is displayed. */
-    public static function loadSummons(?GameState $gameState = null, ?Party $party = null): array
+    public static function loadSummons(?GameState $gameState = null, ?Party $party = null, ?string $assetRoot = null): array
     {
-        return array_values(array_filter((new SummonCutsceneLibrary())->load(),
+        return array_values(array_filter((new SummonCutsceneLibrary(assetRoot: $assetRoot))->load(),
             static fn(SummonCutsceneDefinition $definition): bool => $definition->availability === null
                 || ($gameState !== null && $definition->isAvailable($gameState, $party))));
     }
@@ -93,7 +92,8 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
         Console::clear();
         $this->resetMenuPresentation();
         $this->getGameScene()->locationHUDWindow->deactivate();
-        $this->availableSummons = array_values((new SummonCutsceneLibrary())->load());
+        $assetRoot = $this->getGameScene()->getGame()->getProjectAssetRoot();
+        $this->availableSummons = (new SummonCutsceneLibrary(assetRoot: $assetRoot))->load();
         $this->selectedSummonId = null;
         $this->view = $this->character === null ? SummonsMenuView::SUMMONS : SummonsMenuView::CHARACTER;
         $this->activeIndex = 0;
@@ -103,7 +103,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
             $scene = $this->getGameScene();
             $scene->tutorialDirector?->enterContext(
                 TutorialStartContext::SUMMONS_LIBRARY,
-                (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
+                TutorialDirector::allowsAutomaticPrompts($scene->getGame()),
                 $this->party,
                 $scene->questManager?->log,
                 fn(TutorialStep $step): bool => $this->canShowTutorialTarget($step),
