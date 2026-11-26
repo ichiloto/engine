@@ -762,11 +762,9 @@ class EventInterpreter
           $extraSettings['firstStrike'] = $firstStrike;
         }
 
-        $this->gameScene->sceneManager->loadBattleScene(
-          $this->gameScene->party,
-          get_troop($troopName),
-          extraSettings: $extraSettings,
-        );
+        $troop = $this->gameScene->getGame()->getGameLoader()->loadTroop($troopName)
+          ?? throw new RuntimeException(sprintf('start_battle names unknown troop "%s".', $troopName));
+        $this->gameScene->sceneManager->loadBattleScene($this->gameScene->party, $troop, extraSettings: $extraSettings);
         return EventCommandResult::SUSPENDED;
 
       case 'branch':

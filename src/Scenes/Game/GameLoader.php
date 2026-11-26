@@ -115,7 +115,21 @@ class GameLoader
     if (!is_file($source)) {
       throw new RuntimeException('Asset file not found: ' . $source);
     }
-    return array_values(array_filter((array) (require $source), is_array(...)));
+    $troops = [];
+    foreach ((array) (require $source) as $key => $data) {
+      if (!is_array($data)) { continue; }
+      if (!array_key_exists('id', $data) && is_string($key) && trim($key) !== '') {
+        $data['id'] = trim($key);
+      }
+      $troops[] = $data;
+    }
+    return $troops;
+  }
+
+  public function loadTroop(string $name): ?Troop
+  {
+    $data = array_find($this->loadTroopData(), static fn(array $candidate): bool => ($candidate['name'] ?? null) === $name);
+    return $data === null ? null : $this->createTroop($data);
   }
 
   public function getEnemyStore(): EnemyStore

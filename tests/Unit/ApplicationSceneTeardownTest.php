@@ -530,7 +530,8 @@ function startTeardownBattle(TeardownGame $game, string $directory, bool $cinema
   mkdir($directory . '/assets/Data', 0777, true);
   file_put_contents($directory . '/assets/Data/troops.php', '<?php return [["name" => "Teardown Troop", "enemies" => []]];');
   chdir($directory);
-  ConfigStore::put(EnemyStore::class, makeBareScene(EnemyStore::class));
+  $game->bindGameLoader(createTestGameLoader($game, assetRoot: $directory . '/assets',
+    enemies: makeBareScene(EnemyStore::class)));
   $scene = new TeardownField($game);
   $battle = new TeardownBattle($game);
   $game->sceneManager->addScenes($battle, new TeardownGameOver(), new TeardownTitle());
