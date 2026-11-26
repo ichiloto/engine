@@ -3,6 +3,7 @@
 use Ichiloto\Engine\Battle\Actions\CrisisSkillBattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Battle\BattleContent;
 use Ichiloto\Engine\Battle\CrisisAbility;
 use Ichiloto\Engine\Battle\Presentation\BattlerConditions;
 use Ichiloto\Engine\Core\GameState;
@@ -100,6 +101,40 @@ it('rechecks healing and form changes before a queued technique spends resources
       ->and(array_column(BattleCommandCatalog::buildOptions($actor, $party, 'Attack', gameState: $state), 'label'))
       ->toBe(['Attack', 'Second form']);
     expect($action->getExecutionRefusal(crisisTestActor($ability, 'other-actor')))->not->toBeNull();
+  });
+});
+
+it('resolves and rechecks crisis techniques through the battle project', function () {
+  withCrisisTestProject(function (): void {
+    $projectRoot = getcwd();
+    $content = new BattleContent($projectRoot . '/assets');
+    $foreign = createTestDirectory('ichiloto-crisis-foreign-');
+    writeSkillRecords($foreign, new SpecialSkill('Test finisher', 'Unrelated project skill.', '', 5, 0));
+    $ability = CrisisAbility::fromArray(crisisTestData(['variants' => [
+      ['skill' => 'Test finisher', 'conditions' => [['type' => 'variable', 'name' => 'form', 'value' => 'first']]],
+      ['skill' => 'Second form', 'conditions' => [['type' => 'variable', 'name' => 'form', 'value' => 'second']]],
+    ]]));
+    $actor = crisisTestActor($ability);
+    $party = new Party();
+    $party->addMember($actor);
+    $state = new GameState();
+    $state->setVariable('form', 'first');
+
+    try {
+      chdir($foreign);
+      $submenu = BattleCommandCatalog::buildOptions($actor, $party, 'Attack', gameState: $state, content: $content);
+      expect($submenu[1]->mpCost)->toBe(0)
+        ->and($submenu[1]->description)->toBe('A synthetic finishing technique.');
+      $held = BattleCommandCatalog::getAvailableCrisisOption($actor, $party, $state, $content);
+      expect($held->label)->toBe($submenu[1]->label)->and($held->action->getExecutionRefusal($actor))->toBeNull();
+
+      $state->setVariable('form', 'second');
+      expect($held->action->getExecutionRefusal($actor))->not->toBeNull()
+        ->and(BattleCommandCatalog::getAvailableCrisisOption($actor, $party, $state, $content)?->label)->toBe('Second form')
+        ->and($actor->stats->currentMp)->toBe(7);
+    } finally {
+      chdir($projectRoot);
+    }
   });
 });
 
