@@ -1,6 +1,8 @@
 <?php
 
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Battle\Presentation\BattleArenaDefinition;
+use Ichiloto\Engine\Battle\Presentation\BattleEffectResources;
 use Ichiloto\Engine\Battle\Presentation\BattlePoseSet;
 use Ichiloto\Engine\Battle\Presentation\BattlerArtwork;
 use Ichiloto\Engine\Battle\Presentation\BattlerPose;
@@ -8,6 +10,7 @@ use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePresentation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
 
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
@@ -220,7 +223,7 @@ it('prepares an actual command image timeline through the screen host without a 
 function createActionResourceHost(Closure $buildStub): array
 {
   require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
-  [$presentation, $party, , , $root] = createEntryResourcePresentation();
+  [$presentation, $party, , , $root, $config] = createEntryResourcePresentation();
   $transport = new \Tests\Support\Input\FakeRendererTransport();
   $transport->batches[] = [\Ichiloto\Engine\Rendering\Transport\RendererEvent::fromJson(
     '{"protocol":2,"type":"ready","capabilities":["asset_holds"]}')];
@@ -231,12 +234,22 @@ function createActionResourceHost(Closure $buildStub): array
   $runtime->start('Synthetic semantic focus', 135, 36);
   $game = $buildStub(\Tests\Support\PassiveGame::class, ['getRendererRuntime']);
   $game->method('getRendererRuntime')->willReturn($runtime);
-  $scene = $buildStub(\Ichiloto\Engine\Scenes\Battle\BattleScene::class, ['getGame']);
+  $scene = $buildStub(BattleScene::class, ['getGame']);
   $scene->method('getGame')->willReturn($game);
-  new ReflectionProperty(\Ichiloto\Engine\Scenes\Battle\BattleScene::class, 'graphicalPresentation')->setValue($scene, $presentation);
+  $config->bindContent($root);
+  new ReflectionProperty(BattleScene::class, 'config')->setValue($scene, $config);
+  new ReflectionProperty(BattleScene::class, 'graphicalPresentation')->setValue($scene, $presentation);
   $screen = new ReflectionClass(\Ichiloto\Engine\Battle\UI\BattleScreen::class)->newInstanceWithoutConstructor();
   new ReflectionProperty($screen, 'battleScene')->setValue($screen, $scene);
   return [$screen, $scene, $runtime, $party->participants->toArray()[0], $root];
+}
+
+/** Load the test animations through the same project binding as battle entry. */
+function loadActionResourceAnimations(BattleScene $scene, string $root, array $animations): BattleEffectResources
+{
+  mkdir($root . '/Data', 0700);
+  file_put_contents($root . '/Data/animations.php', '<?php return ' . var_export($animations, true) . ';');
+  return $scene->getBattleEffectResources() ?? throw new LogicException('The fixture requires bound battle content.');
 }
 
 it('reuses actual focused image preparations for execution while preserving independently owned scene resources', function () {
@@ -253,12 +266,9 @@ it('reuses actual focused image preparations for execution while preserving inde
         'asset' => $id . '.png', 'sheet' => ['columns' => 2, 'rows' => 1],
         'keyframes' => [['frame' => 0, 'sourceFrame' => 0], ['frame' => 1, 'sourceFrame' => 1]]]]];
       file_put_contents($directory . '/' . $id . '.timeline.php', '<?php return ' . var_export($data, true) . ';');
-      $animations[] = new \Ichiloto\Engine\Animations\Animation($index + 1, $id, targetEffect: $id);
+      $animations[] = ['id' => $index + 1, 'name' => $id, 'targetEffect' => $id];
     }
-    $library = new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($root);
-    $effects = new \Ichiloto\Engine\Battle\Presentation\BattleEffectResources(
-      \Ichiloto\Engine\Animations\AnimationLibrary::createFromAnimations($animations), $library);
-    new ReflectionProperty(\Ichiloto\Engine\Scenes\Battle\BattleScene::class, 'battleEffectResources')->setValue($scene, $effects);
+    $effects = loadActionResourceAnimations($scene, $root, $animations);
     $a = new \Ichiloto\Engine\Battle\Actions\SkillBattleAction(
       new \Ichiloto\Engine\Entities\Skills\MagicSkill('One', '', '', 0, 0, animationId: 1));
     $b = new \Ichiloto\Engine\Battle\Actions\SkillBattleAction(
@@ -279,8 +289,9 @@ it('reuses actual focused image preparations for execution while preserving inde
       'holds' => array_map(static fn($r): array => ['id' => $r->id, 'revision' => $r->revision,
         'attempt' => 1, 'state' => 'held', 'regionBytes' => 256, 'baseBytes' => 0], $all),
       'holdCapacity' => createTestAssetHoldCapacity(0, 0)]));
+    $timeline = new EffectTimelineLibrary($root)->load('second', forBattle: true);
     $plan = new \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline(
-      new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $library->load('second', forBattle: true));
+      new \Ichiloto\Engine\Battle\BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $timeline);
     $playback = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback($plan, $actor, [],
       \Ichiloto\Engine\Battle\Presentation\BattlePoseRole::ATTACK, static fn() => null, static fn() => null);
     $stream = $screen->createCommandResourceStream($playback, 1);
@@ -307,13 +318,10 @@ it('promotes the focused animation-only pose into command ownership and waits fo
     $this->getStubBuilder($class)->disableOriginalConstructor()->onlyMethods($methods)->getStub());
   $stream = null;
   try {
-    $animations = \Ichiloto\Engine\Animations\AnimationLibrary::createFromAnimations([
-      new \Ichiloto\Engine\Animations\Animation(99, 'Pose alone'),
-      new \Ichiloto\Engine\Animations\Animation(100, 'Unbound pose'),
+    loadActionResourceAnimations($scene, $root, [
+      ['id' => 99, 'name' => 'Pose alone'],
+      ['id' => 100, 'name' => 'Unbound pose'],
     ]);
-    $effects = new \Ichiloto\Engine\Battle\Presentation\BattleEffectResources($animations,
-      new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($root));
-    new ReflectionProperty(\Ichiloto\Engine\Scenes\Battle\BattleScene::class, 'battleEffectResources')->setValue($scene, $effects);
     $action = new \Ichiloto\Engine\Battle\Actions\SkillBattleAction(
       new \Ichiloto\Engine\Entities\Skills\MagicSkill('Pose only', '', '', 0, 0, animationId: 99));
     $other = new \Ichiloto\Engine\Battle\Actions\SkillBattleAction(
@@ -363,12 +371,9 @@ it('keeps an action sheet cold through entry and transfers its focused CPU worke
     $this->getStubBuilder($class)->disableOriginalConstructor()->onlyMethods($methods)->getStub());
   $artwork = null;
   try {
-    $animations = \Ichiloto\Engine\Animations\AnimationLibrary::createFromAnimations([
-      new \Ichiloto\Engine\Animations\Animation(99, 'Selected artwork'),
+    loadActionResourceAnimations($scene, $root, [
+      ['id' => 99, 'name' => 'Selected artwork'],
     ]);
-    $effects = new \Ichiloto\Engine\Battle\Presentation\BattleEffectResources($animations,
-      new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($root));
-    new ReflectionProperty(\Ichiloto\Engine\Scenes\Battle\BattleScene::class, 'battleEffectResources')->setValue($scene, $effects);
     $action = new \Ichiloto\Engine\Battle\Actions\SkillBattleAction(
       new \Ichiloto\Engine\Entities\Skills\MagicSkill('Selected artwork', '', '', 0, 0, animationId: 99));
     $facts = new \Ichiloto\Engine\Battle\Presentation\BattleArtworkFacts($root);

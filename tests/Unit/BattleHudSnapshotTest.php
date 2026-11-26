@@ -88,8 +88,13 @@ function hudSnapshotOption(string $label, int $mpCost = 0): BattleCommandOption
 
 beforeEach(function () {
   $this->savedInput = new ReflectionClass(InputManager::class)->getStaticProperties();
-  InputManager::setBindings(['action' => ['keys' => [KeyCode::ENTER]], 'up' => ['keys' => [KeyCode::UP]],
-    'down' => ['keys' => [KeyCode::DOWN]]]);
+  InputManager::setBindings([
+    'action' => ['keys' => [KeyCode::ENTER]],
+    'up' => ['keys' => [KeyCode::UP]],
+    'down' => ['keys' => [KeyCode::DOWN]],
+    'info' => ['keys' => [KeyCode::I]],
+    'battle_back' => ['keys' => [KeyCode::C]],
+  ]);
 });
 
 afterEach(function () {

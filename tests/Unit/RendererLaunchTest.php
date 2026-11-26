@@ -43,7 +43,11 @@ final class LaunchIntentGameProbe extends Game
   }
 
   public function __destruct() {}
-  public function startInput(): void { $this->startInputSession(); }
+  public function startInput(): void
+  {
+    new ReflectionProperty(Console::class, 'game')->setValue(null, $this);
+    $this->startInputSession();
+  }
 }
 
 beforeEach(function () {
