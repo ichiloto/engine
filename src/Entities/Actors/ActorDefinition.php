@@ -7,6 +7,7 @@ use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Battle\CrisisAbilityCatalog;
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
 use Ichiloto\Engine\Progression\ExperienceAwarder;
@@ -125,7 +126,7 @@ final class ActorDefinition
    * @param array<string, mixed> $savedState
    */
   public function createCharacter(array $savedState = [], ?string $savePath = null, ?int $startingLevel = null,
-    bool $preserveAuthoredAp = false): Character
+    bool $preserveAuthoredAp = false, ?string $assetRoot = null, ?ItemStore $items = null): Character
   {
     if ($startingLevel !== null && ($startingLevel < 1 || $savedState !== [])) {
       throw new \InvalidArgumentException('A starting level must be positive and applies only to a new actor.');
@@ -136,7 +137,7 @@ final class ActorDefinition
     $data['actorNaturalAdjustments'] = $this->naturalAdjustmentsFor($variantId);
     $data['naturalVariantId'] = $variantId;
 
-    $character = Character::fromArray($data, $this->skills);
+    $character = Character::fromArray($data, $this->skills, $assetRoot);
     if ($startingLevel !== null) {
       $level = min($startingLevel, $character->maxLevel);
       $experience = $character->getLevelExperienceThresholds()[$level]
@@ -145,9 +146,9 @@ final class ActorDefinition
     }
 
     if ($savedState !== []) {
-      $character->restoreMutableState($savedState, $preserveAuthoredAp);
+      $character->restoreMutableState($savedState, $preserveAuthoredAp, $this->skills);
     } else {
-      InitialEquipment::fromArray($data['initialEquipment'] ?? [], $this->source)->equipCharacter($character);
+      InitialEquipment::fromArray($data['initialEquipment'] ?? [], $this->source)->equipCharacter($character, $items);
     }
     // A new or restored character knows every role skill of their level and
     // stands where their Mastery Map says, even if a save predates either.

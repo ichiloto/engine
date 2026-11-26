@@ -12,15 +12,29 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 final class TerminalBattleGlyphLane
 {
   public static function compose(TerminalBattleLaneSnapshot $snapshot, array $payload, ?string $color,
-    int $left, int $top, int $width, int $height): array
+    int $left, int $top, int $width, int $height, ?int $recipient = null): array
   {
-    $sign = $snapshot->getDirectionSign(); $end = $snapshot->getEndpoint(); $start = $snapshot->caster;
+    $reach = $payload['reach'] ?? 1.0;
+    if ($reach <= 0.0) { return []; }
+    $sign = $recipient === null ? $snapshot->getDirectionSign() : $snapshot->getGroundDirectionSign($recipient);
+    $target = $recipient === null ? $snapshot->getEndpoint() : $snapshot->getTargetGround($recipient);
+    $start = $recipient === null ? $snapshot->caster : $snapshot->casterGround;
+    $spanX = $target['x'] - $start['x'];
+    $spanY = $target['y'] - $start['y'];
+    $tipX = (int)round($start['x'] + $spanX * $reach);
+    $tipY = (int)round($start['y'] + $spanY * ($spanX === 0 ? $reach : ($tipX - $start['x']) / $spanX));
+    if ($reach < 1.0 && $spanX !== 0) {
+      // A wide head must fit the revealed interval without extending behind the caster.
+      $right = min($left + $width, max($start['x'], $tipX) + 1);
+      $left = max($left, min($start['x'], $tipX));
+      $width = max(0, $right - $left);
+    }
     $head = $payload['head']; $shaft = $payload['shaft'];
     if ($sign !== EffectHorizontalFacing::from($payload['facing'])->getSign()) {
       $head = self::mirrorRows($head); $shaft = self::mirrorRows($shaft);
     }
     $headWidth = TerminalText::displayWidth($head[0]); $halfHeight = intdiv(count($head), 2);
-    $headX = $sign < 0 ? $end['x'] : $end['x'] - $headWidth + 1;
+    $headX = $sign < 0 ? $tipX : $tipX - $headWidth + 1;
     $rearX = $sign < 0 ? $headX + $headWidth : $headX - 1;
     $minimum = max($left, min($start['x'], $rearX));
     $maximum = min($left + $width - 1, max($start['x'], $rearX));
@@ -42,10 +56,10 @@ final class TerminalBattleGlyphLane
     };
     $rows = array_map(static fn(string $row): array => NormalizedRow::fromText($row)->cells, $shaft);
     $tileWidth = count($rows[0]);
-    if (($end['x'] - $start['x']) * $sign >= $headWidth) {
+    if (($tipX - $start['x']) * $sign >= $headWidth) {
       for ($x = $minimum; $x <= $maximum; $x++) {
-        $fraction = ($x - $start['x']) / ($end['x'] - $start['x']);
-        $middleY = (int)round($start['y'] + ($end['y'] - $start['y']) * $fraction);
+        $fraction = ($x - $start['x']) / $spanX;
+        $middleY = (int)round($start['y'] + $spanY * $fraction);
         $column = (($x - $start['x']) % $tileWidth + $tileWidth) % $tileWidth;
         foreach ($rows as $row => $cells) {
           $glyph = $cells[$column];
@@ -55,7 +69,7 @@ final class TerminalBattleGlyphLane
     }
     foreach ($head as $row => $line) {
       foreach (NormalizedRow::fromText($line)->cells as $column => $glyph) {
-        $put($headX + $column, $end['y'] + $row - $halfHeight, $glyph);
+        $put($headX + $column, $tipY + $row - $halfHeight, $glyph);
       }
     }
     ksort($paint); $draws = [];

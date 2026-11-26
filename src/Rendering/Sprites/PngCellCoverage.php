@@ -41,7 +41,7 @@ final class PngCellCoverage
         throw new RuntimeException('optional GD PNG support is not installed.');
       }
       $size = PngAssetPreflight::inspect($root, $frame->asset, $frame->sourceRect);
-      $image = @imagecreatefrompng($root . DIRECTORY_SEPARATOR . $frame->asset);
+      $image = PngAssetDecoder::decodeFile($root . DIRECTORY_SEPARATOR . $frame->asset);
       if ($image === false) {
         throw new RuntimeException("{$frame->asset} could not be decoded.");
       }

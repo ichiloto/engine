@@ -43,9 +43,13 @@ use Ichiloto\Engine\UI\Modal\ModalPresentation;
 use Ichiloto\Engine\Messaging\Dialogue\ChoiceDialogue;
 use Ichiloto\Engine\Messaging\Dialogue\ChoiceKind;
 use Ichiloto\Engine\Messaging\Dialogue\ConfirmDialogue;
+use Ichiloto\Engine\Messaging\Dialogue\Dialogue;
+use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\UI\Modal\PromptModal;
 use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\UI\Presentation\MenuModalPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
@@ -143,8 +147,6 @@ beforeEach(function () {
   }
   Timers::setFrameTick(null);
   ActionHints::useProvider(null);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
-  new ReflectionProperty(NotificationManager::class, 'instance')->setValue(null, null);
   $this->root = \getTestTemporaryDirectory() . '/ichiloto-menu-modal-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   modalMenuPng($this->root . '/art.png');
@@ -412,6 +414,35 @@ it('sizes compact dialogs from current text and wraps long content at the same b
   $text = array_find($large->textLayers, fn($layer) => $layer->id === 'menu-modal-message');
   expect(implode('', array_column($text->runs, 'text')))->toBe($message)
     ->and($text->grid->cellWidth)->toBe($theme->metrics->cellWidth)->and($text->grid->cellHeight)->toBe($theme->metrics->cellHeight);
+})->with([false, true]);
+
+it('wraps dialogue questions above a compact answer list when the complete prompt fits', function (bool $art) {
+  $theme = new MenuPresentationCatalog($this->root, modalMenuTheme($art));
+  $base = new PresentationCanvas(1350, 720);
+  $question = 'The gardener has already lit the lanterns. Would you like to walk with her?';
+  $answer = new ModalPresentation('Gardener', $question, ['Yes', 'No'], 1,
+    vertical: true, choiceStyle: ModalChoiceStyle::LIST);
+  $decision = new ModalPresentation('Gardener', $question, ['Yes', 'No'], 1, vertical: true);
+  $list = MenuModalPresentation::compose($base, $answer, $theme);
+  $buttons = MenuModalPresentation::compose($base, $decision, $theme);
+  $bounds = getModalMenuFrameBounds($list);
+  $prompt = array_find($list->textLayers, fn($layer) => $layer->id === 'menu-modal-message');
+  $selectedCursor = array_find($list->images, fn($image) => str_contains($image->id, 'menu-modal-choice-1-cursor'));
+
+  expect($bounds->width)->toBeLessThan(getModalMenuFrameBounds($buttons)->width)
+    ->and($bounds->x + $bounds->width / 2)->toBe($base->width / 2.0)
+    ->and($prompt->grid->rows)->toBeBetween(2, 3)
+    ->and(implode('', array_column($prompt->runs, 'text')))->toBe($question)
+    ->and($selectedCursor)->not->toBeNull();
+
+  $longQuestion = str_repeat('The next passage is beyond the bridge. ', 5) . 'Would you like to go?';
+  $longAnswer = new ModalPresentation('Gardener', $longQuestion, ['Yes', 'No'], 1,
+    vertical: true, choiceStyle: ModalChoiceStyle::LIST);
+  $longList = MenuModalPresentation::compose($base, $longAnswer, $theme);
+  $longPrompt = array_find($longList->textLayers, fn($layer) => $layer->id === 'menu-modal-message');
+
+  expect(getModalMenuFrameBounds($longList)->width)->toBeGreaterThan($bounds->width)
+    ->and(implode('', array_column($longPrompt->runs, 'text')))->toBe($longQuestion);
 })->with([false, true]);
 
 it('marks only single-confirmation Alert snapshots for the acknowledgement layout', function () {
@@ -1003,16 +1034,46 @@ it('presents a confirmation by its authored kind: a decision as buttons, an answ
 
 it('starts a confirmation on its authored choice, Yes when it names none', function (array $data, int $start) {
   ($this->startCanvas)();
-  // Confirming at once takes the choice the focus started on.
+  // The owning Game presents the authored starting choice even in a detached Console scope.
+  new ReflectionProperty(Console::class, 'game')->setValue(null, null);
   InputManager::setInputSource(new FakeInputSource(null, KeyCode::ENTER));
   $confirm = ConfirmDialogue::fromArray($data);
-  $confirm->show();
+  $confirm->showForGame($this->game);
   expect($confirm->selectedChoice)->toBe($start);
 })->with([
   'a decision that starts on No' => [['text' => 'Leave without saving?', 'kind' => 'decision', 'defaultChoice' => 1], 1],
   'an answer that starts on No' => [['name' => 'Innkeeper', 'text' => 'Sell the heirloom?', 'defaultChoice' => 1], 1],
   'an answer that names no start' => [['name' => 'Innkeeper', 'text' => 'Stay the night?'], 0],
 ]);
+
+it('uses the presenting Game’s dialogue position, rate and accessibility scale', function () {
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub([
+    'ui' => ['dialogue' => ['speed' => 90, 'window' => ['position' => WindowPosition::BOTTOM]]],
+    'accessibility' => ['textSpeedScale' => 3],
+  ]));
+  $game = new ModalMenuGame();
+  $configuration = new SceneAudioConfigStub([
+    'ui' => ['dialogue' => ['message' => ['speed' => 25], 'window' => ['position' => WindowPosition::TOP]]],
+    'accessibility' => ['textSpeedScale' => 2],
+  ]);
+  new ReflectionProperty(Game::class, 'projectConfiguration')->setValue($game, $configuration);
+  $modals = new class($game) extends ModalManager {
+    public array $page = [];
+
+    public function showText(string $message, string $title = '', string $help = '', ?WindowPosition $position = null,
+      float $charactersPerSecond = 1, ?DialoguePlayback $playback = null, ?DialogueContext $presentation = null): void
+    {
+      $this->page = [$message, $title, $position, $charactersPerSecond, $presentation];
+    }
+  };
+  $game->bindModalManager($modals);
+  $page = new Dialogue('Guide', 'Follow the lanterns.');
+  $page->showForGame($game);
+
+  expect($modals->page)->toBe(['Follow the lanterns.', 'Guide', WindowPosition::TOP, 25.0, $page->presentation])
+    ->and(dialogue_speed($game))->toBe(50.0)
+    ->and(dialogue_speed())->toBe(270.0);
+});
 
 it('refuses a starting choice that is not one of the choices', function (mixed $start, string $message) {
   expect(fn() => ConfirmDialogue::fromArray(['text' => 'Rest?', 'defaultChoice' => $start]))

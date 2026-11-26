@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Core;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\NpcPlacement;
 use Ichiloto\Engine\Field\PreparedMap;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use InvalidArgumentException;
@@ -31,14 +32,15 @@ final readonly class GameStartLocation
     }
 
     /** Uses the same prepared physical map that MapManager uses for transfers. */
-    public function validatePreparedMap(PreparedMap $map, GameConfig $initialConfig): void
+    public function validatePreparedMap(PreparedMap $map, GameConfig $initialConfig,
+        ?WorldAbilityCatalog $worldAbilities = null): void
     {
         $type = isset($map->collisions[$this->y][$this->x])
             ? CollisionType::tryFrom($map->collisions[$this->y][$this->x]) : null;
         if ($type === null || $type->blocksMovement()) {
             throw new InvalidArgumentException('The launch cell is outside the map or blocks movement.');
         }
-        $state = GameState::fromArray($initialConfig->gameState);
+        $state = GameState::fromArray($initialConfig->gameState, $worldAbilities);
         $quests = QuestLog::fromArray($initialConfig->questLog);
         foreach ($map->data['npcs'] ?? [] as $entry) {
             $npc = NpcPlacement::fromArray($entry, $state, $this->mapId);

@@ -3,7 +3,7 @@
 namespace Ichiloto\Engine\Rendering;
 
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\Core\Timers;
+use Ichiloto\Engine\Core\{Game, Timers};
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeOperation;
@@ -11,6 +11,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
 use Ichiloto\Engine\UI\Accessibility;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use InvalidArgumentException;
 
@@ -79,10 +80,11 @@ class ScreenTransition
   }
 
   /** Explicit battle policy is independent; older projects retain their existing shared setting. */
-  public static function isBattleEnabled(): bool
+  public static function isBattleEnabled(?Game $game = null): bool
   {
-    return (bool) config(ProjectConfig::class, self::CONFIG_BATTLE,
-      config(ProjectConfig::class, self::CONFIG_STYLE) !== TransitionStyle::NONE->value);
+    $config = ProjectConfig::findForGame($game) ?? ConfigStore::get(ProjectConfig::class);
+    return (bool) $config->get(self::CONFIG_BATTLE,
+      $config->get(self::CONFIG_STYLE) !== TransitionStyle::NONE->value);
   }
 
   /**

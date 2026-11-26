@@ -18,6 +18,7 @@ use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
 use Ichiloto\Engine\Battle\Resolution\CombatResourceChange;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\UI\Accessibility;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Core\Clocks\RuntimeClock;
 use Ichiloto\Engine\Rendering\Assets\{AssetHoldPreparation, AssetHoldPreparationState};
@@ -68,6 +69,7 @@ final class BattleCommandRunner
     \Ichiloto\Engine\Animations\ActionMovement $movement = \Ichiloto\Engine\Animations\ActionMovement::STEP,
     ?int $animationId = null,
     ?\Ichiloto\Engine\Animations\FlashStepTiming $flashStep = null,
+    ?float $targetImpactSeconds = null,
   ) {
     $this->formatResult = Closure::fromCallable($formatResult);
     $this->presentCue = Closure::fromCallable($presentCue);
@@ -104,7 +106,8 @@ final class BattleCommandRunner
       movementPoses: $movementPoses, travel: $travel,
       movePose: $movementPoses ? $movePose : null, returnPose: $movementPoses ? $returnPose : null,
       projectedRange: isset($target->defaults['rangeTiming']) ? $this->context->ui->measureActionRange($actor, $targets) : null,
-      actionPoseOverride: $actionPoseOverride, flashStep: $flashStep, targetCount: count($targets)),
+      actionPoseOverride: $actionPoseOverride, flashStep: $flashStep, targetCount: count($targets),
+      targetImpactSeconds: $targetImpactSeconds, movement: $movement),
       $actor, $targets, $pose,
       function () use ($resolve): void {
         if (($refusal = $this->getExecutionRefusal()) !== null) {
@@ -118,7 +121,7 @@ final class BattleCommandRunner
         $result = $this->action?->lastResult;
         $this->commandResult = $result !== $previousResult ? $result : null;
         $this->resourceRefreshPending = $this->resourcePreparation !== null;
-      }, $this->handleCue(...), EnemyDefeatStyle::createFromConfig());
+      }, $this->handleCue(...), EnemyDefeatStyle::createFromConfig(ProjectConfig::findForGame($context->game)));
     if ($travelFailure !== null) { $this->playback->recordPresentationFailure($travelFailure); }
   }
 
@@ -227,7 +230,7 @@ final class BattleCommandRunner
     $this->resourceRefreshPending = false;
     $this->scheduledResults = [];
     $this->announcementVisible = false;
-    $this->playback->cancel();
+    $this->playback->cancel(preserveCompletedSoundTails: true);
     $field = $this->context->ui->fieldWindow;
     if ($field->getCommandPlayback() === $this->playback) {
       foreach ([fn() => $field->setCommandPlayback(null), $field->clearBattleFlash(...), $field->clearSummonShake(...),
@@ -276,13 +279,14 @@ final class BattleCommandRunner
       return;
     }
     if ($cue['type'] === 'commandResolved') {
+      $scheduled = $this->playback->getResultPresentationFrames() !== [];
       if ($this->executionRefusal !== null) { $this->context->ui->alert($this->executionRefusal); }
       elseif ($this->context->ui->usesGraphicalField() && $this->playback->plan->cinematicStage !== null
-        && !$this->playback->plan->usesArenaImpact && $this->playback->getFallbackHitFrames() === []
+        && !$this->playback->plan->usesArenaImpact && !$scheduled
         && $this->playback->plan->hitFeedbackFrames === []) {
         $this->resultsPending = true;
       } else {
-        $authoredImpact = $this->playback->plan->usesArenaImpact || $this->playback->getFallbackHitFrames() !== []
+        $authoredImpact = $this->playback->plan->usesArenaImpact || $scheduled
           || $this->playback->plan->hitFeedbackFrames !== [];
         $this->showResults($authoredImpact ? $cue['frame'] : null);
       }
@@ -304,8 +308,16 @@ final class BattleCommandRunner
         $this->announcementVisible = false;
       }
       $data = $cue['payload'] ?? [];
+      $type = strtolower($cue['type']);
+      if (in_array($type, ['playsound', 'sound'], true)) {
+        $path = trim(strval($data['soundEffect'] ?? $data['sound'] ?? $data['assetId'] ?? ''));
+        if ($path !== '' && ($sound = $this->context->game->audioManager->startSoundEffect($path)) !== null) {
+          $this->playback->retainAuthoredSound($sound);
+        }
+        return;
+      }
       if ($this->playback->getFallbackHitFrames() !== [] && $cue['frame'] >= $this->playback->plan->impactFrame
-        && in_array(strtolower($cue['type']), ['flash', 'shake'], true)
+        && in_array($type, ['flash', 'shake'], true)
         && ($data['anchor'] ?? null) === 'target' && ($data['scope'] ?? null) === 'target') {
         return; // The individually timed target segments own these graphical effects.
       }
@@ -372,7 +384,7 @@ final class BattleCommandRunner
     }
     if ($this->context->ui->usesGraphicalField() && $this->playback->plan->hitFeedbackFrames !== []
       && $this->commandResult !== null && $this->scheduleRecordedHitResults($targets, $startFrame)) { return; }
-    $frames = $this->playback->getFallbackHitFrames();
+    $frames = $this->playback->getResultPresentationFrames();
     if ($frames !== []) {
       $frame = $startFrame ?? $this->playback->session->currentFrame;
       $this->scheduledResults = array_map(static fn(CharacterInterface $target): array =>

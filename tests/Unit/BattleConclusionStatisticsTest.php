@@ -14,6 +14,8 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
+use Ichiloto\Engine\Progression\ProgressionSettings;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
@@ -135,4 +137,41 @@ it('records quest and knowledge outcomes only for the campaign that owns the bat
   expect($quests->defeats)->toBe(1)
     ->and($knowledge->progress->outcomeCount('creature.foe', 'defeated'))->toBe(1)
     ->and($this->world->gameState->getPlayStatistic(PlayStatistic::BATTLES_WON))->toBe(1);
+});
+
+it('uses the battle game recovery rule when another project is current', function () {
+  $firstRoot = createTestDirectory('battle-recovery-owner-');
+  mkdir($firstRoot . '/Data');
+  file_put_contents($firstRoot . '/Data/system.php', "<?php return ['progression' => ['levelUpRecovery' => 'full']];");
+  $this->game->bindGameLoader(createTestGameLoader($this->game, assetRoot: $firstRoot));
+
+  $otherRoot = createTestDirectory('battle-recovery-other-');
+  mkdir($otherRoot . '/Data');
+  file_put_contents($otherRoot . '/Data/system.php', "<?php return ['progression' => ['levelUpRecovery' => 'none']];");
+  $otherGame = new StatisticsConclusionGame();
+  $otherGame->bindGameLoader(createTestGameLoader($otherGame, assetRoot: $otherRoot));
+
+  $previous = ConfigStore::has(ProgressionSettings::class) ? ConfigStore::get(ProgressionSettings::class) : null;
+  ConfigStore::put(ProgressionSettings::class, ProgressionSettings::fromSystemData($otherGame->getGameLoader()->loadSystemData()));
+  try {
+    $hero = $this->party->members->toArray()[0];
+    $hero->stats->currentHp = 1;
+    $hero->stats->currentMp = 0;
+    $enemy = new ReflectionClass(Enemy::class)->newInstanceWithoutConstructor();
+    foreach (['name' => 'Reward foe', 'level' => 0, 'stats' => new Stats(currentHp: 0), 'imagePath' => '',
+      'image' => ['o'], 'position' => new Vector2(),
+      'rewards' => new BattleRewards($hero->getLevelExperienceThresholds()[2], 0, [])] as $key => $value) {
+      new ReflectionProperty(Enemy::class, $key)->setValue($enemy, $value);
+    }
+    $troop = new Troop('Reward troop', [$enemy]);
+    (new BattleConclusion($this->game, $this->party, $troop))->concludeVictory($this->scene);
+
+    expect($hero->level)->toBe(2)
+      ->and($hero->stats->totalHp)->toBeGreaterThan(1)
+      ->and($hero->stats->currentHp)->toBe($hero->stats->totalHp)
+      ->and($hero->stats->currentMp)->toBe($hero->stats->totalMp);
+  } finally {
+    ConfigStore::remove(ProgressionSettings::class);
+    if ($previous !== null) { ConfigStore::put(ProgressionSettings::class, $previous); }
+  }
 });

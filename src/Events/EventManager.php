@@ -19,10 +19,6 @@ use RuntimeException;
 class EventManager implements EventTargetInterface
 {
   /**
-   * @var EventManager|null The instance of the event manager.
-   */
-  protected static ?EventManager $instance = null;
-  /**
    * @var array<string, array<EventListenerInterface|callable>> The listeners.
    */
   protected array $listeners = [];
@@ -31,28 +27,19 @@ class EventManager implements EventTargetInterface
    */
   protected(set) ItemList $activeEvents;
 
-  /**
-   * EventManager constructor.
-   *
-   * @param Game $game The game.
-   */
-  private function __construct(protected Game $game)
+  public function __construct()
   {
     $this->activeEvents = new ItemList(EventTrigger::class);
   }
 
   /**
-   * Return the instance of the event manager.
+   * Return the event manager owned by this Game.
    *
    * @param Game $game The game.
    */
   public static function getInstance(Game $game): self
   {
-    if (self::$instance === null) {
-      self::$instance = new EventManager($game);
-    }
-
-    return self::$instance;
+    return $game->getEventManager();
   }
 
   /**
@@ -70,14 +57,9 @@ class EventManager implements EventTargetInterface
   {
     if (isset($this->listeners[$type->value])) {
       foreach ($this->listeners[$type->value] as $index => $entry) {
-        if ($entry instanceof EventListenerInterface) {
-          if ($listener->equals($entry)) {
-            unset($this->listeners[$type->value][$index]);
-          }
-        } else {
-          if ($listener === $entry) {
-            unset($this->listeners[$type->value][$index]);
-          }
+        if ($listener === $entry || ($listener instanceof EventListenerInterface
+          && $entry instanceof EventListenerInterface && $listener->equals($entry))) {
+          unset($this->listeners[$type->value][$index]);
         }
       }
     }

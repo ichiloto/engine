@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Scenes\Arena;
 
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Core\SystemData;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Battle\EncounterAdvantage;
@@ -77,12 +78,13 @@ final readonly class BattleTestSetup
    * The setup a new game starts with: the system's starting party, each
    * actor at its authored level and wearing its authored equipment.
    */
-  public static function getFromStartingParty(ActorStore $actors, ?int $battleSize = null): self
+  public static function getFromStartingParty(ActorStore $actors, ?int $battleSize = null,
+    ?string $assetRoot = null, ?ItemStore $items = null): self
   {
-    $system = asset('Data/system.php', true);
+    $system = asset('Data/system.php', true, $assetRoot);
 
     $system = SystemData::fromArray(is_array($system) ? $system : []);
-    return self::getFromPartyReferences($actors, $system->startingParty, $battleSize ?? $system->battle->partySize);
+    return self::getFromPartyReferences($actors, $system->startingParty, $battleSize ?? $system->battle->partySize, $assetRoot, $items);
   }
 
   /**
@@ -93,12 +95,13 @@ final readonly class BattleTestSetup
    *
    * @param list<mixed> $references
    */
-  public static function getFromPartyReferences(ActorStore $actors, array $references, int $battleSize = Party::BATTLE_SIZE): self
+  public static function getFromPartyReferences(ActorStore $actors, array $references, int $battleSize = Party::BATTLE_SIZE,
+    ?string $assetRoot = null, ?ItemStore $items = null): self
   {
     $members = [];
     foreach ($references as $reference) {
       $definition = $actors->requireStartingPartyActor(strval($reference));
-      $members[] = self::describeCharacter($definition->createCharacter());
+      $members[] = self::describeCharacter($definition->createCharacter(assetRoot: $assetRoot, items: $items));
     }
     if ($members === []) {
       throw new InvalidArgumentException('The project has no starting party to set up a battle test from.');
@@ -183,9 +186,10 @@ final readonly class BattleTestSetup
    *
    * @return list<string> The problems, each naming its member or the items; empty when the setup can be built.
    */
-  public function getProblems(ActorStore $actors, ItemStore $items, ?SkillCatalog $skills = null, ?SummonCutsceneLibrary $summons = null): array
+  public function getProblems(ActorStore $actors, ItemStore $items, ?SkillCatalog $skills = null,
+    ?SummonCutsceneLibrary $summons = null, ?string $assetRoot = null): array
   {
-    $loadouts = $this->createLoadoutCatalog($skills, $summons);
+    $loadouts = $this->createLoadoutCatalog($skills, $summons, $assetRoot);
     $problems = [];
     $characters = [];
     foreach ($this->members as $number => $member) {
@@ -195,7 +199,7 @@ final readonly class BattleTestSetup
         $problems[] = "{$place}: the project has no such actor.";
         continue;
       }
-      $character = $definition->createCharacter();
+      $character = $definition->createCharacter(assetRoot: $assetRoot, items: $items);
       $characters[$member->actorId] = $character;
       $memberProblems = [];
       if ($member->level > $character->maxLevel) {
@@ -219,7 +223,7 @@ final readonly class BattleTestSetup
         }
       }
       foreach ($member->states as $stateId) {
-        if (StateRegistry::get($stateId) === null) {
+        if (StateRegistry::get($stateId, $assetRoot) === null) {
           $memberProblems[] = "the project has no state {$stateId}.";
         }
       }
@@ -235,7 +239,7 @@ final readonly class BattleTestSetup
       $pointResources = array_filter(BattleTestResource::cases(), static fn(BattleTestResource $resource): bool =>
         $member->getVital($resource)?->unit === BattleTestVitalUnit::POINTS);
       if ($memberProblems === [] && $pointResources !== []) {
-        $built = $this->createMemberCharacter($member, $actors, $items);
+        $built = $this->createMemberCharacter($member, $actors, $items, $assetRoot);
         foreach ($pointResources as $resource) {
           $vital = $member->getVital($resource);
           $maximum = $resource->getMaximum($built->stats);
@@ -377,9 +381,9 @@ final readonly class BattleTestSetup
    *
    * @return array<string, mixed>
    */
-  public function getBattleSettings(): array
+  public function getBattleSettings(?WorldAbilityCatalog $worldAbilities = null): array
   {
-    $world = $this->createWorldState();
+    $world = $this->createWorldState($worldAbilities);
 
     return [...($this->arena === null ? [] : ['battleArena' => $this->arena]),
       ...($this->firstStrike === null ? [] : ['firstStrike' => $this->firstStrike->value]),
@@ -391,11 +395,11 @@ final readonly class BattleTestSetup
    * facts; none when no member sets any. Each call makes a new one, so
    * nothing a fight does to it reaches the next.
    */
-  public function createWorldState(): ?GameState
+  public function createWorldState(?WorldAbilityCatalog $worldAbilities = null): ?GameState
   {
     $world = $this->findWorld();
 
-    return $world === null || $world === false ? null : $world->createGameState();
+    return $world === null || $world === false ? null : $world->createGameState($worldAbilities);
   }
 
   /** @return BattleTestWorld|false|null Every member's facts together, none when no member sets any, false when two disagree. */
@@ -419,19 +423,21 @@ final readonly class BattleTestSetup
    *
    * @throws InvalidArgumentException When the setup has problems ({@see getProblems()}); nothing is left out quietly.
    */
-  public function createParty(ActorStore $actors, ItemStore $items, ?SkillCatalog $skills = null, ?SummonCutsceneLibrary $summons = null): Party
+  public function createParty(ActorStore $actors, ItemStore $items, ?SkillCatalog $skills = null,
+    ?SummonCutsceneLibrary $summons = null, ?string $assetRoot = null): Party
   {
-    $problems = $this->getProblems($actors, $items, $skills, $summons);
+    $problems = $this->getProblems($actors, $items, $skills, $summons, $assetRoot);
     if ($problems !== []) {
       throw new InvalidArgumentException("The battle test party cannot be built:\n" . implode("\n", $problems));
     }
     $party = new Party();
+    $party->inventory->bindItemStore($items);
     $party->setBattleSize($this->battleSize);
-    $loadouts = $this->createLoadoutCatalog($skills, $summons);
+    $loadouts = $this->createLoadoutCatalog($skills, $summons, $assetRoot);
     foreach ($this->members as $member) {
-      $character = $this->createMemberCharacter($member, $actors, $items);
+      $character = $this->createMemberCharacter($member, $actors, $items, $assetRoot);
       $loadouts?->applyToCharacter($member, $character);
-      $this->applyStartingCondition($member, $character);
+      $this->applyStartingCondition($member, $character, $assetRoot);
       $party->addMember($character);
     }
     foreach ($this->getInventory($items) as $entry) {
@@ -448,13 +454,14 @@ final readonly class BattleTestSetup
    * class's skills up to that level, wearing its equipment with HP and MP
    * full. Interfaces read a member's maxima from it.
    */
-  public function createMemberCharacter(BattleTestMember $member, ActorStore $actors, ItemStore $items): Character
+  public function createMemberCharacter(BattleTestMember $member, ActorStore $actors, ItemStore $items, ?string $assetRoot = null): Character
   {
     $definition = $actors->require($member->actorId, 'the battle test party');
-    $authored = $definition->createCharacter();
+    $authored = $definition->createCharacter(assetRoot: $assetRoot, items: $items);
     $level = min($member->level, $authored->maxLevel);
     $experience = $authored->getLevelExperienceThresholds()[$level] ?? $authored->currentExp;
-    $character = $definition->createCharacter([...$definition->data(), 'currentExp' => max(0, $experience)]);
+    $character = $definition->createCharacter([...$definition->data(), 'currentExp' => max(0, $experience)],
+      assetRoot: $assetRoot, items: $items);
     ExperienceAwarder::reconcileAutomaticRoleSkills($character);
     foreach ($member->equipment as $slotName => $itemId) {
       $equipment = $itemId === null ? null : $items->get($itemId);
@@ -465,16 +472,16 @@ final readonly class BattleTestSetup
     return $character;
   }
 
-  private function createLoadoutCatalog(?SkillCatalog $skills, ?SummonCutsceneLibrary $summons): ?BattleTestLoadoutCatalog
+  private function createLoadoutCatalog(?SkillCatalog $skills, ?SummonCutsceneLibrary $summons, ?string $assetRoot): ?BattleTestLoadoutCatalog
   {
     if (array_any($this->members, static fn($member): bool => $member->commands !== null || $member->skills !== [] || $member->summons !== [])) {
-      return new BattleTestLoadoutCatalog($skills ?? SkillCatalog::getProjectCatalog(), $summons ?? new SummonCutsceneLibrary());
+      return BattleTestLoadoutCatalog::getProjectCatalog($assetRoot, $skills, $summons);
     }
     return null;
   }
 
   /** Applies the test-only resource overrides and gives the member its starting states, without a chance roll. */
-  private function applyStartingCondition(BattleTestMember $member, Character $character): void
+  private function applyStartingCondition(BattleTestMember $member, Character $character, ?string $assetRoot): void
   {
     foreach (BattleTestResource::cases() as $resource) {
       $amount = $member->getVital($resource);
@@ -483,7 +490,7 @@ final readonly class BattleTestSetup
       }
     }
     foreach ($member->states as $stateId) {
-      $state = StateRegistry::get($stateId) ?? throw new InvalidArgumentException("The project has no state {$stateId}.");
+      $state = StateRegistry::get($stateId, $assetRoot) ?? throw new InvalidArgumentException("The project has no state {$stateId}.");
       $character->addState($state, guaranteed: true);
     }
   }

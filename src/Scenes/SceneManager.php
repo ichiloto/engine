@@ -319,6 +319,26 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     return $scene;
   }
 
+  /** A failed field activation returns input to the same menu that requested the load. */
+  public function loadSavedGameFrom(SceneInterface $source, GameConfig $config): GameScene
+  {
+    if ($this->currentScene !== $source) {
+      throw new \LogicException('Only the current scene can request saved-game activation.');
+    }
+
+    try {
+      return $this->loadSavedGame($config);
+    } catch (Throwable $error) {
+      if ($this->currentScene !== $source) {
+        $sourceIndex = array_search($source, $this->scenes->toArray(), true);
+        if ($sourceIndex !== false) {
+          $this->loadScene($sourceIndex);
+        }
+      }
+      throw $error;
+    }
+  }
+
   /**
    * Load a scene.
    *
@@ -819,7 +839,8 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   {
     try {
       $catalog = BattlePresentationCatalog::load($assetRoot);
-      return $catalog === null ? null : GraphicalBattlePresentation::collectEntryArtworkFacts($config, $catalog, $assetRoot);
+      return $catalog === null ? null : GraphicalBattlePresentation::collectEntryArtworkFacts($config, $catalog, $assetRoot,
+        ProjectConfig::findForGame($this->game));
     } catch (Throwable $error) {
       // BattleScene owns diagnostics and recovery for a failed graphical presentation plan.
       Debug::warn('Battle artwork could not be planned in advance: ' . $error->getMessage());

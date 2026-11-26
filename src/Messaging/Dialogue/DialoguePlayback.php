@@ -7,9 +7,9 @@ namespace Ichiloto\Engine\Messaging\Dialogue;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\AudioPlayback;
 use Ichiloto\Engine\Audio\SpeechSequence;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Settings\SettingsCatalog;
-use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Exception;
@@ -19,13 +19,12 @@ final class DialoguePlayback
 {
   public const string CONFIG_AUTO = 'ui.dialogue.auto';
   public bool $auto = false {
-    get => ConfigStore::has(ProjectConfig::class)
-      ? boolval(ConfigStore::get(ProjectConfig::class)->get(self::CONFIG_AUTO, false)) : $this->auto;
+    get => (bool) (ProjectConfig::findForGame($this->game)?->get(self::CONFIG_AUTO, false) ?? $this->auto);
     set {
       $this->auto = $value;
-      if (ConfigStore::has(ProjectConfig::class)) {
+      if (ProjectConfig::findForGame($this->game) !== null) {
         try {
-          $settings = new SettingsCatalog();
+          $settings = new SettingsCatalog($this->game);
           $settings->write('dialogue_auto', $value);
           $settings->persist();
         }
@@ -46,6 +45,7 @@ final class DialoguePlayback
   public function __construct(
     private readonly ?AudioManager $audio = null,
     ?bool $auto = null,
+    private readonly ?Game $game = null,
   ) {
     if ($auto !== null) { $this->auto = $auto; }
   }

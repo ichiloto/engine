@@ -24,8 +24,8 @@ final readonly class DialoguePageGeometry
     string $speaker, WindowPosition $position, int $width, int $height, bool $skit = false)
   {
     $m = ($catalogue->theme ?? throw new RuntimeException('Dialogue has no graphical theme.'))->metrics;
-    $this->textX = $layout->margin + $m->panelPadding + $layout->gutter;
-    $this->textWidth = $width - 2 * ($layout->margin + $m->panelPadding) - $layout->gutter;
+    $this->textX = $layout->margin + $layout->padding + $layout->gutter;
+    $this->textWidth = $width - 2 * ($layout->margin + $layout->padding) - $layout->gutter;
     $this->nameLines = $speaker === '' ? [] : MenuCanvas::wrap($speaker, (int)floor(($this->textWidth - 32) / $m->cellWidth));
     $this->nameHeight = count($this->nameLines) * $m->cellHeight + ($this->nameLines === [] ? 0 : 24);
     $top = match ($skit ? WindowPosition::BOTTOM : $position) {
@@ -42,8 +42,11 @@ final readonly class DialoguePageGeometry
     $this->nameplate = $nameWidth === 0 ? null : new CanvasRectangle($this->textX,
       $top - $this->nameHeight + 12, $nameWidth, $this->nameHeight);
     $compact = $width < 1000;
-    $this->portrait = $layout->portrait === null ? null : new CanvasRectangle($layout->margin + $m->panelPadding,
-      max(0, $top - 36), $compact ? 116 : 180, min($compact ? 154 : 222, $layout->bodyHeight + 8));
+    $this->portrait = $layout->portrait === null ? null : new CanvasRectangle($layout->margin + $layout->padding,
+      $layout->narrowField ? $top + $layout->padding : max(0, $top - 36),
+      $layout->narrowField ? $layout->gutter - 8 : ($compact ? 116 : 180),
+      $layout->narrowField ? DialoguePageLayout::CONTENT_ROWS * $m->cellHeight
+        : min($compact ? 154 : 222, $layout->bodyHeight + 8));
   }
 
   /** @return list<CanvasRectangle> */

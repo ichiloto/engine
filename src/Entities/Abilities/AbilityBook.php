@@ -65,12 +65,12 @@ class AbilityBook
    * @param array<string, mixed> $data The serialized ability-book data.
    * @return self The reconstructed ability book.
    */
-  public static function fromArray(array $data): self
+  public static function fromArray(array $data, ?SkillCatalog $skills = null): self
   {
     $learnedAbilities = [];
 
     foreach ($data['learned'] ?? [] as $abilityName) {
-      $ability = SkillCatalog::getProjectCatalog()->findSkill(strval($abilityName));
+      $ability = ($skills ??= SkillCatalog::getProjectCatalog())->findSkill(strval($abilityName));
 
       if ($ability !== null && !$ability instanceof MagicSkill) {
         $learnedAbilities[] = $ability;
@@ -78,7 +78,7 @@ class AbilityBook
     }
 
     $learnableAbilities = array_values(array_filter(array_map(
-      static fn(array $abilityData): ?LearnableAbility => LearnableAbility::fromArray($abilityData),
+      static fn(array $abilityData): ?LearnableAbility => LearnableAbility::fromArray($abilityData, $skills),
       array_filter($data['learnables'] ?? [], 'is_array')
     )));
 

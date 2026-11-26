@@ -24,7 +24,6 @@ it('restores the exact idle map through notification motion and dismissal withou
   }
   $settings = ConfigStore::has(PlaySettings::class) ? ConfigStore::get(PlaySettings::class) : null;
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 24]));
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   foreach (['overlays' => [], 'terminalOutputEnabled' => $output, 'terminalOutputStream' => null,
     'usingAlternateScreen' => false, 'terminalHandedBack' => false, 'frameDepth' => 0, 'isRecomposing' => false] as $name => $value) {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);

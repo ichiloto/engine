@@ -294,6 +294,12 @@ use (`switch`, `event`, `variable`, `item`, each accepting
 A grant is silently refused while any prerequisite fails, so a chain of
 quests can hang off one repeatable dialogue.
 
+The active campaign owns quest reads and writes. Dialogue, triggers and scripts
+use the quest manager bound to their world state. Battle entry checks use the
+quest log captured at entry. Tools evaluating detached state can pass a
+`QuestLog` explicitly. Detached state without a log has no active or completed
+quests. Quest progress still saves through the separate quest log.
+
 Triggers can also gate on quest state from their `conditions`:
 `['type' => 'quest', 'name' => 'breakfast-duty', 'status' => 'active']`.
 

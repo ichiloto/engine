@@ -56,7 +56,6 @@ beforeEach(function () {
     Console::setTerminalOutputEnabled(false);
     Console::syncDimensions(80, 24);
     ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 24]));
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
     $this->game = new PagedAlertGameProbe();
 });
 

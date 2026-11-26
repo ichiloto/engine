@@ -291,7 +291,6 @@ it('shares exactly the runtime modal pages geometry and snapshots with an isolat
         'actors' => ['hero' => ['portrait' => 'portrait.png']],
     ], true) . ';');
     ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 70, 'height' => 30]));
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
     $game = new PaginationGameProbe();
     $runtime = null;
     if ($graphical) {
@@ -334,7 +333,6 @@ it('uses wider negotiated modal pages and the same terminal fallback window at 1
         'theme' => ['schema' => 'ichiloto.menu/1', 'metrics' => ['cellWidth' => 10, 'panelPadding' => 28]],
     ], true) . ';');
     ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
     $peer = new FakeRendererTransport();
     $caps = ['graphical_canvas', 'canvas_overlay', 'canvas_clip_opacity', 'sprite_source_rect'];
     $peer->batches = [[RendererEvent::fromJson(json_encode(['type' => 'ready', 'protocol' => 2, 'capabilities' => $caps]))]];

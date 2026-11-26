@@ -7,6 +7,7 @@ use Ichiloto\Engine\Entities\EquipmentSlot;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
+use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 
@@ -16,6 +17,7 @@ final readonly class SaveContentResolver
   public function __construct(
     private SaveCompatibilityManifest $manifest,
     private string $savePath,
+    private ?GameLoader $loader = null,
   )
   {
   }
@@ -159,13 +161,17 @@ final readonly class SaveContentResolver
 
   private function resolveParty(GameConfig $config): void
   {
+    if ($this->loader !== null) {
+      $config->party->inventory->bindItemStore($this->loader->itemStore);
+    }
     foreach ($config->party->inventory->all->toArray() as $item) {
       if ($item instanceof InventoryItem) {
         $this->resolveInventoryItem($item);
       }
     }
 
-    $actorStore = ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null;
+    $actorStore = $this->loader?->actorStore
+      ?? (ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null);
 
     foreach ($config->party->members->toArray() as $index => $member) {
       if (! $member instanceof Character) {
@@ -207,7 +213,8 @@ final readonly class SaveContentResolver
         $config->party->members[$index] = $actorStore->require(
           $raw['actorId'],
           $this->actorLookupContext($raw['actorId'], $raw),
-        )->createCharacter($raw, $this->savePath, preserveAuthoredAp: $actorStore->actionPointPolicy !== null);
+        )->createCharacter($raw, $this->savePath, preserveAuthoredAp: $actorStore->actionPointPolicy !== null,
+          assetRoot: $this->loader?->assetRoot);
       } else {
         // Compatibility for embedders without project actor assets. A running
         // Ichiloto game always configures ActorStore before loading saves.
@@ -244,7 +251,7 @@ final readonly class SaveContentResolver
       ? strval($raw['definitionId'] ?? $raw['id'] ?? $raw['name'] ?? '')
       : $item->id;
     $item->applyDefinitionId($this->identity($category, $reference));
-    $item->completeDeferredSaveHydration();
+    $item->completeDeferredSaveHydration(store: $this->loader?->itemStore);
   }
 
   /** @param mixed $rawBook */

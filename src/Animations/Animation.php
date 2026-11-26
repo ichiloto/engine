@@ -15,6 +15,8 @@ final class Animation
   public ActionMovement $movement = ActionMovement::STEP;
   /** Declared default preserves historical serialized animation objects. */
   public ?FlashStepTiming $flashStep = null;
+  /** Combat resolution can own a delay measured from the start of the target phase. */
+  public private(set) ?float $targetImpactSeconds = null;
   /**
    * @var array<int, AnimationFrame> $frames
    */
@@ -50,6 +52,7 @@ final class Animation
     public SourceEffectAnchor $sourceEffectAnchor = SourceEffectAnchor::SOURCE,
     ActionMovement $movement = ActionMovement::STEP,
     ?FlashStepTiming $flashStep = null,
+    ?float $targetImpactSeconds = null,
   )
   {
     if (!array_is_list($roles) || count($roles) !== count(array_unique($roles, SORT_REGULAR))) {
@@ -69,6 +72,7 @@ final class Animation
       throw new \InvalidArgumentException('Flash step requires its own timing and any caster effect must start with the target effect.');
     }
     $this->flashStep = $flashStep;
+    $this->targetImpactSeconds = self::readTargetImpactSeconds($targetImpactSeconds);
     foreach ([$sourceEffect, $targetEffect] as $effect) {
       if ($effect !== null) { \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary::assertId($effect); }
     }
@@ -125,7 +129,18 @@ final class Animation
         ? SourceEffectAnchor::from($data['sourceEffectAnchor']) : SourceEffectAnchor::SOURCE,
       ActionMovement::readAnimation($data),
       array_key_exists('flashStep', $data) ? FlashStepTiming::fromArray($data['flashStep']) : null,
+      self::readTargetImpactSeconds($data['targetImpactSeconds'] ?? null),
     );
+  }
+
+  /** The bound covers any valid fixed effect at the slowest supported frame rate. */
+  public static function readTargetImpactSeconds(mixed $seconds): ?float
+  {
+    if ($seconds === null) { return null; }
+    if ((!is_int($seconds) && !is_float($seconds)) || !is_finite($seconds) || $seconds < 0 || $seconds > 100000) {
+      throw new \InvalidArgumentException('Target impact delay must be a number from 0 to 100000 seconds.');
+    }
+    return (float)$seconds;
   }
 
   /**
@@ -262,6 +277,7 @@ final class Animation
       ...($this->roles === [] ? [] : ['roles' => $this->roles]),
       ...($this->movement === ActionMovement::STEP ? [] : ['movement' => $this->movement->value]),
       ...($this->flashStep === null ? [] : ['flashStep' => $this->flashStep->toArray()]),
+      ...($this->targetImpactSeconds === null ? [] : ['targetImpactSeconds' => $this->targetImpactSeconds]),
       'frames' => array_map(
         static fn(AnimationFrame $frame): array => $frame->toArray(),
         $this->getFrames()

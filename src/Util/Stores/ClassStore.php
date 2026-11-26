@@ -63,7 +63,7 @@ class ClassStore
   ];
 
   /**
-   * @var array<string, array<string, mixed>>|null The cached class definitions, keyed by lowercase name.
+   * @var array<string, array<string, array<string, mixed>>>|null Definitions keyed by source path, then lowercase class name.
    */
   protected static ?array $definitions = null;
 
@@ -72,17 +72,17 @@ class ClassStore
    *
    * @return array<string, array<string, mixed>> The class definitions.
    */
-  public static function all(): array
+  public static function all(?string $assetRoot = null): array
   {
-    if (self::$definitions !== null) {
-      return self::$definitions;
+    $assetRoot ??= Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+    $filename = Path::join($assetRoot, 'Data', 'classes.php');
+    if (isset(self::$definitions[$filename])) {
+      return self::$definitions[$filename];
     }
 
-    self::$definitions = [];
-    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Data', 'classes.php');
-
+    $definitions = [];
     if (! file_exists($filename)) {
-      return self::$definitions;
+      return self::$definitions[$filename] = $definitions;
     }
 
     $entries = require $filename;
@@ -98,10 +98,10 @@ class ClassStore
         continue;
       }
 
-      self::$definitions[strtolower($name)] = $entry;
+      $definitions[strtolower($name)] = $entry;
     }
 
-    return self::$definitions;
+    return self::$definitions[$filename] = $definitions;
   }
 
   /**
@@ -124,7 +124,8 @@ class ClassStore
    */
   public static function createRole(string $className, Character $character): ?CharacterRole
   {
-    $definition = self::all()[strtolower(trim($className))] ?? null;
+    $assetRoot = $character->projectAssetRoot;
+    $definition = self::all($assetRoot)[strtolower(trim($className))] ?? null;
 
     if ($definition === null) {
       return null;
@@ -141,7 +142,7 @@ class ClassStore
       $character,
       strval($definition['name']),
       self::makeExperienceCurve(is_array($definition['experienceCurve'] ?? null) ? $definition['experienceCurve'] : []),
-      self::resolveSkillsToLearn($definition['skillsToLearn'] ?? []),
+      self::resolveSkillsToLearn($definition['skillsToLearn'] ?? [], $assetRoot),
       is_array($definition['traits'] ?? null) ? $definition['traits'] : [],
       strval($definition['note'] ?? ''),
       $generators['totalHp'],
@@ -284,13 +285,13 @@ class ClassStore
    * @param mixed $entries The authored `skillsToLearn` entries.
    * @return SkillToLearn[] The resolved grants.
    */
-  protected static function resolveSkillsToLearn(mixed $entries): array
+  protected static function resolveSkillsToLearn(mixed $entries, ?string $assetRoot = null): array
   {
     if (! is_array($entries) || empty($entries)) {
       return [];
     }
 
-    $catalog = SkillCatalog::getProjectCatalog();
+    $catalog = SkillCatalog::getProjectCatalog($assetRoot);
     $grants = [];
 
     foreach ($entries as $entry) {

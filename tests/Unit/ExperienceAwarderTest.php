@@ -264,11 +264,11 @@ it('never changes resources without a level gain under any mode', function (Leve
 
 it('leaves damaged save hydration and equipment recalculation outside the recovery mode', function (LevelUpRecovery $mode) {
   ConfigStore::put(ProgressionSettings::class, new ProgressionSettings($mode));
-  new ReflectionProperty(ClassStore::class, 'definitions')->setValue(null, [
+  new ReflectionProperty(ClassStore::class, 'definitions')->setValue(null, [getcwd() . '/assets/Data/classes.php' => [
     'fixture role' => ['name' => 'Fixture Role', 'parameterCurves' => [
       'totalHp' => ['baseValue' => 100], 'totalMp' => ['baseValue' => 30],
     ]],
-  ]);
+  ]]);
   $character = new Character('Saved Hero', 0, new Stats(currentHp: 100, currentMp: 30));
   $character->applyClass('Fixture Role');
   $gear = new Weapon('Saved Blade', '', '!', 1, parameterChanges: new ParameterChanges(totalHp: 50, totalMp: 10), id: 'fixture.saved-blade');
@@ -307,10 +307,10 @@ it('rejects invalid award inputs before modifying character progression', functi
 });
 
 it('gives a role its curriculum of Mastery node ids, leaving out entries that are not ids', function () {
-  new ReflectionProperty(ClassStore::class, 'definitions')->setValue(null, [
+  new ReflectionProperty(ClassStore::class, 'definitions')->setValue(null, [getcwd() . '/assets/Data/classes.php' => [
     'scholar' => ['name' => 'Scholar', 'curriculum' => ['spark-1', ' padded ', 7, 'storm', 'spark-1']],
     'squire' => ['name' => 'Squire'],
-  ]);
+  ]]);
   $scholar = new Character('Scholar', 0, new Stats());
   $scholar->applyClass('Scholar');
   $squire = new Character('Squire', 0, new Stats());

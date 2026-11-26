@@ -120,7 +120,6 @@ beforeEach(function () {
   foreach ([Console::class, InputManager::class, EventManager::class, ConfigStore::class, Time::class] as $class) {
     $this->statics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, []);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));
   putSceneAudioConfig([]);

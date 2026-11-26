@@ -24,6 +24,7 @@ use Ichiloto\Engine\Rendering\Presentation\RetainedFrame;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
+use Ichiloto\Engine\Settings\SettingsCatalog;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\UI\Presentation\ConfigMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
@@ -225,7 +226,7 @@ class BattlePauseState extends BattleSceneState
     $this->configThemeLoaded = false;
     $this->configPresentationError = null;
     $this->configPresentationStart = RuntimeClock::getSeconds();
-    $manager = new MainMenuSettingsManager();
+    $manager = new MainMenuSettingsManager(new SettingsCatalog($this->scene->getGame()));
     $width = min(110, get_screen_width());
     $height = min(32, get_screen_height());
     $this->configMenu = new ConfigMenu($manager,

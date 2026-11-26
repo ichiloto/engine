@@ -13,7 +13,6 @@ use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Events\Triggers\EventCue;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
-use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
@@ -318,10 +317,11 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
     foreach ($page->lines as $line) {
       if (!NpcPage::isReadableLine($line)) { continue; }
       $gameScene->cinematicController?->prepareDialogue(strval($line['name'] ?? $this->name), $line);
-      show_text(
+      $game = $gameScene->getGame();
+      $game->getModalManager()->showText(
         strval($line['text'] ?? ''),
         strval($line['name'] ?? $this->name),
-        charactersPerSecond: dialogue_speed(),
+        charactersPerSecond: dialogue_speed($game),
         presentation: DialogueContext::getFromText($line),
       );
       $this->playerInteraction?->markAccepted();
@@ -443,7 +443,7 @@ class Npc implements EventSessionCompletionTargetInterface, ThicketSubjectInterf
     WorldStateWriter::applyAll($page->sets, $gameScene->gameState);
     $this->pages->retire($page, $this->mapId ?? $gameScene->currentMapId, $gameScene->gameState);
     $this->applySets($gameScene);
-    QuestManager::current()?->recordTalkTo($this->name);
+    $gameScene->gameState->getQuestManager()?->recordTalkTo($this->name);
     $this->endConversation($gameScene);
   }
 

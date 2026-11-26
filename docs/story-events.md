@@ -12,6 +12,10 @@ The Engine and projects can add commands; see
 dialogue, choices, waits, movement routes, transfers, and battles yield or
 suspend the session and continue it through the regular game loop.
 
+The scene's Game supplies the asset root for named scripts, Common Events,
+storybooks, door references and field effects. Event preparation and playback
+use the same project, including when another project is open.
+
 These scripts are story events or reusable Common Events. First-class
 Cinematics add cast, camera, presentation, safe-skip, and final-state metadata
 while hosting this same interpreter and session model. Skits present portrait
@@ -48,14 +52,16 @@ one query and cleared on completion or failure. Changed world state reaches
 the next query immediately. Availability queries add no grant flags or saved
 presentation state. The showcase and first-use consumers read this same catalog.
 
-The application loads the current catalog before evaluating project content.
-Detached tools use `WorldAbilityCatalog::fromProject(assetRoot)` and pass the
-result as `worldAbilities:` to `WorldConditionEvaluator::allHold()`, or install
-that exact catalog in the existing project `ConfigStore`. Runtime catalogs are
-read-only; source edits use the Editor's source-preserving paths. The Editor
-must offer current ability IDs through a selector and validate references.
-Changing a source file requires loading the new catalog; no permanent source
-cache is used. Existing games without this file retain their current rules.
+The project loader reads the catalog from its own asset root. Campaign state,
+battle-entry snapshots and Editor previews carry that catalog when evaluating
+world conditions. Saves continue to store game progress and first-use receipts
+as plain data. A newly loaded Game or preview reads the current project source.
+
+Standalone tools can pass `worldAbilities:` to `WorldConditionEvaluator::allHold()`
+or explicitly install a catalog in `ConfigStore` for detached checks. Runtime
+catalogs are read-only. The Editor uses source-preserving edits, validates
+references and offers current ability IDs through a selector. Projects without
+an ability file have an empty catalog.
 
 `WorldConditionExclusion::proveExclusive()` accepts the same optional catalog.
 It expands the predicates implied by a positive ability. A negated ability with
@@ -424,7 +430,10 @@ select addressees from the bound speakers. Never infer subject ids from text,
 filenames or artwork.
 
 The same preparation runs for ordinary NPC/dialogue pages during the active
-cinematic. Specialized dialogue `show()` methods retain their existing API.
+cinematic. Field actions present a dialogue with `showForGame(Game $game)`.
+The scene's Game owns the modal and its configured dialogue position and rate.
+Specialized dialogue types implement `showForGame()` to present their own content.
+The standalone `show()` method uses the Game attached to the console.
 Bound stage subjects turn their real occupant, so Terminal directional glyphs
 and graphical character-sheet rows agree. Turning changes no position or
 collision. Existing cinematic leases restore real transforms on failure; current

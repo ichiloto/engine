@@ -94,7 +94,7 @@ class TurnStateExecutionContext
   public function getEffectTimelineLibrary(): EffectTimelineLibrary
   {
     return $this->effectTimelines ??= new EffectTimelineLibrary(
-      $this->game->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets');
+      $this->game->getProjectAssetRoot());
   }
 
   /**

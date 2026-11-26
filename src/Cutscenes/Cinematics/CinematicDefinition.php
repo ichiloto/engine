@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use InvalidArgumentException;
 
 /** A hydrated first-class cinematic asset. */
@@ -30,7 +31,8 @@ final class CinematicDefinition
    * @param array<string, mixed> $data
    * @param array<int, array<string, mixed>>|array<string, mixed> $script
    */
-  public static function fromArrays(array $data, array $script): self
+  public static function fromArrays(array $data, array $script,
+    ?ScriptCommandCatalog $scriptCommands = null): self
   {
     $id = trim(strval($data['id'] ?? ''));
 
@@ -99,7 +101,7 @@ final class CinematicDefinition
     }
 
     CinematicCommandPolicy::assertFinalizer($finalizer, $id);
-    CinematicScriptValidator::validate($finalizer, "$id:finalizer");
+    CinematicScriptValidator::validate($finalizer, "$id:finalizer", scriptCommands: $scriptCommands);
 
     if (array_is_list($script)) {
       $commands = $script;
@@ -116,7 +118,7 @@ final class CinematicDefinition
       throw new InvalidArgumentException('Cinematic framing requires subject bindings.');
     }
     $framing = new CinematicFramingDefinition($framingData);
-    CinematicScriptValidator::validate($commands, $id, $framing);
+    CinematicScriptValidator::validate($commands, $id, $framing, $scriptCommands);
 
     if (is_array($data['presentation'] ?? null) && array_key_exists('conversation', $data['presentation'])) {
       if (!is_array($data['presentation']['conversation'])) {
@@ -126,7 +128,7 @@ final class CinematicDefinition
     }
 
     if ($skipPolicy === 'authored') {
-      CinematicCommandPolicy::assertAuthoredSkipSafe($commands, $id);
+      CinematicCommandPolicy::assertAuthoredSkipSafe($commands, $id, $scriptCommands);
     }
 
     $checkpoints = self::listField($data, 'checkpoints', $id);

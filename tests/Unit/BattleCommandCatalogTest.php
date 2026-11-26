@@ -307,3 +307,41 @@ it('hides locked summons and exposes them only to their assigned holder', functi
     },
   );
 });
+
+it('keeps one project’s summon selection and semantics while another project is active', function () {
+  withCatalogSummonProject(null, null, function (): void {
+    $owner = getcwd();
+    $foreign = createTestDirectory('battle-content-foreign');
+    writeSkillRecords($foreign, new SpecialSkill('Test Summon Action', 'Ordinary skill in the other project.', '', 0, 0));
+    $stats = (new Stats(currentMp: 10, totalMp: 10))->jsonSerialize();
+    $actor = Character::fromArray(['name' => 'Caller', 'currentExp' => 1, 'stats' => $stats], assetRoot: $owner . '/assets');
+    $otherActor = Character::fromArray(['name' => 'Visitor', 'currentExp' => 1, 'stats' => $stats,
+      'abilities' => ['learned' => ['Test Summon Action']]], assetRoot: $foreign . '/assets');
+    $party = new Party();
+    $party->addMember($actor);
+    $otherParty = new Party();
+    $otherParty->addMember($otherActor);
+    try {
+      chdir($foreign);
+      BattleCommandCatalog::beginBattle();
+      expect(BattleCommandCatalog::isSummonActionId('Test Summon Action'))->toBeFalse();
+      $summons = BattleCommandCatalog::buildOptions($actor, $party, BattleCommandType::SUMMON);
+      expect($summons)->toHaveCount(1)
+        ->and($summons[0]->type)->toBe(BattleCommandType::SUMMON)
+        ->and($summons[0]->mpCost)->toBe(4)
+        ->and(BattleCommandCatalog::canUseSummonAction($actor, $party, 'Test Summon Action'))->toBeTrue()
+        ->and(BattleCommandCatalog::buildOptions($otherActor, $otherParty, BattleCommandType::SUMMON))->toBe([]);
+      $ordinary = BattleCommandCatalog::buildOptions($otherActor, $otherParty, BattleCommandType::SKILL);
+      expect($ordinary)->toHaveCount(1);
+      BattleCommandCatalog::endBattle();
+      chdir($owner);
+      BattleCommandCatalog::beginBattle();
+      expect(BattleCommandCatalog::isSummonActionId('Test Summon Action'))->toBeTrue()
+        ->and(BattleCommandCatalog::getActionType($ordinary[0]->action))->toBe(BattleCommandType::SKILL)
+        ->and(BattleCommandCatalog::getActionType($summons[0]->action))->toBe(BattleCommandType::SUMMON);
+    } finally {
+      BattleCommandCatalog::endBattle();
+      chdir($owner);
+    }
+  });
+});

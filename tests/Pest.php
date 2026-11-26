@@ -340,9 +340,9 @@ class RecordingAudioManager extends AudioManager
  *
  * @return array{Game, RecordingAudioManager}
  */
-function makeSceneAudioGame(): array
+function makeSceneAudioGame(?Game $game = null): array
 {
-  $game = new PassiveGame();
+  $game ??= new PassiveGame();
   $audioManager = new RecordingAudioManager($game);
   new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audioManager);
 
@@ -350,19 +350,23 @@ function makeSceneAudioGame(): array
 }
 
 /** Real field music boundaries with only terminal setup/playback replaced. */
-function makeFieldAudioScene(): array
+function makeFieldAudioScene(array $musicRules = [], ?Game $game = null): array
 {
-  [$game, $audio] = makeSceneAudioGame();
+  [$game, $audio] = makeSceneAudioGame($game);
+  $root = createTestDirectory('field-music');
+  if ($musicRules !== []) {
+    mkdir("$root/Data");
+    file_put_contents("$root/Data/field-music.php", '<?php return ' . var_export($musicRules, true) . ';');
+  }
+  $game->bindGameLoader(createTestGameLoader($game, assetRoot: $root));
   $manager = makeBareScene(\Ichiloto\Engine\Scenes\SceneManager::class);
   $scene = makeBareScene(\Ichiloto\Engine\Scenes\Game\GameScene::class);
-  $map = makeBareScene(\Ichiloto\Engine\Field\MapManager::class);
+  $map = new \Ichiloto\Engine\Field\MapManager($game, $scene);
   new ReflectionProperty($manager, 'game')->setValue($manager, $game);
   new ReflectionProperty($manager, 'currentScene')->setValue($manager, $scene);
   new ReflectionProperty($scene, 'sceneManager')->setValue($scene, $manager);
   new ReflectionProperty($scene, 'mapManager')->setValue($scene, $map);
   new ReflectionProperty($scene, 'gameState')->setValue($scene, new \Ichiloto\Engine\Core\GameState());
-  new ReflectionProperty($map, 'game')->setValue($map, $game);
-  new ReflectionProperty($map, 'gameScene')->setValue($map, $scene);
   return [$scene, $map, $audio, $manager];
 }
 

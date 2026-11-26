@@ -45,6 +45,7 @@ use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
+use Tests\Support\PassiveGame;
 use function Tests\Support\Rendering\writeTestPng;
 
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
@@ -56,8 +57,11 @@ final class ContextFieldSceneProbe extends GameScene
     public function __construct(string $root)
     {
         $this->camera = new Camera($this, 42, 17);
-        $this->mapManager = makeBareScene(MapManager::class);
-        new ReflectionProperty(MapManager::class, 'gameScene')->setValue($this->mapManager, $this);
+        $project = new class($root) extends PassiveGame {
+            public function __construct(private readonly string $assetRoot) {}
+            public function getProjectAssetRoot(): string { return $this->assetRoot; }
+        };
+        $this->mapManager = new MapManager($project, $this);
         $this->cinematicStage = new CinematicStageManager($this);
         $this->cinematicPresentation = new CinematicPresentationManager($this);
         $this->fieldEffects = new FieldEffectManager($root);

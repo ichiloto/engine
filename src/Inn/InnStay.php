@@ -49,14 +49,14 @@ class InnStay
    */
   public function perform(GameScene $scene): InnStayOutcome
   {
-    $this->offer->confirmDialogue->show();
+    $this->offer->confirmDialogue->showForGame($scene->getGame());
 
     if ($this->offer->confirmDialogue->selectedChoice !== self::CONFIRM_CHOICE) {
       return InnStayOutcome::DECLINED;
     }
 
     if ($scene->party->cannotAfford($this->offer->cost)) {
-      alert('Sorry, you cannot afford to sleep here.');
+      $scene->getGame()->getModalManager()->alert('Sorry, you cannot afford to sleep here.');
       return InnStayOutcome::UNAFFORDABLE;
     }
 

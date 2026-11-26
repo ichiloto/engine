@@ -10,7 +10,7 @@ use Closure;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSession;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
-/** Source validity and structural bounds; subscribed renderers own aggregate live image admission. */
+/** Source validity and structural bounds for canvas consumers with bounded image admission. */
 final class CanvasImagePreflight
 {
   public const MAX_BYTES = 67108864;
@@ -142,7 +142,7 @@ final class CanvasImagePreflight
     }
     $regionBudget = PresentationSession::supportsCapability(RendererSessionConfig::CANVAS_REGION_BUDGET);
     $chargedSources = $regionBudget ? $wholeSources : $sources;
-    $rendererOwnsImageBytes = PresentationSession::supportsCapability(RendererSessionConfig::ASSET_HOLDS);
+    $rendererOwnsImageBytes = PresentationSession::usesConsumerCanvasImageAdmission();
     if (count($sources) > 1024 || count($regions) > 4096
       || (!$rendererOwnsImageBytes && (array_sum($chargedSources) > self::MAX_BYTES
         || array_sum($regions) > self::MAX_BYTES))) {

@@ -99,7 +99,12 @@ it('retains legacy empty and ragged grids without padding or changing out-of-bou
     expect($set->getComposedGrid())->toBe($layer->readGrid())
         ->and($set->getGameplayLayerAt(-1, -1))->toBe($layer)
         ->and($set->getGameplayLayerAt(999, 999))->toBe($layer);
-})->with(['', "x\nxx\n", "x\n\nx", "\e[44m \e[0m"]);
+})->with([
+  'empty grid' => '',
+  'ragged rows' => "x\nxx\n",
+  'blank row' => "x\n\nx",
+  'ANSI background' => "\e[44m \e[0m",
+]);
 
 it('keeps visual ownership separate from pass-through collision resolution', function () {
     $set = new MapLayerSet([

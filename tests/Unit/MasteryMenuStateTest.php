@@ -196,11 +196,12 @@ beforeEach(function () {
   Console::setTerminalOutputEnabled(false);
   $this->game = new MasteryMenuTestGame();
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, null);
-  $audio = new class extends AudioManager {
-    public function __construct() {}
+  $audio = new class($this->game) extends AudioManager {
+    public function __construct(Game $game) { parent::__construct($game); }
+    protected function createBackends(): array { return []; }
     public function playSystemSound(\Ichiloto\Engine\Audio\Enumerations\SystemSound $sound): void {}
   };
-  new ReflectionProperty($this->game, 'audioManager')->setValue($this->game, $audio);
+  $this->game->bindAudioManager($audio);
   new ReflectionProperty(Console::class, 'game')->setValue(null, $this->game);
   $manager = makeBareScene(SceneManager::class);
   new ReflectionProperty($manager, 'game')->setValue($manager, $this->game);
@@ -509,8 +510,8 @@ it('takes as long to hold under reduced motion, without the drain, and changes t
 
 it('ticks the shared counter only while a drawn total moves, and stops when it lands, is not drawn or closes', function () {
   // The game's EXP tally is bound too: an SP count still plays the generic counter.
-  $manager = makeCounterTickManager(bindsExpTally: true);
-  new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, $manager);
+  $manager = makeCounterTickManager(bindsExpTally: true, game: $this->game);
+  new ReflectionProperty(Game::class, 'audioManager')->setValue($this->game, $manager);
   $drawn = new ReflectionProperty($this->state, 'isMenuCanvasShown');
   masteryMenuHero($this->hero, 300);
   $this->state->enter();

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Rendering;
 
+use Ichiloto\Engine\Animations\Field\FieldSpriteBounds;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
@@ -32,6 +33,8 @@ final readonly class FieldViewport
   public const float MAX_ZOOM = PresentationViewport::MAX_SCALE;
   public int $columns;
   public int $rows;
+  public float $surfaceOffsetX;
+  public float $surfaceOffsetY;
 
   public function __construct(public RendererGridConfig $grid, public float $zoom = self::DEFAULT_ZOOM)
   {
@@ -40,8 +43,13 @@ final readonly class FieldViewport
     }
     // As many whole field cells as the session surface holds; the remainder is
     // split evenly around the field.
-    $this->columns = max(1, (int)floor($grid->columns * $grid->cellWidth / (self::TILE_SIZE * $zoom)));
-    $this->rows = max(1, (int)floor($grid->rows * $grid->cellHeight / (self::TILE_SIZE * $zoom)));
+    $width = $grid->columns * $grid->cellWidth;
+    $height = $grid->rows * $grid->cellHeight;
+    $tile = self::TILE_SIZE * $zoom;
+    $this->columns = max(1, (int)floor($width / $tile));
+    $this->rows = max(1, (int)floor($height / $tile));
+    $this->surfaceOffsetX = max(0, ($width - $this->columns * $tile) / 2);
+    $this->surfaceOffsetY = max(0, ($height - $this->rows * $tile) / 2);
   }
 
   /** @param array{x: int, y: int} $origin The viewport's top-left world cell. */
@@ -50,6 +58,15 @@ final readonly class FieldViewport
     $x = $cell->x - $origin['x'];
     $y = $cell->y - $origin['y'];
     return $x >= 0 && $x < $this->columns && $y >= 0 && $y < $this->rows;
+  }
+
+  /** The renderer's clip in field cells, including any pixels along the outer rows. */
+  public function getVisibleBounds(): FieldSpriteBounds
+  {
+    $tile = self::TILE_SIZE * $this->zoom;
+    return new FieldSpriteBounds(-$this->surfaceOffsetX / $tile, -$this->surfaceOffsetY / $tile,
+      ($this->grid->columns * $this->grid->cellWidth - $this->surfaceOffsetX) / $tile,
+      ($this->grid->rows * $this->grid->cellHeight - $this->surfaceOffsetY) / $tile);
   }
 
   /**
@@ -74,9 +91,7 @@ final readonly class FieldViewport
     $follow = $worldId !== null && $followSpriteId !== null && in_array($followSpriteId, $spriteIds, true)
       ? new PresentationViewportFollow($followSpriteId, array_values(array_intersect([PresentationLayerPolicy::FIELD_PROMPT_ID], $textLayerIds)))
       : null;
-    return new PresentationViewport($this->zoom,
-      max(0, ($width - $this->columns * self::TILE_SIZE * $this->zoom) / 2),
-      max(0, ($height - $this->rows * self::TILE_SIZE * $this->zoom) / 2),
+    return new PresentationViewport($this->zoom, $this->surfaceOffsetX, $this->surfaceOffsetY,
       new CanvasRectangle(0, 0, $width, $height), $textLayerIds, $spriteIds, array_column($tiles, 'id'),
       $worldId, $worldOrigin['x'], $worldOrigin['y'], $tileFrame, $follow, $worldCanvasIds, $cameraMotion);
   }

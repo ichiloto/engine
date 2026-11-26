@@ -11,7 +11,9 @@ use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 use InvalidArgumentException;
 use Throwable;
 
@@ -22,10 +24,10 @@ final class BattleConditionEffects
   private array $diagnostics = [];
   private readonly BattleConditionSlots $slots;
 
-  public static function createFromConfig(EffectTimelineLibrary $library): self
+  public static function createFromConfig(EffectTimelineLibrary $library, ?ConfigInterface $configuration = null): self
   {
-    return new self($library, \Ichiloto\Engine\Util\Config\ConfigStore::has(\Ichiloto\Engine\Util\Config\ProjectConfig::class)
-      ? config(\Ichiloto\Engine\Util\Config\ProjectConfig::class, 'ui.battle.conditions', []) : []);
+    $configuration ??= ProjectConfig::findForGame();
+    return new self($library, $configuration?->get('ui.battle.conditions', []) ?? []);
   }
 
   public function __construct(private readonly EffectTimelineLibrary $library, array $bindings = [])

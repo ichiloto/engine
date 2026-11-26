@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Scenes\Arena;
 
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\WorldConditionType;
 use Ichiloto\Engine\Entities\Character;
@@ -169,9 +170,9 @@ final readonly class BattleTestWorld
   }
 
   /** A fresh world state holding these facts, for one test fight. */
-  public function createGameState(): GameState
+  public function createGameState(?WorldAbilityCatalog $worldAbilities = null): GameState
   {
-    $state = new GameState();
+    $state = new GameState($worldAbilities);
     foreach ($this->variables as $name => $value) { $state->setVariable($name, $value); }
     foreach ($this->switches as $name => $value) { $state->setSwitch($name, $value); }
     foreach ($this->events as $event) { $state->recordStoryEvent($event); }

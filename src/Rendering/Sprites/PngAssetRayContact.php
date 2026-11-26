@@ -39,7 +39,7 @@ final class PngAssetRayContact
 
     $crop = $image->sourceRect;
     $size = PngAssetPreflight::inspect($root, $image->asset, $crop);
-    $source = @imagecreatefrompng($root . DIRECTORY_SEPARATOR . $image->asset);
+    $source = PngAssetDecoder::decodeFile($root . DIRECTORY_SEPARATOR . $image->asset);
     if ($source === false || ($crop?->x ?? 0) + $size['width'] > imagesx($source)
       || ($crop?->y ?? 0) + $size['height'] > imagesy($source)) {
       throw new RuntimeException('Battle flight could not read its target artwork.');

@@ -195,7 +195,7 @@ final class TerminalCapabilities
    */
   protected static function probeCompositeEmojiWidth(): ?int
   {
-    if (! Console::isTerminalOutputEnabled() || ! stream_isatty(STDOUT) || ! stream_isatty(STDIN)) {
+    if (!Console::isTerminalOutputEnabled() || !Console::hasInteractiveTerminalInput() || !stream_isatty(STDOUT)) {
       return null;
     }
 

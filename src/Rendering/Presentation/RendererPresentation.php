@@ -320,6 +320,11 @@ final class RendererPresentation
       && !$this->client->supports(RendererSessionConfig::CANVAS_TEXTURE_STRIP)) {
       throw new RendererProtocolException('Texture strips require negotiated canvas_texture_strip support.');
     }
+    if (array_any($canvas->composites, static fn($composite): bool => array_any($composite->operations,
+        static fn($operation): bool => $operation->textureStrip?->clipPlane !== null))
+      && !$this->client->supports(RendererSessionConfig::CANVAS_TEXTURE_STRIP_CLIP)) {
+      throw new RendererProtocolException('Texture strip clipping requires negotiated canvas_texture_strip_clip support.');
+    }
     if ($canvas->labels !== [] && (!$this->client->supports(RendererSessionConfig::CANVAS_LABELS)
       || !$this->client->supports(RendererSessionConfig::TEXT_LAYOUT))) {
       throw new RendererProtocolException('Canvas labels require negotiated canvas_labels and text_layout support.');

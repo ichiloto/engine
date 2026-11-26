@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/PassiveGame.php';
 
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
@@ -18,8 +19,9 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
+use Tests\Support\PassiveGame;
 
-// No Game, native renderer or audio backend is constructed in this memory probe.
+// The test Game only resolves project data.
 ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['sprites' => ['allow_composite_emoji' => true]]]));
 Debug::configure(['log_directory' => $argv[1]]);
 Console::setTerminalOutputEnabled(false);
@@ -31,8 +33,7 @@ $camera = new Camera($scene, 8, 4);
 new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
 new ReflectionProperty(GameScene::class, 'party')->setValue($scene,
     new ReflectionClass(Party::class)->newInstanceWithoutConstructor());
-$manager = new class($scene) extends MapManager {
-    public function __construct(GameScene $scene) { $this->gameScene = $scene; }
+$manager = new class(new PassiveGame(), $scene) extends MapManager {
     protected function applyMapBackgroundMusic(mixed $bgm, mixed $variants = []): void {}
 };
 new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $manager);

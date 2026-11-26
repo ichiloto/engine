@@ -86,6 +86,48 @@ it('keeps simultaneous contacts at their own clock after an earlier snapshot', f
     ->and($playback->presentationFailure)->toBeNull();
 });
 
+it('plants staggered ground images at the captured feet while live ground images follow movement', function (bool $reduced) {
+  $source = $this->data;
+  $source['tracks'][0]['attachment'] = 'ground';
+  $source['tracks'][0]['anchorLifetime'] = 'target-capture';
+  $source['tracks'][] = [
+    'id' => 'moving', 'type' => 'image', 'presentation' => 'graphical', 'asset' => 'effect.png',
+    'anchor' => 'target', 'attachment' => 'ground', 'keyframes' => [['frame' => 6, 'duration' => 8]],
+  ];
+  $effect = (new EffectTimelineValidator($this->root))->compile('planted', $source, forBattle: true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect);
+  $resolved = 0;
+  $playback = new BattleCommandPlayback($plan, $this->actor, [$this->first, $this->second], BattlePoseRole::ATTACK,
+    function () use (&$resolved) { $resolved++; }, static fn() => null);
+  $playback->bindTargetGroupCapture(fn($sample) => BattleEffectTargetGroup::collectTargets($sample->targets, $this->bounds, $this->grounds));
+  $playback->begin();
+  $tick = fn(int $authored): int => $plan->getCommandFrameForAuthoredFrame('target', $authored);
+  $playback->update($tick(5) / BattleCommandTimeline::FPS);
+  $first = spl_object_id($this->first); $second = spl_object_id($this->second);
+  $this->bounds[$first] = new CanvasRectangle(90, 80, 20, 30);
+  $this->bounds[$second] = new CanvasRectangle(220, 120, 10, 20);
+  $this->grounds[$first] = new Vector2(95, 110);
+  $this->grounds[$second] = new Vector2(224, 140);
+  $inspect = function (int $frame, int $recipient) use ($plan, $playback, $reduced, $tick): array {
+    $playback->update(($tick($frame) - $playback->session->currentFrame) / $plan::FPS);
+    $images = array_column(GraphicalBattleEffects::compose($playback, new BattleCanvasLayout(1440, 840),
+      $this->bounds, $this->root, $reduced, groundAnchors: $this->grounds)->images, 'destination', 'id');
+    $centres = [];
+    foreach (['contact', 'moving'] as $track) {
+      $destination = $images['command-effect-target-' . $track . '-' . $recipient];
+      $centres[] = [$destination->x + $destination->width / 2, $destination->y + $destination->height / 2];
+    }
+    return $centres;
+  };
+  expect($inspect(6, $first))->toBe([[85.0, 100.0], [95.0, 110.0]])
+    ->and($inspect(10, $second))->toBe([[24.0, 40.0], [224.0, 140.0]])
+    ->and($playback->presentationFailure)->toBeNull()->and($resolved)->toBe(0);
+  $playback->update(100);
+  expect($resolved)->toBe(1)->and($playback->getActiveSegments($reduced))->toBe([]);
+  $playback->cancel();
+  expect($playback->getCapturedTargetGroup('snapshot'))->toBeNull();
+})->with([false, true]);
+
 it('supports a captured group without any contact sequence and preserves source round trips', function (bool $paired) {
   $data = $this->data;
   unset($data['targetContactSequence']);

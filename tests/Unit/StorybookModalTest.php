@@ -44,7 +44,6 @@ beforeEach(function () {
     }
     ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 24]));
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['audio' => ['music' => false, 'sfx' => false, 'voice' => false]]));
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
     new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, null);
     Timers::setFrameTick(null);
     InputManager::setBindings(['confirm' => ['keys' => [KeyCode::ENTER]], 'cancel' => ['keys' => [KeyCode::ESCAPE]],

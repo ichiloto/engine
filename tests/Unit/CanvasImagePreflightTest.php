@@ -4,6 +4,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSession;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 
 beforeEach(function () {
@@ -192,14 +193,14 @@ it('reports measured budget fallback defects once as errors and keeps ordinary f
 });
 
 
-it('leaves aggregate image bytes to a subscribed renderer while preserving legacy limits and source validation', function () {
+it('leaves aggregate image bytes to bounded consumers and preserves legacy limits and source validation', function (bool $embedded) {
   $images = [];
   foreach (['first.png', 'second.png'] as $asset) {
     ($this->png)($asset, 4096, 4096);
     $images[] = new CanvasImage($asset, $asset, new CanvasRectangle(0, 0, 16, 16));
   }
-  $subscribed = static fn(string $cap): bool => $cap === \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS;
-  CanvasImagePreflight::runForSession($subscribed, function () use ($images): void {
+  $subscribed = static fn(string $cap): bool => !$embedded && $cap === \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS;
+  PresentationSession::runForSession($subscribed, function () use ($images): void {
     $usage = CanvasImagePreflight::inspect($images, $this->root);
     expect(array_sum($usage['sources']))->toBeGreaterThan(CanvasImagePreflight::MAX_BYTES)
       ->and(array_sum($usage['regions']))->toBeGreaterThan(CanvasImagePreflight::MAX_BYTES);
@@ -211,20 +212,20 @@ it('leaves aggregate image bytes to a subscribed renderer while preserving legac
     expect(fn() => CanvasImagePreflight::inspect([
       new CanvasImage('oversize', 'oversize.png', new CanvasRectangle(0, 0, 1, 1))], $this->root))
       ->toThrow(RuntimeException::class);
-  });
+  }, consumerAdmitsCanvasImages: $embedded);
   expect(fn() => CanvasImagePreflight::inspect($images, $this->root))
     ->toThrow(\Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageBudgetExceeded::class, 'legacy whole-PNG');
-});
+})->with(['asset hold subscriber' => false, 'embedded canvas consumer' => true]);
 
-it('retains structural prepared-region limits when the renderer owns aggregate allocation', function () {
+it('retains structural prepared-region limits when the renderer owns aggregate allocation', function (bool $embedded) {
   ($this->png)('sheet.png', 100, 100);
   $images = [];
   for ($index = 0; $index < 4097; $index++) {
     $images[] = new CanvasImage('cell-' . $index, 'sheet.png', new CanvasRectangle(0, 0, 1, 1),
       sourceRect: new SpriteSourceRect($index % 100, intdiv($index, 100), 1, 1));
   }
-  expect(fn() => CanvasImagePreflight::runForSession(
-    static fn(string $cap): bool => $cap === \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS,
-    fn() => CanvasImagePreflight::inspect($images, $this->root)))
+  expect(fn() => PresentationSession::runForSession(
+    static fn(string $cap): bool => !$embedded && $cap === \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::ASSET_HOLDS,
+    fn() => CanvasImagePreflight::inspect($images, $this->root), consumerAdmitsCanvasImages: $embedded))
     ->toThrow(\Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageBudgetExceeded::class, 'structural image limits');
-});
+})->with(['asset hold subscriber' => false, 'embedded canvas consumer' => true]);

@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Quests\QuestLog;
 use InvalidArgumentException;
 
 /**
@@ -23,6 +24,7 @@ final readonly class BattleEntryContext
   /** @var array<string, BattleEntryActor> */
   private array $reserveById;
   private GameState $worldStateSnapshot;
+  private ?QuestLog $questLogSnapshot;
 
   /**
    * @param BattleEntryActor[] $activeActors
@@ -38,7 +40,9 @@ final readonly class BattleEntryContext
     public string $executionId,
   )
   {
-    $this->worldStateSnapshot = GameState::fromArray($worldState->toArray());
+    $this->worldStateSnapshot = GameState::fromArray($worldState->toArray(), $worldState->worldAbilities);
+    $quests = $worldState->getQuestManager()?->log;
+    $this->questLogSnapshot = $quests === null ? null : QuestLog::fromArray($quests->toArray());
     $this->activeById = $this->index($activeActors, 'active');
     $this->reserveById = $this->index($reserveActors, 'reserve');
 
@@ -94,7 +98,7 @@ final readonly class BattleEntryContext
   /** @param array<int, mixed> $conditions */
   public function conditionsHold(array $conditions): bool
   {
-    return WorldConditionEvaluator::allHold($conditions, $this->worldStateSnapshot, $this->party);
+    return WorldConditionEvaluator::allHold($conditions, $this->worldStateSnapshot, $this->party, $this->questLogSnapshot);
   }
 
   public function hasActor(string $actorId, BattleEntryActorPresence $presence): bool

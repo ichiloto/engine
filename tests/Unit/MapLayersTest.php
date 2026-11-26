@@ -9,6 +9,7 @@ use Ichiloto\Engine\Field\MapCollisionResolver;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Tests\Support\PassiveGame;
 use Ichiloto\Engine\Util\Debug;
 
 final class LayeredMapManagerProbe extends MapManager
@@ -93,11 +94,10 @@ it('refuses a bad layer before executing map data and preserves the active camer
     writeLayerGrid($this->directory, 'layers/01.floor.map.php', 'xx');
     writeLayerGrid($this->directory, 'town.event.php', '  ');
     file_put_contents($this->directory . '/layers/02.wall.map.php', "<?php\nreturn explode('x', 'x');");
-    $manager = new ReflectionClass(LayeredMapManagerProbe::class)->newInstanceWithoutConstructor();
     $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
     $camera = new Camera(makeCameraTestScene(), 8, 4, worldSpace: [['old']]);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
-    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+    $manager = new LayeredMapManagerProbe(new PassiveGame(), $scene);
     try {
         $manager->readSplitMap($paths);
         throw new RuntimeException('Bad layer accepted.');
@@ -115,11 +115,10 @@ it('loads the composed grid into the camera and validates event dimensions befor
     writeLayerGrid($this->directory, 'layers/02.wall.map.php', ' #');
     writeLayerGrid($this->directory, 'town.event.php', '  ');
     file_put_contents($paths['data'], '<?php return ["name" => "Town"];');
-    $manager = new ReflectionClass(LayeredMapManagerProbe::class)->newInstanceWithoutConstructor();
     $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
     $camera = new Camera(makeCameraTestScene(), 8, 4);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
-    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+    $manager = new LayeredMapManagerProbe(new PassiveGame(), $scene);
     $manager->readSplitMap($paths);
     expect($camera->worldSpace)->toBe([[';', '#']])->and($manager->layers?->layers)->toHaveCount(2);
     writeLayerGrid($this->directory, 'town.event.php', ' ');
@@ -139,11 +138,10 @@ it('clears layered and legacy geometry together when a preview unloads', functio
     }
     writeLayerGrid($this->directory, 'town.event.php', '  ');
     file_put_contents($paths['data'], '<?php return ["name" => "Town"];');
-    $manager = new ReflectionClass(LayeredMapManagerProbe::class)->newInstanceWithoutConstructor();
     $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
     $camera = new Camera(makeCameraTestScene(), 8, 4);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
-    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+    $manager = new LayeredMapManagerProbe(new PassiveGame(), $scene);
     $manager->readSplitMap($paths);
     $collision = new ReflectionProperty(MapManager::class, 'collisionMap');
     $collision->setValue($manager, [[0, 0]]);
@@ -163,11 +161,10 @@ it('warns about and ignores a retired glyph-keyed tiles2d table while loading th
         ['column' => 9, 'row' => 0, 'source' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 32]],
     ]]]]];
     file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
-    $manager = new ReflectionClass(LayeredMapManagerProbe::class)->newInstanceWithoutConstructor();
     $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
     $camera = new Camera(makeCameraTestScene(), 8, 4);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
-    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+    $manager = new LayeredMapManagerProbe(new PassiveGame(), $scene);
     $debug = new ReflectionClass(Debug::class)->getStaticProperties();
     Debug::configure(['log_directory' => $this->directory . '/logs']);
     try {

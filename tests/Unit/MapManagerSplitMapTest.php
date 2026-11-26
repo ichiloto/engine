@@ -4,6 +4,7 @@ use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Tests\Support\PassiveGame;
 
 final class SplitMapManagerProbe extends MapManager
 {
@@ -35,11 +36,10 @@ it('loads the terminal map afresh whatever retired tiles2d metadata the data fil
   $paths = ['id'=>'test/terrain','data'=>"$directory/map.data.php",'map'=>"$directory/map.map.php",'event'=>"$directory/map.event.php"];
   file_put_contents($paths['map'], "<?php\nreturn <<<'MAP'\n;~\nMAP;\n");
   file_put_contents($paths['event'], "<?php\nreturn <<<'EVENT'\n  \nEVENT;\n");
-  $manager = new ReflectionClass(SplitMapManagerProbe::class)->newInstanceWithoutConstructor();
   $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
   $camera = new Camera(makeCameraTestScene(),8,4);
   new ReflectionProperty(GameScene::class,'camera')->setValue($scene,$camera);
-  new ReflectionProperty(MapManager::class,'gameScene')->setValue($manager,$scene);
+  $manager = new SplitMapManagerProbe(new PassiveGame(), $scene);
   $debug = new ReflectionClass(\Ichiloto\Engine\Util\Debug::class)->getStaticProperties();
   \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $directory]);
   try {
@@ -77,11 +77,10 @@ it('prepares a destination without touching the active map and refuses a bad eve
   file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
 
   try {
-    $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
     $scene = (new ReflectionClass(GameScene::class))->newInstanceWithoutConstructor();
     $camera = new Camera(makeCameraTestScene(), 8, 4, worldSpace: [['old']]);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
-    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+    $manager = new SplitMapManagerProbe(new PassiveGame(), $scene);
     $manager->testPaths = $paths;
 
     $prepared = $manager->prepareMap('ignored');
@@ -144,10 +143,9 @@ it('prepares a map that turns dashing off and refuses one that does not say true
   file_put_contents($paths['map'], "<?php return <<<'MAP'\n..\nMAP;");
   file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
   try {
-    $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
     $scene = (new ReflectionClass(GameScene::class))->newInstanceWithoutConstructor();
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new Camera(makeCameraTestScene(), 8, 4));
-    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+    $manager = new SplitMapManagerProbe(new PassiveGame(), $scene);
     $manager->testPaths = $paths;
     file_put_contents($paths['data'], "<?php return ['name' => 'Dash', 'disableDashing' => true];");
     expect($manager->prepareMap('ignored')->data['disableDashing'])->toBeTrue()->and($manager->isDashingDisabled)->toBeFalse();
@@ -196,12 +194,11 @@ PHP);
   file_put_contents($paths['event'], "<?php\nreturn <<<'EVENT'\nA \n  \nEVENT;\n");
 
   try {
-    $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
     $gameScene = (new ReflectionClass(GameScene::class))->newInstanceWithoutConstructor();
     $camera = new Camera(makeCameraTestScene(), 10, 10);
 
     (new ReflectionProperty(GameScene::class, 'camera'))->setValue($gameScene, $camera);
-    (new ReflectionProperty(MapManager::class, 'gameScene'))->setValue($manager, $gameScene);
+    $manager = new SplitMapManagerProbe(new PassiveGame(), $gameScene);
 
     try {
       $manager->readSplitMap($paths);
@@ -239,7 +236,8 @@ it('refuses either executable grid before evaluating the map data file', functio
   file_put_contents($paths[$member], '<?php file_put_contents(' . var_export($marker, true) . ", 'yes'); return 'x';");
 
   try {
-    $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
+    $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
+    $manager = new SplitMapManagerProbe(new PassiveGame(), $scene);
     expect(fn() => $manager->readSplitMap($paths))->toThrow(InvalidArgumentException::class, 'literal nowdoc');
     expect(is_file($marker))->toBeFalse();
   } finally {

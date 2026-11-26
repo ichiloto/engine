@@ -257,7 +257,7 @@ final class PngAssetBounds
       if ($decoded === null) {
         $span = LatencyTrace::beginSpan();
         try {
-          $current = @imagecreatefromstring(PngAssetPreflight::readRevisionBytes($root, $image->asset, $version));
+          $current = PngAssetDecoder::decodeBytes(PngAssetPreflight::readRevisionBytes($root, $image->asset, $version));
           if ($current === false) { throw new RuntimeException('Visible-pixel inspection could not decode the current PNG.'); }
           // Palette transparency becomes alpha once for the complete source, before any crop is inspected.
           if (!imageistruecolor($current)) { imagepalettetotruecolor($current); }

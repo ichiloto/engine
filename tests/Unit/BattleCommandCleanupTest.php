@@ -1,10 +1,14 @@
 <?php
 
+use Ichiloto\Engine\Animations\Animation;
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\AudioPlayback;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\Presentation\BattleCommandRunner;
+use Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline;
 use Ichiloto\Engine\Battle\Presentation\BattlePoseRole;
 use Ichiloto\Engine\Battle\UI\BattleCharacterNameWindow;
 use Ichiloto\Engine\Battle\UI\BattleCharacterStatusWindow;
@@ -14,6 +18,7 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
+use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use function Tests\Support\Battle\createCommandFixtureScene;
 use function Tests\Support\Battle\createTargetExecutionFixture;
@@ -85,6 +90,48 @@ function createCommandCleanupRunner(TurnStateExecutionContext $context, callable
     new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), null, null,
     $resolve, static fn() => [], static fn() => null);
 }
+
+it('runs only the selected target presentation on the live command clock', function (bool $graphical) {
+  [$engine, $context, , $actor, , $enemies] = createTargetExecutionFixture(false, $graphical, $this->createStub(AudioManager::class));
+  $root = sys_get_temp_dir() . '/ichiloto-command-presentation-' . bin2hex(random_bytes(6));
+  $folder = $root . '/Animations/independent-impact';
+  mkdir($folder, 0700, true);
+  $path = $folder . '/independent-impact.timeline.php';
+  $variants = [];
+  foreach (['graphical' => 4, 'terminal' => 14] as $presentation => $length) {
+    $variants[$presentation] = [
+      'fps' => 24, 'lengthFrames' => $length, 'effectTiming' => ['mode' => 'frame', 'frame' => 2],
+      'tracks' => [['id' => 'mark', 'type' => 'glyph', 'presentation' => $presentation, 'anchor' => 'target',
+        'keyframes' => [['frame' => 0, 'duration' => $length, 'content' => '+', 'position' => ['x' => 0, 'y' => 0]]]]],
+    ];
+  }
+  file_put_contents($path, '<?php return ' . var_export(['presentations' => $variants], true) . ';');
+  new ReflectionProperty(TurnStateExecutionContext::class, 'effectTimelines')->setValue($context, new EffectTimelineLibrary($root));
+  $state = $engine->actionExecutionState;
+  $resolutions = 0;
+  $command = null;
+  try {
+    new ReflectionMethod(ActionExecutionState::class, 'startPreparedCommand')->invoke($state,
+      $context, $actor, [$enemies[0]], null, 'Independent effect',
+      function () use (&$resolutions): void { $resolutions++; },
+      new BattleTurnTimings(0, 0, 0, 0, .1, .1, 0), null, new Animation(1, 'Independent effect', targetEffect: 'independent-impact'));
+    $command = new ReflectionProperty(ActionExecutionState::class, 'command')->getValue($state);
+    $plan = $command->playback->plan;
+    $target = $plan->phases['target'];
+    expect($target['length'])->toBe($graphical ? 20 : 70)
+      ->and($plan->impactFrame)->toBe($target['start'] + 10)
+      ->and($plan->phases['reaction']['start'])->toBe($target['start'] + $target['length'])
+      ->and($plan->terminalTarget)->toBeNull();
+    $command->update(1.0);
+    expect($resolutions)->toBe(1)->and($command->playback->isCompleted)->toBeTrue();
+  } finally {
+    $command?->dispose();
+    unlink($path);
+    rmdir($folder);
+    rmdir(dirname($folder));
+    rmdir($root);
+  }
+})->with([true, false]);
 
 it('holds command time and every cue while resources wait and starts with a fresh update boundary', function (string $outcome) {
   require_once __DIR__ . '/../Support/ManualRuntimeClock.php';
@@ -429,3 +476,50 @@ it('declares the actual post-result reaction outside combat resolution and never
   } finally { $runner->dispose(); }
   expect($leases->getDesiredRequests())->toBe([]);
 })->with([false, true]);
+
+it('stops only the abandoned battle command’s authored sounds and lets a completed tail finish', function (bool $graphical, bool $complete) {
+  $first = $this->createMock(AudioPlayback::class);
+  $second = $this->createMock(AudioPlayback::class);
+  foreach ([$first, $second] as $sound) {
+    $sound->expects($complete ? $this->never() : $this->once())->method('stop');
+  }
+  $audio = $this->createMock(AudioManager::class);
+  $audio->expects($this->never())->method('shutdown');
+  $audio->expects($this->never())->method('stopBackgroundMusic');
+  $cues = [];
+  $audio->expects($this->exactly(2))->method('startSoundEffect')
+    ->willReturnCallback(static function (string $path) use (&$cues, $first, $second): AudioPlayback {
+      $cues[] = $path;
+      return $path === 'intro' ? $first : $second;
+    });
+  [, $context] = createTargetExecutionFixture(false, $graphical, $audio);
+  $actor = $context->partyRoster->battlers[0];
+  $effect = new CompiledEffectTimeline('audible-action', '', fps: 10, cueSchedule: [
+    ['id' => 'intro', 'frame' => 2, 'type' => 'playSound', 'payload' => ['sound' => 'intro']],
+    ['id' => 'hit', 'frame' => 4, 'type' => 'playSound', 'payload' => ['soundEffect' => 'hit']],
+  ], defaults: ['lengthFrames' => 14, 'effectTiming' => ['mode' => 'frame', 'frame' => 4]]);
+  $resolutions = 0;
+  $runner = new BattleCommandRunner($context, $actor, [$actor], null, '',
+    new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), null, $effect,
+    static function () use (&$resolutions): void { $resolutions++; },
+    static fn() => [], static fn() => null);
+  $runner->begin();
+  $impact = $runner->playback->plan->impactFrame;
+  $runner->update(($impact - 1) / BattleCommandTimeline::FPS);
+  expect($cues)->toBe(['intro'])->and($resolutions)->toBe(0);
+  // An inspection sample never owns the live command’s players.
+  $runner->playback->createPresentationSample($impact)->cancel();
+  $runner->update(1 / BattleCommandTimeline::FPS);
+  expect($cues)->toBe(['intro', 'hit'])->and($resolutions)->toBe(1);
+  if ($complete) {
+    $runner->update(10);
+    expect($runner->playback->isCompleted)->toBeTrue();
+  } else {
+    expect($runner->playback->isCompleted)->toBeFalse();
+    $context->ui->fieldWindow->resumeTiming(discard: true);
+    expect($runner->playback->isCancelled)->toBeTrue();
+  }
+  $runner->dispose();
+  $runner->update(10);
+  expect($cues)->toBe(['intro', 'hit'])->and($resolutions)->toBe(1);
+})->with([false, true])->with([false, true]);

@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Settings;
 
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\Enumerations\AudioBus;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
@@ -36,6 +37,8 @@ class SettingsCatalog
   protected const int MIN_VOLUME = AudioManager::MIN_VOLUME;
   protected const int MAX_VOLUME = AudioManager::MAX_VOLUME;
   protected const int VOLUME_STEP = 5;
+
+  public function __construct(private readonly ?Game $game = null) {}
 
   /**
    * Returns every defined setting, keyed by its setting key.
@@ -95,7 +98,7 @@ class SettingsCatalog
         'Advances dialogue after voice or reading time until switched off.',
         ['Off' => false, 'On' => true],
       ),
-      ...(PlayerDash::isAvailable() ? [new GameSetting(
+      ...(PlayerDash::isAvailable($this->game) ? [new GameSetting(
         'always_dash',
         'Always Dash',
         'Dash without holding Dash; hold Dash to walk.',
@@ -204,34 +207,33 @@ class SettingsCatalog
       return $this->readVolume($bus->getVolumeConfigPath(), AudioBus::DEFAULT_VOLUME);
     }
     if ($bus = AudioBus::tryFrom($key)) {
-      return boolval(config(ProjectConfig::class, $bus->getEnabledConfigPath(), $bus->isEnabledByDefault()));
+      return (bool) $this->getConfiguration()->get($bus->getEnabledConfigPath(), $bus->isEnabledByDefault());
     }
 
+    $read = fn(string $path, mixed $default): mixed => $this->getConfiguration()->get($path, $default);
     return match ($key) {
       'volume' => $this->readVolume(AudioManager::CONFIG_MASTER_VOLUME, AudioManager::DEFAULT_MASTER_VOLUME),
-      'dialogue_auto' => boolval(config(ProjectConfig::class, DialoguePlayback::CONFIG_AUTO, false)),
-      'dialogue_speed' => config(
-        ProjectConfig::class,
+      'dialogue_auto' => (bool) $read(DialoguePlayback::CONFIG_AUTO, false),
+      'dialogue_speed' => $read(
         'ui.dialogue.speed',
-        config(ProjectConfig::class, 'ui.dialogue.message.speed', 50)
+        $read('ui.dialogue.message.speed', 50)
       ),
-      'notification_duration' => Accessibility::notificationDurationScale(),
-      'tutorial_prompts' => boolval(config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true)),
-      'cursor_memory' => boolval(config(ProjectConfig::class, 'ui.cursor.memory', false)),
-      'always_dash' => boolval(config(ProjectConfig::class, PlayerDash::CONFIG_ALWAYS_DASH, false)),
-      'battle_message_pace' => config(ProjectConfig::class, 'ui.battle.message_pace', 'slow'),
-      'battle_animation_pace' => config(
-        ProjectConfig::class,
+      'notification_duration' => Accessibility::notificationDurationScale($this->game),
+      'tutorial_prompts' => (bool) $read(TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
+      'cursor_memory' => (bool) $read('ui.cursor.memory', false),
+      'always_dash' => PlayerDash::isAlwaysDashOn($this->game),
+      'battle_message_pace' => $read('ui.battle.message_pace', 'slow'),
+      'battle_animation_pace' => $read(
         'ui.battle.animation_pace',
-        config(ProjectConfig::class, 'ui.battle.message_pace', 'slow')
+        $read('ui.battle.message_pace', 'slow')
       ),
-      'selection_color' => SelectionStyle::resolveColor(),
-      'atlas_size' => \Ichiloto\Engine\UI\Presentation\MapAtlasSize::getCornerSize(config(ProjectConfig::class, 'ui.hud.map_size', 'compact'))->value,
-      'location_hud' => boolval(config(ProjectConfig::class, 'ui.hud.location', false)),
+      'selection_color' => SelectionStyle::resolveColor($this->game),
+      'atlas_size' => \Ichiloto\Engine\UI\Presentation\MapAtlasSize::getCornerSize($read('ui.hud.map_size', 'compact'))->value,
+      'location_hud' => (bool) $read('ui.hud.location', false),
       'transitions' => TransitionStyle::tryFrom(strtolower(strval(
-        config(ProjectConfig::class, ScreenTransition::CONFIG_STYLE, TransitionStyle::NONE->value)
+        $read(ScreenTransition::CONFIG_STYLE, TransitionStyle::NONE->value)
       ))) ?? TransitionStyle::NONE,
-      'battle_transitions' => ScreenTransition::isBattleEnabled(),
+      'battle_transitions' => ScreenTransition::isBattleEnabled($this->game),
       default => null,
     };
   }
@@ -245,7 +247,7 @@ class SettingsCatalog
    */
   public function write(string $key, mixed $value): void
   {
-    $config = ConfigStore::get(ProjectConfig::class);
+    $config = $this->getConfiguration();
 
     if ($bus = self::findVolumeBus($key)) {
       $this->writePath($config, $bus->getVolumeConfigPath(), intval($value));
@@ -291,11 +293,21 @@ class SettingsCatalog
    */
   public function persist(): void
   {
-    if (ConfigStore::has(PlayerSettings::class)) {
-      ConfigStore::get(PlayerSettings::class)->persist();
-      return;
+    $player = $this->getPlayerSettings() ?? throw new RuntimeException('Player settings are not available.');
+    $player->persist();
+  }
+
+  private function getConfiguration(): ConfigInterface
+  {
+    return ProjectConfig::findForGame($this->game) ?? ConfigStore::get(ProjectConfig::class);
+  }
+
+  private function getPlayerSettings(): ?ConfigInterface
+  {
+    if ($this->game?->getProjectConfiguration() !== null) {
+      return $this->game->getPlayerSettings();
     }
-    throw new RuntimeException('Player settings are not available.');
+    return $this->game?->getPlayerSettings() ?? (ConfigStore::has(PlayerSettings::class) ? ConfigStore::get(PlayerSettings::class) : null);
   }
 
   /**
@@ -322,9 +334,7 @@ class SettingsCatalog
   private function writePath(ConfigInterface $config, string $path, mixed $value): void
   {
     $config->set($path, $value);
-    if (ConfigStore::has(PlayerSettings::class)) {
-      ConfigStore::get(PlayerSettings::class)->set($path, $value);
-    }
+    $this->getPlayerSettings()?->set($path, $value);
   }
 
   /**
@@ -377,7 +387,7 @@ class SettingsCatalog
    */
   private function readVolume(string $path, int $default): int
   {
-    $volume = config(ProjectConfig::class, $path, $default);
+    $volume = $this->getConfiguration()->get($path, $default);
 
     return $this->snapVolumeToStep(is_int($volume) || is_float($volume) && is_finite($volume) ? intval(round($volume)) : $default);
   }

@@ -7,6 +7,7 @@ use Ichiloto\Engine\Battle\EscapePolicy;
 use Ichiloto\Engine\Battle\ReservePolicy;
 use Ichiloto\Engine\Battle\BattlePartyRoster;
 use Ichiloto\Engine\Battle\BattleClassification;
+use Ichiloto\Engine\Battle\BattleContent;
 use Ichiloto\Engine\Battle\Entry\BattleEntryContext;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Party;
@@ -23,6 +24,7 @@ class BattleConfig implements SceneConfigurationInterface
   /** The optional world facts belong only to this test battle. */
   public const string TEST_WORLD_STATE = 'battleTestWorldState';
   public private(set) ?GameState $testWorldState = null;
+  private ?BattleContent $content = null;
 
   public private(set) ?ActionPointPolicy $actionPointPolicy;
   protected(set) BattleClassification $classification;
@@ -117,6 +119,24 @@ class BattleConfig implements SceneConfigurationInterface
     $entryExecutionId = is_string($entryExecutionId) ? trim($entryExecutionId) : '';
     $this->entryExecutionId = $entryExecutionId !== '' ? $entryExecutionId : bin2hex(random_bytes(16));
     $this->validateFormation();
+  }
+
+  public function getContent(): ?BattleContent
+  {
+    return $this->content;
+  }
+
+  public function bindContent(string $assetRoot): void
+  {
+    if ($this->content !== null && $this->content->assetRoot !== $assetRoot) {
+      throw new \LogicException('Battle content already belongs to another project.');
+    }
+    $this->content ??= new BattleContent($assetRoot);
+  }
+
+  public function releaseContent(): void
+  {
+    $this->content = null;
   }
 
   public function entryContext(GameState $worldState): BattleEntryContext
@@ -258,6 +278,7 @@ class BattleConfig implements SceneConfigurationInterface
         'formationOwner',
         'formation',
         'testWorldState',
+        'content',
       ], true)) {
         continue;
       }
@@ -268,6 +289,7 @@ class BattleConfig implements SceneConfigurationInterface
     }
 
     $this->testWorldState = null;
+    $this->releaseContent();
     $this->events = is_array($data['events'] ?? null) ? $data['events'] : [];
     $this->settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
     $this->actionPointPolicy = ActionPointPolicy::fromBattleData($this->settings);

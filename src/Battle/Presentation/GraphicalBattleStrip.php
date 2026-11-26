@@ -24,7 +24,7 @@ final class GraphicalBattleStrip
   /** Shared source/clip ownership for straight and contact-rail texture geometry. */
   public static function composeStrip(string $id, string $asset, SpriteSourceRect $crop,
     CanvasTextureStrip $strip,
-    BattleCanvasLayout $arena, array $track, float $offsetX = 0, float $offsetY = 0): ?CanvasComposite
+    BattleCanvasLayout $arena, array $track, float $offsetX = 0, float $offsetY = 0, float $opacity = 1): ?CanvasComposite
   {
     $flipX = $track['flipX'] ?? false; $flipY = $track['flipY'] ?? false;
     [$left, $top, $right, $bottom] = $strip->getBounds();
@@ -39,6 +39,6 @@ final class GraphicalBattleStrip
       'geometry' => $geometry, 'flipX' => $flipX, 'flipY' => $flipY]);
     return new CanvasComposite($id, $right - $left, $bottom - $top,
       new CanvasRectangle($left, $top, $right - $left, $bottom - $top), [$operation],
-      $track['depth'] === 'behind' ? 90 : 180);
+      $track['depth'] === 'behind' ? 90 : 180, $opacity);
   }
 }

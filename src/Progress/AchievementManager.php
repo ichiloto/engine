@@ -10,7 +10,7 @@ use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Core\Campaign\CampaignContextInterface;
 use Ichiloto\Engine\Util\Debug;
-use Ichiloto\Engine\Quests\{QuestLog, QuestManager};
+use Ichiloto\Engine\Quests\QuestLog;
 use Throwable;
 
 /**
@@ -79,7 +79,7 @@ class AchievementManager
     ?QuestLog $questLog = null,
   )
   {
-    $this->questLog = $questLog ?? QuestManager::current()?->log;
+    $this->questLog = $questLog ?? $gameScene->gameState->getQuestManager()?->log;
     $this->achievements = self::loadDefinitions($assetRoot);
     $this->previousManager = self::$current === null ? null : \WeakReference::create(self::$current);
     self::$current = $this;

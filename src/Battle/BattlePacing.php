@@ -4,8 +4,8 @@ namespace Ichiloto\Engine\Battle;
 
 use Ichiloto\Engine\Battle\Enumerations\BattleActionCategory;
 use Ichiloto\Engine\Battle\Enumerations\BattlePace;
-use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
 /**
  * Resolves configurable message and animation pacing for battles.
@@ -43,13 +43,9 @@ class BattlePacing
    *
    * @return self
    */
-  public static function fromConfig(): self
+  public static function fromConfig(?ConfigInterface $configuration = null): self
   {
-    if (! ConfigStore::has(ProjectConfig::class)) {
-      return new self();
-    }
-
-    $battleUiConfig = config(ProjectConfig::class, 'ui.battle', []);
+    $battleUiConfig = ($configuration ?? ProjectConfig::findForGame())?->get('ui.battle', []);
 
     return is_array($battleUiConfig) ? self::fromBattleUiConfig($battleUiConfig) : new self();
   }

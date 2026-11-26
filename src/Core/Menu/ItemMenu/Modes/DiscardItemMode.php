@@ -7,7 +7,6 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
-use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 
 class DiscardItemMode extends ItemMenuMode
@@ -45,7 +44,7 @@ class DiscardItemMode extends ItemMenuMode
       if (!confirm(sprintf('Discard %s x %d?', $item->name, $quantity))
         || !$this->hasCurrentStack($item, $quantity)) { return; }
       if (!$this->inventory->consumeQuantityById($item->id, $quantity)) { return; }
-      QuestManager::current()?->syncCollectObjectives();
+      $this->inventory->notifyInventoryChanged();
       $this->state->selectionPanel->setItems($this->state->itemMenu->getRegularItems());
       if ($this->state->selectionPanel->totalItems === 0) {
         alert('You have no items left.');

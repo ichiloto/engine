@@ -15,8 +15,12 @@ it('validates sentence case and punctuation without rewriting international or s
 it('reports malformed sentence prose with its source context', function (string $text, string $reason) {
   expect(fn() => PlayerText::assertSentence($text, 'Synthetic description'))->toThrow(InvalidArgumentException::class, 'Synthetic description ' . $reason);
 })->with([
-  ['run faster.', 'must start'], ['Run faster', 'must end'], ['“run faster.”', 'must start'],
-  ["First sentence.\n\nsecond paragraph.", 'must start'], ['', 'requires a visible'], ["\xFF", 'must be UTF-8'],
+  'lowercase opening' => ['run faster.', 'must start'],
+  'missing punctuation' => ['Run faster', 'must end'],
+  'quoted lowercase opening' => ['“run faster.”', 'must start'],
+  'lowercase second paragraph' => ["First sentence.\n\nsecond paragraph.", 'must start'],
+  'empty text' => ['', 'requires a visible'],
+  'invalid UTF-8' => ["\xFF", 'must be UTF-8'],
 ]);
 
 it('guards every authored world-ability description and first-use sentence before delivery', function () {

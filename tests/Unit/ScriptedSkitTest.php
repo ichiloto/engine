@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator;
+use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
@@ -19,7 +20,9 @@ use Ichiloto\Engine\Field\SkitPlaybackPlan;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 
 final class ScriptedSkitAudio extends AudioManager
 {
@@ -27,8 +30,9 @@ final class ScriptedSkitAudio extends AudioManager
     public array $voices = [];
     public int $sequences = 0;
     public int $released = 0;
-    public function __construct() {}
+    public function __construct(Game $game) { parent::__construct($game); }
     public function __destruct() {}
+    protected function createBackends(): array { return []; }
     public function playSoundEffect(string $path): void { $this->cues[] = $path; }
     public function beginSpeechSequence(): SpeechSequence { ++$this->sequences; return new SpeechSequence(); }
     public function endSpeechSequence(SpeechSequence $owner): void { ++$this->released; }
@@ -40,7 +44,7 @@ final class ScriptedSkitAudio extends AudioManager
 final class ScriptedSkitGame extends Game
 {
     public bool $stopped = false;
-    public function __construct() { $this->audioManager = new ScriptedSkitAudio(); }
+    public function __construct() { $this->audioManager = new ScriptedSkitAudio($this); }
     public function __destruct() {}
     public function hasStopped(): bool { return $this->stopped; }
 }
@@ -435,7 +439,6 @@ describe('cooperative playback pause menu', function () {
             'cancel' => ['keys' => [\Ichiloto\Engine\IO\Enumerations\KeyCode::c]],
             'pause' => ['keys' => [\Ichiloto\Engine\IO\Enumerations\KeyCode::P]],
         ]);
-        new ReflectionProperty(\Ichiloto\Engine\Events\EventManager::class, 'instance')->setValue(null, null);
         $this->interpreter = new EventInterpreter($this->scene, $this->presentation);
         $this->interpreter->run([['type' => 'play_skit', 'skit' => 'selected'],
             ['type' => 'set_switch', 'name' => 'after']]);
@@ -542,4 +545,67 @@ describe('cooperative playback pause menu', function () {
         expect($menu->isOpen)->toBeTrue()->and($this->interpreter->isPlaybackPaused)->toBeTrue();
         $menu->close();
     });
+});
+
+it('loads skits, region backdrops and voice from the owning project while another project is current', function () {
+    $assets = $this->root . '/assets';
+    $selected = $assets . '/Data/Skits/selected.php';
+    $ownedSkit = require $selected;
+    unset($ownedSkit['backdrop']);
+    file_put_contents($selected, '<?php return ' . var_export($ownedSkit, true) . ';');
+    $region = new \Ichiloto\Engine\Field\RegionCatalog(['Bound Vale' => ['skitBackdrop' => 'Graphics/BoundVale.png']]);
+    file_put_contents($assets . '/' . $region::FILE, '<?php return ' . var_export($region->toArray(), true) . ';');
+
+    $otherProject = $this->root . '/other-project';
+    mkdir($otherProject . '/assets/Data/Skits', 0700, true);
+    $foreignSkit = [...$ownedSkit, 'beats' => [['text' => 'Other project']]];
+    file_put_contents($otherProject . '/assets/Data/Skits/selected.php', '<?php return ' . var_export($foreignSkit, true) . ';');
+    chdir($otherProject);
+
+    $game = new ScriptedSkitGame();
+    $game->bindGameLoader(createTestGameLoader($game, assetRoot: $assets));
+    $scene = new ScriptedSkitScene($game);
+    $scene->gameState->setSwitch('ready', true);
+    $map = new ReflectionClass(\Ichiloto\Engine\Field\MapManager::class)->newInstanceWithoutConstructor();
+    new ReflectionProperty($map, 'skitBackdropBinding')->setValue($map, ['region' => 'Bound Vale']);
+    new ReflectionProperty($scene, 'mapManager')->setValue($scene, $map);
+
+    $operation = $scene->skitManager->beginSkitPlayback('selected', $this->presentation);
+    expect($operation->update(0.01))->toBeFalse()
+        ->and($this->presentation->shown[0][0])->toBe('First')
+        ->and($this->presentation->shown[0][2]->backdrop)->toBe('Graphics/BoundVale.png')
+        ->and(array_column($game->audioManager->voices, 0))->toBe([realpath($assets . '/Audio/Voice/Skits/selected/line.mp3')]);
+    $operation->cancel();
+});
+
+it('uses the owning actor catalogue when another Game has installed the same actor id', function () {
+    $assets = $this->root . '/assets';
+    $selected = $assets . '/Data/Skits/selected.php';
+    $skit = require $selected;
+    unset($skit['beats'][0]['speaker']);
+    $skit['beats'][0]['actor'] = 'guide';
+    file_put_contents($selected, '<?php return ' . var_export($skit, true) . ';');
+
+    $firstActors = new ActorStore(definitions: [
+        new ActorDefinition('guide', ['name' => 'First project guide']),
+    ]);
+    $secondActors = new ActorStore(definitions: [
+        new ActorDefinition('guide', ['name' => 'Second project guide']),
+    ]);
+    $firstGame = new ScriptedSkitGame();
+    $firstGame->bindGameLoader(createTestGameLoader($firstGame, actors: $firstActors, assetRoot: $assets));
+    $scene = new ScriptedSkitScene($firstGame);
+    $scene->gameState->setSwitch('ready', true);
+
+    $before = ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null;
+    ConfigStore::put(ActorStore::class, $secondActors);
+    try {
+        $operation = $scene->skitManager->beginSkitPlayback('selected', $this->presentation);
+        expect($operation->update(0.01))->toBeFalse()
+            ->and($this->presentation->shown[0][1])->toBe('First project guide')
+            ->and($this->presentation->shown[0][2]->actorId)->toBe('guide');
+        $operation->cancel();
+    } finally {
+        $before === null ? ConfigStore::remove(ActorStore::class) : ConfigStore::put(ActorStore::class, $before);
+    }
 });

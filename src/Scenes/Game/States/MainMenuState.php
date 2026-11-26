@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Ichiloto\Engine\Core\Interfaces\CanRender;
+use Ichiloto\Engine\Settings\SettingsCatalog;
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Commands\OpenAbilityMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenConfigMenuCommand;
@@ -326,7 +327,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
     protected function initializeMenuUI(): void
     {
         $this->borderPack = new DefaultBorderPack();
-        $this->settingsManager = new MainMenuSettingsManager();
+        $this->settingsManager = new MainMenuSettingsManager(new SettingsCatalog($this->getGameScene()->getGame()));
         $infoWidth = min(self::MAIN_MENU_WIDTH, max(1, Console::getWidth() - $this->leftMargin));
         $extraInfoRows = (int)($infoWidth < self::MAIN_MENU_WIDTH);
         $infoHeight = self::INFO_PANEL_HEIGHT + $extraInfoRows;

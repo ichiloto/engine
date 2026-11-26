@@ -134,7 +134,7 @@ final readonly class CrisisAbility
       $selected = $variant;
     }
     return $selected === null ? null : [
-      'skill' => $this->resolveSkill($selected['skill'], $catalog ?? SkillCatalog::getProjectCatalog()),
+      'skill' => $this->resolveSkill($selected['skill'], $catalog ?? SkillCatalog::getProjectCatalog($actor->projectAssetRoot)),
       'iconRole' => $selected['iconRole'] ?? $this->iconRole,
     ];
   }

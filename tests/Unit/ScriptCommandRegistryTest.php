@@ -12,6 +12,10 @@ use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Events\Interpreter\Commands\ShopCommand;
 use Ichiloto\Engine\Inn\InnOffer;
 use Ichiloto\Engine\Cutscenes\Presentation\PartyStageSelection;
+use Ichiloto\Engine\Scenes\Game\GameLoader;
+use Ichiloto\Engine\Util\Stores\ActorStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
+use Tests\Support\PassiveGame;
 
 final class RegistryTestCarriageCommand implements ScriptCommandHandlerInterface
 {
@@ -270,6 +274,22 @@ it('loads the project declaration file and forgets a prior project', function ()
   ScriptCommandRegistry::configureFromProject(makeScriptCommandProject(null));
 
   expect(ScriptCommandRegistry::getCatalog()->isRegistered('hire_carriage'))->toBeFalse();
+});
+
+it('loads two independent game catalogues and preserves the standalone registration', function () {
+  $declaration = var_export(makeCarriageDeclaration(), true);
+  $first = makeScriptCommandProject("<?php\nreturn [{$declaration}];\n");
+  $second = makeScriptCommandProject(null);
+  $standalone = ScriptCommandRegistry::getCatalog();
+  $actors = new ActorStore(definitions: []);
+  $items = new class extends ItemStore { public function __construct() {} };
+  $firstLoader = new GameLoader(new PassiveGame(), $actors, $items, $first);
+  $secondLoader = new GameLoader(new PassiveGame(), $actors, $items, $second);
+
+  expect($firstLoader->getScriptCommands()->isRegistered('hire_carriage'))->toBeTrue()
+    ->and($secondLoader->getScriptCommands()->isRegistered('hire_carriage'))->toBeFalse()
+    ->and($firstLoader->getScriptCommands()->isRegistered('hire_carriage'))->toBeTrue()
+    ->and(ScriptCommandRegistry::getCatalog())->toBe($standalone);
 });
 
 it('fails at load when a declared handler cannot run', function (string $class) {

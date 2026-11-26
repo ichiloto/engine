@@ -5,13 +5,17 @@ use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
-use Ichiloto\Engine\Battle\Presentation\{BattleCommandRunner, BattleCommandTimeline, BattlePoseRole};
+use Ichiloto\Engine\Battle\Presentation\{BattleCommandRunner, BattleCommandTimeline, BattleEffectAnchorSnapshot, BattleEffectTargetGroup, BattlePoseRole};
 use Ichiloto\Engine\Battle\Resolution\{CombatRandomSource, ResolutionKind};
+use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Cutscenes\Summons\{SummonCutsceneDefinition, SummonCutsceneCompiler};
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Skills\{BasicSkill, SkillInvocation};
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Util\Config\{ConfigStore, ProjectConfig, PlaySettings};
 use function Tests\Support\Battle\createTargetExecutionFixture;
+use function Tests\Support\Battle\createCommandFixtureScene;
 
 require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
 
@@ -107,6 +111,64 @@ it('keeps Terminal aggregate results independent of graphical beat metadata', fu
     ->and($action->lastResult->targets[0]->hits)->toHaveCount(3)->and($actor->stats->currentMp)->toBe(46);
   $runner->dispose();
 })->with([false,true]);
+
+it('starts each aggregate graphical reaction at its captured contact after one real skill resolution', function (bool $activeTime, bool $enabled) {
+  $data = $this->data;
+  unset($data['hitFeedbackFrames']);
+  $data['tracks'][0]['keyframes'] = [['frame' => 4, 'duration' => 2]];
+  $data['targetContactSequence'] = ['firstFrame' => 4, 'lastFrame' => 8, 'intervalFrames' => 4,
+    'tracks' => ['contacts'], 'presentResults' => $enabled];
+  $fixture = createRecordedHitRunner($this, $activeTime, true, 25, $data, recipients: 2);
+  [$runner, $actor, $far, $near, $action, $screen, , , $context] = $fixture;
+  new ReflectionProperty(BattleScreen::class, 'battleScene')->setValue($screen, createCommandFixtureScene($context->game));
+  $playback = $runner->playback;
+  $positions = [spl_object_id($near) => new Vector2(220, 110), spl_object_id($far) => new Vector2(100, 110)];
+  $bounds = array_map(static fn(Vector2 $point): CanvasRectangle => new CanvasRectangle($point->x, 80, 20, 30), $positions);
+  $playback->bindAnchorSnapshotCapture(static fn() => new BattleEffectAnchorSnapshot(
+    BattleEffectTargetGroup::collectTargets([$far, $near], $bounds, $positions), new Vector2(300, 110)));
+  $impact = $playback->plan->impactFrame;
+  $later = $playback->plan->getCommandFrameForAuthoredFrame('target', 8);
+  $runner->begin();
+  $runner->update($impact / BattleCommandTimeline::FPS);
+  expect($fixture[6])->toBe(1)->and($actor->stats->currentMp)->toBe(46)
+    ->and($runner->result)->toBe($action->lastResult)
+    ->and($far->stats->currentHp)->toBe(0)->and($near->stats->currentHp)->toBe(60)
+    ->and($playback->getPoseRole($near))->toBe(BattlePoseRole::DAMAGE)
+    ->and($playback->getPoseElapsedSeconds($near))->toBe(0.0)
+    ->and($playback->getTargetContactFrames())->toBe([spl_object_id($near) => $impact, spl_object_id($far) => $later])
+    ->and($playback->getPresentedHp($far))->toBe($enabled ? 25 : null)
+    ->and($playback->isPresentedKnockedOut($far))->toBe(!$enabled)
+    ->and($playback->getPoseRole($far))->toBe($enabled ? BattlePoseRole::IDLE : BattlePoseRole::KNOCKOUT)
+    ->and(array_column($screen->fieldWindow->results, 0))->toBe($enabled ? [$near] : [$far, $near]);
+  $runner->update(($later - $impact) / BattleCommandTimeline::FPS);
+  expect($fixture[6])->toBe(1)->and($playback->getPresentedHp($far))->toBeNull()
+    ->and($playback->isPresentedKnockedOut($far))->toBeTrue()
+    ->and($playback->getPoseRole($far))->toBe(BattlePoseRole::KNOCKOUT)
+    ->and($playback->getPoseElapsedSeconds($far))->toBe($enabled ? 0.0 : ($later - $impact) / BattleCommandTimeline::FPS)
+    ->and(array_column($screen->fieldWindow->results, 0))->toBe($enabled ? [$near, $far] : [$far, $near])
+    ->and($playback->presentationFailure)->toBeNull();
+  $runner->update(100);
+  $runner->dispose();
+  expect($fixture[6])->toBe(1)->and($screen->fieldWindow->results)->toHaveCount(2);
+})->with([false, true])->with([false, true]);
+
+it('refuses conflicting contact result clocks and leaves Terminal free of the graphical schedule', function () {
+  $data = $this->data;
+  $data['tracks'][0]['keyframes'] = [['frame' => 4, 'duration' => 2]];
+  $data['targetContactSequence'] = ['firstFrame' => 4, 'lastFrame' => 8, 'direction' => 'west',
+    'tracks' => ['contacts'], 'presentResults' => true];
+  $validator = new EffectTimelineValidator($this->root);
+  expect(fn() => $validator->compile('contact-results', $data, forBattle: true))
+    ->toThrow(InvalidArgumentException::class, 'individual hit feedback');
+  unset($data['hitFeedbackFrames']);
+  $data['effectTiming']['frame'] = 5;
+  $effect = $validator->compile('contact-results', $data, forBattle: true);
+  expect(fn() => new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect))
+    ->toThrow(InvalidArgumentException::class, 'start at the command impact');
+  unlink($this->root . '/contact.png');
+  $terminal = $validator->compile('contact-results', $data, true, EffectPresentation::TERMINAL);
+  expect($terminal->defaults)->not->toHaveKey('targetContactSequence');
+});
 
 it('abandons pending hit feedback without repeating or undoing gameplay', function (bool $afterImpact) {
   $fixture = createRecordedHitRunner($this, false, true, 100, $this->data);

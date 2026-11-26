@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Scenes\Arena;
 
 use Ichiloto\Engine\Core\SystemData;
 use Ichiloto\Engine\Util\Stores\ActorStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 use InvalidArgumentException;
 use Ichiloto\Engine\Battle\EncounterAdvantage;
 
@@ -92,7 +93,12 @@ final readonly class ProjectBattleTest
   public static function loadFromProject(): self
   {
     $system = asset('Data/system.php', true);
-    $data = is_array($system) ? ($system[self::SYSTEM_KEY] ?? []) : [];
+    return self::fromSystemData(is_array($system) ? $system : []);
+  }
+
+  public static function fromSystemData(array $system): self
+  {
+    $data = $system[self::SYSTEM_KEY] ?? [];
     if (!is_array($data)) {
       throw new InvalidArgumentException(sprintf('Data/system.php\'s %s is not a battle test entry.', self::SYSTEM_KEY));
     }
@@ -138,14 +144,15 @@ final readonly class ProjectBattleTest
    * @param int|null $battleSize The draft project size, or null to read the saved value.
    * @throws InvalidArgumentException When no party can be set up.
    */
-  public function createSetup(ActorStore $actors, ?array $startingParty = null, ?int $battleSize = null): BattleTestSetup
+  public function createSetup(ActorStore $actors, ?array $startingParty = null, ?int $battleSize = null,
+    ?string $assetRoot = null, ?ItemStore $items = null): BattleTestSetup
   {
     if ($this->setup !== null) {
       return $this->setup->withBattleSize($this->getBattleSize($battleSize));
     }
     return ($startingParty === null
-      ? BattleTestSetup::getFromStartingParty($actors, $this->configuredBattleSize ?? $battleSize)
-      : BattleTestSetup::getFromPartyReferences($actors, $startingParty, $this->getBattleSize($battleSize)))
+      ? BattleTestSetup::getFromStartingParty($actors, $this->configuredBattleSize ?? $battleSize, $assetRoot, $items)
+      : BattleTestSetup::getFromPartyReferences($actors, $startingParty, $this->getBattleSize($battleSize), $assetRoot, $items))
       ->withArena($this->arena)->withInventory($this->inventory)->withFirstStrike($this->firstStrike);
   }
 }

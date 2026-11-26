@@ -8,7 +8,6 @@ use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Core\WorldStateWriter;
 use Ichiloto\Engine\Messaging\Dialogue\ConditionalDialogue;
 use Ichiloto\Engine\Messaging\Dialogue\Dialogue;
-use Ichiloto\Engine\Quests\QuestManager;
 
 /**
  * The DialogueEventTrigger class. This class is used to trigger a dialogue event.
@@ -127,7 +126,7 @@ class DialogueEventTrigger extends EventTrigger
     }
 
     if ($npcName !== '') {
-      QuestManager::current()?->recordTalkTo($npcName);
+      $this->gameState?->getQuestManager()?->recordTalkTo($npcName);
     }
   }
 }

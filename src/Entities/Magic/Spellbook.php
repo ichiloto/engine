@@ -6,6 +6,7 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 
 /**
  * Stores a character's learned and learnable magic.
@@ -55,12 +56,12 @@ class Spellbook
    * @param array<string, mixed> $data The serialized spellbook data.
    * @return self The reconstructed spellbook.
    */
-  public static function fromArray(array $data): self
+  public static function fromArray(array $data, ?SkillCatalog $skills = null): self
   {
     $learnedSpells = [];
 
     foreach ($data['learned'] ?? [] as $spellName) {
-      $spell = MagicLibrary::find(strval($spellName));
+      $spell = ($skills ??= SkillCatalog::getProjectCatalog())->findSkill(strval($spellName));
 
       if ($spell instanceof MagicSkill) {
         $learnedSpells[] = $spell;
@@ -68,7 +69,7 @@ class Spellbook
     }
 
     $learnableSpells = array_values(array_filter(array_map(
-      static fn(array $spellData): ?LearnableSpell => LearnableSpell::fromArray($spellData),
+      static fn(array $spellData): ?LearnableSpell => LearnableSpell::fromArray($spellData, $skills),
       array_filter($data['learnables'] ?? [], 'is_array')
     )));
 

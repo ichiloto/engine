@@ -6,8 +6,10 @@ use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
+use Tests\Support\Rendering\RendererPipePeer;
 use Tests\Support\Rendering\RetainedFrameState;
 
+require_once __DIR__ . '/../Support/Rendering/RendererPipePeer.php';
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 function runScenePreviewTool(array $arguments = [], ?string $peerScenario = null,
@@ -20,13 +22,10 @@ function runScenePreviewTool(array $arguments = [], ?string $peerScenario = null
     try {
         $mode = $terminalOnly ? ['--terminal'] : ['--no-launch'];
         $fixturePath = __DIR__ . '/../Fixtures/Rendering/' . $fixtureName;
+        $environment = null;
         if ($peerScenario !== null) {
-            $peer = $directory . '/peer.php';
-            $stub = var_export(__DIR__ . '/../Fixtures/Renderer/renderer-stub.php', true);
-            file_put_contents($peer, "#!/usr/bin/env php\n<?php\n\$argv = [__FILE__, "
-                . var_export($peerScenario, true) . ", __DIR__ . '/wire.jsonl'];\nrequire $stub;\n");
-            chmod($peer, 0700);
-            $mode = ['--renderer=' . $peer];
+            $environment = RendererPipePeer::getEnvironment($peerScenario, $directory . '/wire.jsonl');
+            $mode = ['--renderer=' . RendererPipePeer::getExecutablePath()];
             if (!in_array($peerScenario, ['dialogue_preview', 'scene_preview_start_key', 'scene_preview_close'], true)) {
                 $factory = var_export($fixturePath, true);
                 $fixturePath = $directory . '/fixture.php';
@@ -38,7 +37,7 @@ function runScenePreviewTool(array $arguments = [], ?string $peerScenario = null
             '--asset-root=' . $directory, '--fixture=' . $fixturePath,
             '--duration=1', ...$mode, ...$arguments],
             [0 => $startupInput === null ? ['file', '/dev/null', 'r'] : ['pipe', 'r'],
-                1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+                1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, env_vars: $environment);
         expect(is_resource($process))->toBeTrue();
         if ($startupInput !== null) {
             fwrite($pipes[0], $startupInput);
@@ -239,7 +238,6 @@ it('launches a relative renderer and retains relative asset inputs when the fixt
     mkdir($directory . '/assets');
     mkdir($directory . '/project');
     $factory = var_export(realpath(__DIR__ . '/../Fixtures/Rendering/ScenePreview.php'), true);
-    $peer = var_export(realpath(__DIR__ . '/../Fixtures/Renderer/renderer-stub.php'), true);
     file_put_contents($directory . '/fixture.php', "<?php\n\$factory = require $factory;\n"
         . "return static function (string \$root, bool \$reduced, ?array \$subjects, string \$mode) use (\$factory): array {\n"
         . "    chdir(__DIR__ . '/project');\n"
@@ -247,12 +245,11 @@ it('launches a relative renderer and retains relative asset inputs when the fixt
         . "    \$verify = \$fixture['verify'];\n"
         . "    \$fixture['verify'] = static fn(): array => [...\$verify(), 'factoryAssetRoot' => \$root, 'factoryCwd' => getcwd()];\n"
         . "    return \$fixture;\n};\n");
-    file_put_contents($directory . '/peer.php', '#!' . PHP_BINARY . "\n<?php\n"
-        . "\$argv = [__FILE__, 'dialogue_preview', __DIR__ . '/wire.jsonl'];\nrequire $peer;\n");
-    chmod($directory . '/peer.php', 0700);
+    symlink(RendererPipePeer::getExecutablePath(), $directory . '/peer');
+    $environment = RendererPipePeer::getEnvironment('dialogue_preview', $directory . '/wire.jsonl');
     $process = proc_open([PHP_BINARY, dirname(__DIR__, 2) . '/tools/gpui-scene-preview.php',
-        '--asset-root=assets', '--fixture=fixture.php', '--renderer=peer.php', '--duration=1'],
-        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $directory);
+        '--asset-root=assets', '--fixture=fixture.php', '--renderer=peer', '--duration=1'],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $directory, $environment);
     expect(is_resource($process))->toBeTrue();
     try {
         $stdout = stream_get_contents($pipes[1]);

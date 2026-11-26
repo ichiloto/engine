@@ -8,6 +8,7 @@ use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Battle\Presentation\BattleEffectContactRail;
+use Ichiloto\Engine\Battle\Presentation\TerminalBattleContacts;
 use InvalidArgumentException;
 use Ichiloto\Engine\Cutscenes\Presentation\CinematicStage;
 
@@ -36,7 +37,7 @@ final class EffectTimelineValidator
       $data = $variants[$presentation->value];
     }
     if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'reducedMotionSamples', 'tracks', 'cues',
-      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames', 'targetContactSequence', 'hitFeedbackFrames', 'targetCaptureFrame'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
+      ...($forBattle ? ['effectTiming', 'cadence', 'poseSyncFrame', 'poseClock', 'rangeTiming', 'flightTiming', 'fallbackHitSpacingFrames', 'targetContactSequence', TerminalBattleContacts::FIELD, 'hitFeedbackFrames', 'targetCaptureFrame'] : []), ...($acceptsStage ? ['stage'] : [])]) !== []) {
       throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame, tracks and presentation cues.");
     }
     $length = $data['lengthFrames'] ?? null;
@@ -101,11 +102,9 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException("Effect {$id} has an invalid or duplicate track.");
       }
       EffectTimelineLibrary::assertId($track['id']);
-      $graphicalOnly = EffectTrackType::from($track['type'])->requiresGraphicalPresentation();
-      $terminalOnly = EffectTrackType::from($track['type'])->requiresTerminalPresentation();
+      $type = EffectTrackType::from($track['type']);
       $motion = EffectMotionScope::parse($track['motion'] ?? 'all');
-      $scope = EffectPresentation::validateTrack($track['presentation']
-        ?? ($terminalOnly ? 'terminal' : ($graphicalOnly || $motion !== EffectMotionScope::ALL ? 'graphical' : 'all')));
+      $scope = EffectPresentation::validateTrack($track['presentation'] ?? $type->getDefaultPresentation($motion));
       if ($motion !== EffectMotionScope::ALL && $scope !== 'graphical') {
         throw new InvalidArgumentException('Motion-specific drawings require graphical presentation.');
       }
@@ -115,10 +114,10 @@ final class EffectTimelineValidator
       $motionScopes[$track['id']] = $motion;
       unset($track['motion']);
       $track['presentation'] = $scope;
-      if ($graphicalOnly && $scope !== 'graphical') {
+      if ($type->requiresGraphicalPresentation() && $scope !== 'graphical') {
         throw new InvalidArgumentException("Effect {$id} {$track['type']} presentation must be graphical.");
       }
-      if ($terminalOnly && $scope !== 'terminal') { throw new InvalidArgumentException('Glyph lanes require Terminal presentation.'); }
+      if ($type->requiresTerminalPresentation() && $scope !== 'terminal') { throw new InvalidArgumentException('Glyph lanes require Terminal presentation.'); }
       $ids[$track['id']] = true;
       // Unselected graphical resources are not dependencies of terminal playback.
       if (!$presentation->acceptsSegment(['layer' => $track['type'], 'presentation' => $scope])) { continue; }
@@ -134,6 +133,12 @@ final class EffectTimelineValidator
       if ($track['type'] === 'battler-tint') {
         if ($motion === EffectMotionScope::REDUCED) { throw new InvalidArgumentException('Reduced motion suppresses battler tints.'); }
         $normalized[] = BattleBattlerTintTrack::compile($track, $length, $playback, $cadence);
+        continue;
+      }
+      if ($type === EffectTrackType::BATTLER_REACTION) {
+        if ($motion === EffectMotionScope::REDUCED) { throw new InvalidArgumentException('Reduced motion suppresses authored battler reactions.'); }
+        $motionScopes[$track['id']] = EffectMotionScope::NORMAL;
+        $normalized[] = BattleBattlerReactionTrack::compile($track, $length, $playback, $cadence);
         continue;
       }
       if ($track['type'] === 'battler-motion') {
@@ -264,11 +269,14 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException("Effect {$id} span requires a target-group ground image with contain fit and a boolean value.");
       }
       $anchorLifetime = $track['anchorLifetime'] ?? null;
+      $anchor = $track['anchor'] ?? 'target';
+      $capturesRecipient = $anchor === 'target' && $anchorLifetime === EffectAnchorLifetime::TARGET_CAPTURE->value;
       if (array_key_exists('anchorLifetime', $track)
         && (!is_string($anchorLifetime) || EffectAnchorLifetime::tryFrom($anchorLifetime) === null
-          || ($track['anchor'] ?? null) !== 'target-group' || ($track['attachment'] ?? null) !== 'ground'
+          || ($anchor !== 'target-group' && !$capturesRecipient)
+          || ($track['attachment'] ?? null) !== 'ground'
           || $playback !== 'once')) {
-        throw new InvalidArgumentException("Effect {$id} anchorLifetime requires a once-playing target-group ground image and a known lifetime.");
+        throw new InvalidArgumentException("Effect {$id} anchorLifetime requires a once-playing ground image with a supported anchor and lifetime.");
       }
       if ($anchorLifetime === EffectAnchorLifetime::TARGET_CAPTURE->value
         && !array_key_exists('targetCaptureFrame', $data)) {
@@ -461,14 +469,23 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException('Recorded hit feedback must begin after battlefield restoration.');
       }
     }
+    $terminalContacts = $presentation === EffectPresentation::TERMINAL && array_key_exists(TerminalBattleContacts::FIELD, $data);
     $targetCaptureFrame = null;
-    if (array_key_exists('targetCaptureFrame', $data) && ($presentation === EffectPresentation::GRAPHICAL || $hasTerminalLane)) {
+    if (array_key_exists('targetCaptureFrame', $data) && ($presentation === EffectPresentation::GRAPHICAL || $hasTerminalLane || $terminalContacts)) {
       $targetCaptureFrame = $data['targetCaptureFrame'];
       if (!is_int($targetCaptureFrame) || $targetCaptureFrame < 0 || $targetCaptureFrame >= $length
         || $playback !== 'once' || $cadence !== EffectCadence::FIXED
         || isset($data['rangeTiming']) || isset($data['flightTiming'])) {
         throw new InvalidArgumentException("Effect {$id} targetCaptureFrame requires a frame in a fixed once-playing target timeline.");
       }
+    }
+    $terminalContactData = null;
+    if ($terminalContacts) {
+      if ($playback !== 'once' || $cadence !== EffectCadence::FIXED || isset($data['rangeTiming']) || isset($data['flightTiming'])) {
+        throw new InvalidArgumentException("Effect {$id} Terminal contacts require fixed once playback.");
+      }
+      $terminalContactData = TerminalBattleContacts::readSource($data[TerminalBattleContacts::FIELD], $normalized,
+        $length, $targetCaptureFrame);
     }
     $contacts = null;
     if (array_key_exists('targetContactSequence', $data) && $presentation === EffectPresentation::GRAPHICAL) {
@@ -477,6 +494,9 @@ final class EffectTimelineValidator
         throw new InvalidArgumentException("Effect {$id} target contacts require fixed once playback independent of flight spacing or variable clocks.");
       }
       $contacts = \Ichiloto\Engine\Battle\Presentation\BattleTargetContactSequence::fromArray($data['targetContactSequence'], $length, $tracks);
+      if ($contacts->presentsResults && $hitFeedback !== null) {
+        throw new InvalidArgumentException("Effect {$id} contact results and individual hit feedback cannot share a timeline.");
+      }
       if ($targetCaptureFrame !== null && $targetCaptureFrame > $contacts->firstFrame) {
         throw new InvalidArgumentException("Effect {$id} selected targets must be captured before their first contact.");
       }
@@ -521,7 +541,8 @@ final class EffectTimelineValidator
         ...($timing === null ? [] : ['effectTiming' => $timing]),
         ...($poseSyncFrame === null ? [] : ['poseSyncFrame' => $poseSyncFrame]),
         ...($poseClock === EffectPoseClock::ANNOUNCEMENT ? [] : ['poseClock' => $poseClock->value]),
-        ...($targetCaptureFrame === null ? [] : [($hasTerminalLane ? 'terminalLaneCaptureFrame' : 'targetCaptureFrame') => $targetCaptureFrame]),
+        ...($targetCaptureFrame === null || $terminalContacts ? [] : [($hasTerminalLane ? 'terminalLaneCaptureFrame' : 'targetCaptureFrame') => $targetCaptureFrame]),
+        ...($terminalContactData === null ? [] : [TerminalBattleContacts::FIELD => $terminalContactData]),
         ...($contacts === null ? [] : ['targetContactSequence' => $contacts->toArray()]),
         ...($hitFeedback === null ? [] : ['hitFeedbackFrames' => $hitFeedback]),
         ...($rangeTiming ?? []),

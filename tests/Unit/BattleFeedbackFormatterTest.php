@@ -92,10 +92,10 @@ it('assigns distinct elemental roles at the formatter for typed and legacy outco
     ['text' => $text, 'color' => $color, 'role' => $role],
   ])->and($target->lastElementReaction)->toBeNull();
 })->with([
-  [ElementalOutcome::WEAK, 'WEAK!', Color::LIGHT_RED, BattleFeedbackRole::WEAK],
-  [ElementalOutcome::RESIST, 'RESIST', Color::LIGHT_CYAN, BattleFeedbackRole::RESIST],
-  [ElementalOutcome::NULL, 'NULL', Color::LIGHT_CYAN, BattleFeedbackRole::NULL],
-  [ElementalOutcome::ABSORB, 'ABSORB', Color::LIGHT_GREEN, BattleFeedbackRole::ABSORB],
+  'weakness' => [ElementalOutcome::WEAK, 'WEAK!', Color::LIGHT_RED, BattleFeedbackRole::WEAK],
+  'resistance' => [ElementalOutcome::RESIST, 'RESIST', Color::LIGHT_CYAN, BattleFeedbackRole::RESIST],
+  'immunity' => [ElementalOutcome::NULL, 'NULL', Color::LIGHT_CYAN, BattleFeedbackRole::NULL],
+  'absorption' => [ElementalOutcome::ABSORB, 'ABSORB', Color::LIGHT_GREEN, BattleFeedbackRole::ABSORB],
 ])->with([true, false]);
 
 it('preserves elemental priority instead of choosing the first hit reaction', function ($outcomes, $expectedRole) {

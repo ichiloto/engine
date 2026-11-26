@@ -61,9 +61,9 @@ final class SkillCatalog
    *
    * @return self The catalogue.
    */
-  public static function getProjectCatalog(): self
+  public static function getProjectCatalog(?string $assetRoot = null): self
   {
-    $assetRoot = Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+    $assetRoot ??= Path::join(Path::getCurrentWorkingDirectory(), 'assets');
 
     if (! isset(self::$projectCatalogs[$assetRoot])) {
       $catalog = self::load($assetRoot);

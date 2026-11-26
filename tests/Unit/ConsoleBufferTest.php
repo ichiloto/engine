@@ -48,8 +48,11 @@ it('clips styled writes at whole glyph boundaries', function (string $text) {
     }
   }
 })->with([
-  "\e[31mA界B\e[0m", '<fg=blue>界</>AB', "e\u{0301}⚔️🗡",
-  '🏃🏽‍➡️ ABC', "\e[1;48;5;21m界\e[22;49mAB",
+  'ANSI foreground' => "\e[31mA界B\e[0m",
+  'formatter foreground' => '<fg=blue>界</>AB',
+  'combining letter and swords' => "e\u{0301}⚔️🗡",
+  'runner emoji' => '🏃🏽‍➡️ ABC',
+  'ANSI bold and indexed background' => "\e[1;48;5;21m界\e[22;49mAB",
 ]);
 
 it('preserves untouched cells when a formatting reset separates regional indicators', function () {

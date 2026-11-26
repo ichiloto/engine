@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/PassiveGame.php';
 
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Vector2;
@@ -18,10 +19,11 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
+use Tests\Support\PassiveGame;
 
 // Travels between a small map and a world map through the field's own preparation and
 // installation, then builds and sends the world's graphical upload as a renderer session
-// does. No Game, native renderer or audio backend is constructed. Usage: <project> <logs>.
+// does. The test Game only resolves project data. Usage: <project> <logs>.
 [, $project, $logs] = $argv;
 chdir($project);
 ConfigStore::put(ProjectConfig::class, new PlaySettings([]));
@@ -33,8 +35,7 @@ new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new Camera(
 new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
 new ReflectionProperty(GameScene::class, 'party')->setValue($scene,
     new ReflectionClass(Party::class)->newInstanceWithoutConstructor());
-$manager = new class($scene) extends MapManager {
-    public function __construct(GameScene $scene) { $this->gameScene = $scene; }
+$manager = new class(new PassiveGame(), $scene) extends MapManager {
     protected function applyMapBackgroundMusic(mixed $bgm, mixed $variants = []): void {}
 };
 new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $manager);

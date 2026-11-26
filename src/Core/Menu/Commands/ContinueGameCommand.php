@@ -6,10 +6,12 @@ use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Exceptions\NotFoundException;
+use Ichiloto\Engine\IO\Saves\SaveFeedback;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
 /**
@@ -68,9 +70,14 @@ class ContinueGameCommand extends MenuItem
       return self::FAILURE;
     }
 
+    $sceneManager = $context->sceneManager;
     try {
-      $context->sceneManager->loadSavedGame($this->gameLoader->loadSavedGame($savedGameFilePath));
-    } catch (Throwable) {
+      $config = $this->gameLoader->loadSavedGame($savedGameFilePath);
+      $sceneManager->loadSavedGameFrom($context->scene, $config);
+    } catch (Throwable $error) {
+      if ($sceneManager->currentScene !== $context->scene) { throw $error; }
+      Debug::warn('Could not continue from the latest save: ' . $error->getMessage());
+      $context->game->getModalManager()->queueAlert(SaveFeedback::describeLoadFailure($error), $this->getLabel());
       return self::FAILURE;
     }
 

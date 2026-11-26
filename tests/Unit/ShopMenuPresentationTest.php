@@ -369,8 +369,6 @@ it('removes content avoidance and overlays achievements above the unchanged live
   $this->runtime->start('Isolated Shop notification', 135, 36);
   $this->game->useRendererRuntime($this->runtime);
   Time::setElapsedTime(0);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
-  new ReflectionProperty(NotificationManager::class, 'instance')->setValue(null, null);
   $notifications = NotificationManager::getInstance($this->game);
   $notice = new Notification($this->game, NotificationChannel::ACHIEVEMENT, 'First purchase', 'Achievement unlocked',
     1.0, animationDuration: 0);

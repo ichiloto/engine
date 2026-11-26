@@ -10,15 +10,23 @@ use Ichiloto\Engine\Animations\Field\FieldPieceEffects;
 use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
+use Ichiloto\Engine\Core\CellArea;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
+use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Events\Triggers\EventCue;
 use Ichiloto\Engine\Events\Triggers\EventCueKind;
+use Ichiloto\Engine\Events\Triggers\PassageEventTrigger;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Field\MapGraphics;
 use Ichiloto\Engine\Field\MapTileLayer;
+use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
+use Ichiloto\Engine\Progression\WorldAbilityPrompts;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
@@ -36,8 +44,12 @@ use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Rendering\Camera;
-use Tests\Support\Input\FakeRendererTransport;
+use Ichiloto\Engine\UI\UIManager;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
+use Tests\Support\Input\FakeRendererTransport;
 
 use function Tests\Support\Rendering\writeTestPng;
 
@@ -659,4 +671,74 @@ it('records effect-only first-use delivery after finite playback and retries int
   $manager->clear(); $prompts->update(); expect($state->hasSeenWorldAbilityPrompt('sense'))->toBeFalse();
   expect($prompts->offer($catalog->getAbility('sense'), $catalog, $state, effects: $manager, anchor: $anchor))->toBeTrue();
   $manager->update(2, true); $prompts->update(); expect($state->hasSeenWorldAbilityPrompt('sense'))->toBeTrue();
+});
+
+it('completes a passage prompt only at the placement that offered it', function () {
+  mkdir($this->root . '/Animations/once');
+  file_put_contents($this->root . '/Animations/once/once.timeline.php',
+    '<?php return ' . var_export(createFieldTimelineData('once', 3), true) . ';');
+  $config = new ReflectionProperty(ConfigStore::class, 'store');
+  $saved = $config->getValue();
+  $game = new class extends Game { public function __construct() {} public function __destruct() {} };
+  $prompts = new WorldAbilityPrompts($game);
+  try {
+    $catalog = new WorldAbilityCatalog([
+      ['id' => 'sense', 'name' => 'Sense', 'firstUse' => ['effect' => 'once']],
+    ]);
+    ConfigStore::put(WorldAbilityCatalog::class, $catalog);
+    ConfigStore::put(ProjectConfig::class,
+      new PlaySettings([]));
+    $scene = new class($game) extends GameScene {
+      public function __construct(private readonly Game $fixtureGame) {}
+      public function getGame(): Game { return $this->fixtureGame; }
+    };
+    $state = new GameState();
+    $effects = new FieldEffectManager($this->root);
+    $effects->setCapabilities(true, true);
+    $player = new Player($scene, 'Hero', new Vector2(3, 3), new Rect(0, 0, 1, 1), ['@']);
+    $passage = new PassageEventTrigger(
+      CellArea::fromCells([[3, 4], [9, 4]]),
+      ['mode' => 'action', 'reusable' => false],
+      conditions: [['type' => 'world_ability', 'name' => 'sense']],
+      mapId: 'prompt-map', marker: 'P', cue: ['symbol' => '!', 'maxDistance' => 1],
+      engagement: EventEngagement::FACING);
+    $player->addTrigger($passage);
+    $ui = $this->createStub(UIManager::class);
+    $ui->method('getActivePresentations')->willReturn([]);
+    foreach (['gameState' => $state, 'party' => new Party(),
+      'fieldEffects' => $effects, 'player' => $player, 'uiManager' => $ui] as $name => $value) {
+      new ReflectionProperty(GameScene::class, $name)->setValue($scene, $value);
+    }
+
+    $prompts->updateForScene($scene);
+    expect($effects->count)->toBe(1);
+    $effects->update(.3, false);
+    $player->position->x = 5;
+    $prompts->updateForScene($scene);
+    expect($effects->count)->toBe(0)->and($state->hasSeenWorldAbilityPrompt('sense'))->toBeFalse();
+
+    $player->position->x = 3;
+    $prompts->updateForScene($scene);
+    $effects->update(1.4, false);
+    $player->position->x = 9;
+    // Presentation advances before controlled field updates. The old
+    // placement can finish on the tick at which its viewer is already gone.
+    $effects->update(.3, false);
+    $prompts->updateForScene($scene);
+    expect($player->getSensedPassages())->toBe([$passage])
+      ->and($state->hasSeenWorldAbilityPrompt('sense'))->toBeFalse()
+      ->and($effects->count)->toBe(1);
+    $sprites = $effects->getSprites([], null, ['x' => 0, 'y' => 0], false);
+    expect($sprites)->not->toBeEmpty()
+      ->and($sprites[0]->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(9, 4));
+
+    $effects->update(2, false);
+    $prompts->updateForScene($scene);
+    expect($state->hasSeenWorldAbilityPrompt('sense'))->toBeTrue()->and($effects->count)->toBe(0);
+    $prompts->updateForScene($scene);
+    expect($effects->count)->toBe(0);
+  } finally {
+    $prompts->cancel();
+    $config->setValue(null, $saved);
+  }
 });

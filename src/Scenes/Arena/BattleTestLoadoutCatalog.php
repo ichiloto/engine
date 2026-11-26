@@ -27,9 +27,13 @@ final class BattleTestLoadoutCatalog
     }
   }
 
-  public static function getProjectCatalog(): self
+  public static function getProjectCatalog(?string $assetRoot = null,
+    ?SkillCatalog $skills = null, ?SummonCutsceneLibrary $summons = null): self
   {
-    return new self(SkillCatalog::getProjectCatalog(), new SummonCutsceneLibrary());
+    $summons ??= $assetRoot === null
+      ? new SummonCutsceneLibrary()
+      : new SummonCutsceneLibrary($assetRoot . '/Cutscenes/Summons', assetRoot: $assetRoot);
+    return new self($skills ?? SkillCatalog::getProjectCatalog($assetRoot), $summons);
   }
 
   /** @return list<array{id: string, name: string}> */

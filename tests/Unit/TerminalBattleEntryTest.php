@@ -86,7 +86,6 @@ beforeEach(function () {
   new ReflectionProperty(Console::class, 'frameDepth')->setValue(null, 0);
   new ReflectionProperty(Console::class, 'isRecomposing')->setValue(null, false);
   new ReflectionProperty(Console::class, 'terminalHandedBack')->setValue(null, false);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, []);
   ConfigStore::put(ProjectConfig::class, new class extends ProjectConfig {
     protected function load(): array { return ['audio' => ['music' => false, 'sfx' => false]]; }

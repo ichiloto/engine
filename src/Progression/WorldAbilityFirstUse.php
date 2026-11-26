@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Progression;
 
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\ActionHint;
 use InvalidArgumentException;
@@ -43,8 +44,8 @@ final readonly class WorldAbilityFirstUse
   }
 
   /** @return list<ActionHint> One resolved snapshot for measurement and delivery. */
-  public function getActionHints(): array
+  public function getActionHints(?Game $game = null): array
   {
-    return array_map(static fn(array $hint): ActionHint => ActionHints::resolve($hint['action'], $hint['label']), $this->hints);
+    return array_map(static fn(array $hint): ActionHint => ActionHints::resolve($hint['action'], $hint['label'], game: $game), $this->hints);
   }
 }

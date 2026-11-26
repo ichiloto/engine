@@ -42,7 +42,6 @@ require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 
 final class RetainedMapManagerProbe extends MapManager
 {
-    public function __construct(GameScene $scene) { $this->gameScene = $scene; }
     public function readSource(array $paths): array { return $this->readSplitMapDataFromFiles($paths); }
     public function unloadGeometry(): void { $this->clearMapGeometry(); }
     protected function applyMapBackgroundMusic(mixed $bgm, mixed $variants = []): void {}
@@ -92,7 +91,7 @@ beforeEach(function () {
     $this->scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
     $this->camera = new Camera(makeCameraTestScene(), 8, 4);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
-    $this->manager = new RetainedMapManagerProbe($this->scene);
+    $this->manager = new RetainedMapManagerProbe(new PassiveGame(), $this->scene);
     new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $this->manager);
     $this->records = [];
     LatencyTrace::configure(function (array $record): void { $this->records[] = $record; });
@@ -295,7 +294,7 @@ it('scrolls through the real field compositor and runtime without revisiting sta
     $camera = new RetainedScrollCameraProbe($scene, $layout->columns, $layout->rows);
     expect($camera->screen->getWidth())->toBe($layout->columns);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
-    $manager = new RetainedMapManagerProbe($scene);
+    $manager = new RetainedMapManagerProbe($game, $scene);
     new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $manager);
     new ReflectionProperty(GameScene::class, 'party')->setValue($scene,
         new ReflectionClass(Party::class)->newInstanceWithoutConstructor());
@@ -441,7 +440,7 @@ it('holds arrival events until the renderer has shown the map the player arrived
         new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor());
     $layout = new FieldViewport($runtime->grid);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new Camera($scene, $layout->columns, $layout->rows));
-    $manager = new RetainedMapManagerProbe($scene);
+    $manager = new RetainedMapManagerProbe($game, $scene);
     new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $manager);
     new ReflectionProperty(GameScene::class, 'party')->setValue($scene,
         new ReflectionClass(Party::class)->newInstanceWithoutConstructor());

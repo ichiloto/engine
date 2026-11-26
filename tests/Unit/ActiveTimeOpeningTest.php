@@ -183,8 +183,12 @@ it('preserves runtime chance overrides over project settings including legacy ca
   $cwd = getcwd();
   chdir($root);
   try {
-    // newConfig reads project data but does not launch the game or use the loader's Game.
-    $loader = (new ReflectionClass(BattleLoader::class))->newInstanceWithoutConstructor();
+    $game = new class extends Game {
+      public function __construct() {}
+      public function __destruct() {}
+    };
+    $game->bindGameLoader(createTestGameLoader($game, assetRoot: $root . '/assets'));
+    $loader = BattleLoader::getInstance($game);
     $party = new Party();
     $troop = new Troop('Test');
     $legacy = ['activeTime' => ['surpriseAttackChancePercent' => 12, 'backAttackChancePercent' => 3]];

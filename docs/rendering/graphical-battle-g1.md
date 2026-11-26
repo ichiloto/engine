@@ -1317,6 +1317,12 @@ no movement role keep the existing overlapping return/completion timing.
 
 ### Run-to-target action bindings
 
+Author `movement: 'stationary'` when a graphical action stays in the
+caster's slot. It suppresses the default graphical step and transit poses
+while preserving the action pose, phase durations, combat and Terminal
+presentation. Use it on the animation binding so the workshop preview and
+battle host both use the authored movement.
+
 An animation binding may author `movement: 'run-to-target'`; omission keeps
 `step`. Bind separate single-target melee actions and area/ranged actions to
 separate animation records, reusing their effect timelines. Selection still uses

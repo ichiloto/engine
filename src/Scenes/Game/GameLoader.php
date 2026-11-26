@@ -2,16 +2,28 @@
 
 namespace Ichiloto\Engine\Scenes\Game;
 
+use Ichiloto\Engine\Audio\FieldMusicCatalog;
+use Ichiloto\Engine\Battle\Entry\BattleEntryRuleCatalog;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameStartLocation;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\SystemData;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\Field\FieldActionRegistry;
+use Ichiloto\Engine\Field\DashSettings;
 use Ichiloto\Engine\Field\PlayerSpriteSet;
 use Ichiloto\Engine\Field\PlayerPresentationConfig;
+use Ichiloto\Engine\Progression\ProgressionSettings;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
+use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
+use Ichiloto\Engine\Scenes\Arena\ProjectBattleTest;
 use Ichiloto\Engine\Util\Stores\ActorStore;
+use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use RuntimeException;
 
@@ -23,6 +35,9 @@ use RuntimeException;
 class GameLoader
 {
   public readonly string $assetRoot;
+  private ?FieldMusicCatalog $fieldMusicCatalog = null;
+  private ?FieldActionRegistry $fieldActions = null;
+  private ?BattleEntryRuleCatalog $battleEntryRules = null;
 
   /** The Game owns this loader and the project stores supplied at its bootstrap. */
   public function __construct(
@@ -30,6 +45,11 @@ class GameLoader
     public readonly ActorStore $actorStore,
     public readonly ItemStore $itemStore,
     string $assetRoot,
+    private ?WorldAbilityCatalog $worldAbilities = null,
+    private readonly ?EnemyStore $enemyStore = null,
+    private ?ScriptCommandCatalog $scriptCommands = null,
+    private ?DashSettings $dashSettings = null,
+    private ?ProgressionSettings $progressionSettings = null,
   ) {
     $root = realpath($assetRoot);
     if ($root === false || !is_dir($root)) {
@@ -38,10 +58,99 @@ class GameLoader
     $this->assetRoot = $root;
   }
 
+  public function getFieldActions(): FieldActionRegistry
+  {
+    return $this->fieldActions ??= FieldActionRegistry::fromProject($this->assetRoot);
+  }
+
+  public function getFieldMusicCatalog(): FieldMusicCatalog
+  {
+    return $this->fieldMusicCatalog ??= FieldMusicCatalog::fromProject($this->assetRoot . '/Data/field-music.php');
+  }
+
+  public function getWorldAbilities(): WorldAbilityCatalog
+  {
+    return $this->worldAbilities ??= WorldAbilityCatalog::fromProject($this->assetRoot);
+  }
+
+  public function getDashSettings(): DashSettings
+  {
+    return $this->dashSettings ??= DashSettings::fromSystemData($this->loadSystemData());
+  }
+
+  public function getProgressionSettings(): ProgressionSettings
+  {
+    return $this->progressionSettings ??= ProgressionSettings::fromSystemData($this->loadSystemData());
+  }
+
   /** Existing callers resolve the loader owned by their Game. */
   public static function getInstance(Game $game): self
   {
     return $game->getGameLoader();
+  }
+
+  /** @return array<string, mixed> */
+  public function loadSystemData(): array
+  {
+    $filename = $this->assetRoot . '/Data/system.php';
+    if (!is_file($filename)) { throw new RuntimeException('System data not found: ' . $filename); }
+    $systemData = require $filename;
+    if (!is_array($systemData)) {
+      throw new RuntimeException('System data is not an array.');
+    }
+    return $systemData;
+  }
+
+  public function createBattleTestSetup(ProjectBattleTest $preset, array $systemData): BattleTestSetup
+  {
+    $battleSize = SystemData::getBattlePartySize($systemData['battle'] ?? null);
+    return $preset->createSetup($this->actorStore, $systemData['startingParty'] ?? [], $battleSize,
+      assetRoot: $this->assetRoot, items: $this->itemStore);
+  }
+
+  /** @return list<array<string, mixed>> */
+  public function loadTroopData(): array
+  {
+    $source = $this->assetRoot . '/Data/troops.php';
+    if (!is_file($source)) {
+      throw new RuntimeException('Asset file not found: ' . $source);
+    }
+    $troops = [];
+    foreach ((array) (require $source) as $key => $data) {
+      if (!is_array($data)) { continue; }
+      if (!array_key_exists('id', $data) && is_string($key) && trim($key) !== '') {
+        $data['id'] = trim($key);
+      }
+      $troops[] = $data;
+    }
+    return $troops;
+  }
+
+  public function loadTroop(string $name): ?Troop
+  {
+    $data = array_find($this->loadTroopData(), static fn(array $candidate): bool => ($candidate['name'] ?? null) === $name);
+    return $data === null ? null : $this->createTroop($data);
+  }
+
+  public function getEnemyStore(): EnemyStore
+  {
+    return $this->enemyStore ?? throw new \LogicException('Battle Test requires its project enemy store.');
+  }
+
+  public function getScriptCommands(): ScriptCommandCatalog
+  {
+    return $this->scriptCommands ??= ScriptCommandRegistry::readProjectCatalog($this->assetRoot);
+  }
+
+  public function getBattleEntryRules(): BattleEntryRuleCatalog
+  {
+    return $this->battleEntryRules ??= BattleEntryRuleCatalog::fromProject(
+      $this->assetRoot . '/Data/battle-entry-rules.php', $this->actorStore);
+  }
+
+  public function createTroop(array $data): Troop
+  {
+    return Troop::fromArray($data, enemiesStore: $this->getEnemyStore(), scriptCommands: $this->getScriptCommands());
   }
 
   /**
@@ -52,13 +161,7 @@ class GameLoader
    */
   public function loadNewGame(?GameStartLocation $start = null): GameConfig
   {
-    $filename = $this->assetRoot . '/Data/system.php';
-    if (!is_file($filename)) { throw new RuntimeException('System data not found: ' . $filename); }
-    $systemData = require $filename;
-    if (!is_array($systemData)) {
-      throw new RuntimeException('System data is not an array.');
-    }
-    $systemData = SystemData::fromArray($systemData);
+    $systemData = SystemData::fromArray($this->loadSystemData());
     $party = new Party();
     $party->inventory->bindItemStore($this->itemStore);
     $party->setBattleSize($systemData->battle->partySize);
@@ -72,7 +175,7 @@ class GameLoader
           strval($member),
         ), previous: $failure);
       }
-      $party->addMember($actor->createCharacter());
+      $party->addMember($actor->createCharacter(assetRoot: $this->assetRoot, items: $this->itemStore));
     }
     if ($systemData->currency->amount) {
       $party->accountBalance = $systemData->currency->amount;

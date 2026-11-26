@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
@@ -24,9 +25,9 @@ final class OccupancyMapManagerProbe extends MapManager
     public int $legacyCollisionCalls = 0;
     public array $dictionary = ['#' => CollisionType::SOLID, '.' => CollisionType::NONE];
 
-    public function __construct(GameScene $scene, public array $testPaths)
+    public function __construct(Game $game, GameScene $scene, public array $testPaths)
     {
-        $this->gameScene = $scene;
+        parent::__construct($game, $scene);
     }
 
     protected function resolveMapPaths(string $filename): array
@@ -73,7 +74,9 @@ function createOccupancyLoadingFixture(bool $layered = false, string $text = "##
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
     new ReflectionProperty(GameScene::class, 'party')->setValue($scene, new Party());
     new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
-    $manager = new OccupancyMapManagerProbe($scene, $paths);
+    $game = new \Tests\Support\PassiveGame();
+    $game->bindGameLoader(createTestGameLoader($game, assetRoot: $root . '/assets'));
+    $manager = new OccupancyMapManagerProbe($game, $scene, $paths);
     new ReflectionProperty(MapManager::class, 'tileMap')->setValue($manager, [['old']]);
     new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($manager, [[CollisionType::ENCOUNTER->value]]);
     new ReflectionProperty(MapManager::class, 'mapWidth')->setValue($manager, 1);

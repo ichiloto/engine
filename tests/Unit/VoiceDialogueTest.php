@@ -20,6 +20,7 @@ use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
+use Ichiloto\Engine\Util\Config\AbstractConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\PlayerSettings;
@@ -32,6 +33,24 @@ final class VoiceTestGame extends Game
 {
   public function __construct() {}
   public function __destruct() {}
+}
+
+function createVoiceProject(bool $auto, float $duck, ?string $dataRoot = null): VoiceTestGame
+{
+  $configuration = new class(['ui' => ['dialogue' => ['auto' => $auto]], 'audio' => ['voice_music_duck' => $duck]]) extends AbstractConfig {
+    protected function load(): array { return $this->options; }
+    public function persist(): void {}
+  };
+  $game = new VoiceTestGame();
+  new ReflectionProperty(Game::class, 'projectConfiguration')->setValue($game, $configuration);
+  if ($dataRoot !== null) {
+    mkdir($dataRoot);
+    $player = new PlayerSettings(dataRoot: $dataRoot);
+    $player->set(DialoguePlayback::CONFIG_AUTO, $auto);
+    $player->persist();
+    new ReflectionProperty(Game::class, 'playerSettings')->setValue($game, $player);
+  }
+  return $game;
 }
 
 final class VoiceTestTextBox extends TextBoxModal
@@ -135,7 +154,6 @@ beforeEach(function () {
   ConfigStore::remove(ProjectConfig::class);
   ConfigStore::remove(PlayerSettings::class);
   $this->eventState = new ReflectionClass(EventManager::class)->getStaticProperties();
-  new ReflectionProperty(EventManager::class,'instance')->setValue(null,null);
   ConfigStore::put(PlaySettings::class,new PlaySettings(['width'=>80,'height'=>24]));
   new ReflectionProperty(Console::class,'width')->setValue(null,80);
   new ReflectionProperty(Console::class,'height')->setValue(null,24);
@@ -298,8 +316,8 @@ it('accepts an empty dialogue catalogue placeholder and displays the registered 
   file_put_contents($this->voiceTemp.'/assets/Data/Presentation/dialogue.php', "<?php\n\n");
   $actors = new ActorStore($this->voiceTemp.'/actors');
   $actors->set('hero', new ActorDefinition('hero', ['name'=>'Current Name']));
-  ConfigStore::put(ActorStore::class, $actors);
   $game = new VoiceTestGame();
+  $game->bindGameLoader(createTestGameLoader($game, actors: $actors, assetRoot: $this->voiceTemp . '/assets'));
   $skits = new VoiceTestSkits(new VoiceTestScene($game));
   $skits->runSkit(['speed'=>20, 'beats'=>[['actor'=>'hero','text'=>'Hello']]]);
   // The placeholder itself is no problem; the only report is the skit's missing backdrop.
@@ -495,6 +513,72 @@ it('persists Auto across ordinary dialogue skits and reloaded configuration and 
   foreach ([new \Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager(), new \Ichiloto\Engine\Scenes\Title\TitleOptionsSettingsManager()] as $manager) {
     expect(array_column($manager->getSettings(), 'key'))->toContain('dialogue_auto');
   }
+});
+
+it('reads and saves text box Auto in the dialogue project even when another project is current', function () {
+  $ownerRoot = $this->voiceTemp . '/owner';
+  $otherRoot = $this->voiceTemp . '/other';
+  $owner = createVoiceProject(false, 0.25, $ownerRoot);
+  $other = createVoiceProject(true, 0.75, $otherRoot);
+  ConfigStore::put(ProjectConfig::class, $other->getProjectConfiguration());
+  ConfigStore::put(PlayerSettings::class, $other->getPlayerSettings());
+  $otherBefore = file_get_contents($otherRoot . '/player-settings.json');
+
+  $modal = new VoiceTestTextBox($owner, 'The first project is still open.');
+  $playback = $modal->getPlayback();
+  expect($playback->auto)->toBeFalse();
+  $playback->toggleAuto();
+  expect($playback->auto)->toBeTrue()
+    ->and(new PlayerSettings(dataRoot: $ownerRoot)->get(DialoguePlayback::CONFIG_AUTO))->toBeTrue()
+    ->and(file_get_contents($otherRoot . '/player-settings.json'))->toBe($otherBefore);
+
+  $settings = new \Ichiloto\Engine\Settings\SettingsCatalog($owner);
+  $settings->write('dialogue_auto', false);
+  $settings->persist();
+  expect($playback->auto)->toBeFalse()
+    ->and(new PlayerSettings(dataRoot: $ownerRoot)->get(DialoguePlayback::CONFIG_AUTO))->toBeFalse()
+    ->and(file_get_contents($otherRoot . '/player-settings.json'))->toBe($otherBefore);
+});
+
+it('uses the skit project Auto and voice mix without borrowing the current project settings', function () {
+  $ownerRoot = $this->voiceTemp . '/owner';
+  $otherRoot = $this->voiceTemp . '/other';
+  $owner = createVoiceProject(true, 0.25, $ownerRoot);
+  $other = createVoiceProject(false, 0.75, $otherRoot);
+  ConfigStore::put(ProjectConfig::class, $other->getProjectConfiguration());
+  ConfigStore::put(PlayerSettings::class, $other->getPlayerSettings());
+  $otherBefore = file_get_contents($otherRoot . '/player-settings.json');
+  new ReflectionProperty(Game::class, 'audioManager')->setValue($owner, $this->audio);
+
+  $music = $this->voiceTemp . '/music.mp3';
+  file_put_contents($music, 'fake test music');
+  $this->audio->playBackgroundMusic($music);
+  $skits = new VoiceTestSkits(new VoiceTestScene($owner));
+  $skits->runSkit(['speed' => 20, 'beats' => [['speaker' => 'Narrator', 'text' => 'A voiced skit', 'voice' => 'line']]]);
+  $musicVolumes = [];
+  foreach ($this->audio->handles as $handle) {
+    if ($handle->command[0] === $music) { $musicVolumes[] = $handle->command[1]; }
+  }
+  expect($skits->shown[0][2])->toBeTrue()
+    ->and($musicVolumes)->toBe(['0.8', '0.2', '0.8'])
+    ->and(new PlayerSettings(dataRoot: $ownerRoot)->get(DialoguePlayback::CONFIG_AUTO))->toBeFalse()
+    ->and(file_get_contents($otherRoot . '/player-settings.json'))->toBe($otherBefore);
+});
+
+it('keeps Auto in a preview session when its project has no persistent player settings', function () {
+  $otherRoot = $this->voiceTemp . '/other';
+  $owner = createVoiceProject(false, 0.25);
+  $other = createVoiceProject(false, 0.75, $otherRoot);
+  ConfigStore::put(ProjectConfig::class, $other->getProjectConfiguration());
+  ConfigStore::put(PlayerSettings::class, $other->getPlayerSettings());
+  $otherBefore = file_get_contents($otherRoot . '/player-settings.json');
+
+  $modal = new VoiceTestTextBox($owner, 'A temporary preview.');
+  $modal->getPlayback()->toggleAuto();
+  expect($modal->getPlayback()->auto)->toBeTrue()
+    ->and($owner->getProjectConfiguration()->get(DialoguePlayback::CONFIG_AUTO))->toBeTrue()
+    ->and($other->getProjectConfiguration()->get(DialoguePlayback::CONFIG_AUTO))->toBeFalse()
+    ->and(file_get_contents($otherRoot . '/player-settings.json'))->toBe($otherBefore);
 });
 
 it('holds one duck across consecutive voiced beats and restores for silence or conversation completion', function () {

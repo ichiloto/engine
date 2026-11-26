@@ -281,12 +281,18 @@ it('scrolls the full owner list in terminal and native without losing the active
   $total = count($rows);
   expect(controlsPresentationText($frame))->toContain('Command 49', '/ ' . $total);
   $remainingActions = ['info', 'menu_page_previous', 'menu_page_next', 'character_next', 'character_previous', 'map_view', 'map_size',
-    'map_zoom', 'map_recenter', 'dialogue_auto', 'secondary_action', 'quick_save'];
+    'map_zoom', 'map_recenter', 'battle_back', 'dialogue_auto', 'secondary_action', 'quick_save'];
   foreach ($remainingActions as $offset => $action) {
     controlsPresentationKey($this->owner, KeyCode::DOWN);
     $content = $this->owner->getPresentationContent();
     expect($content->index)->toBe(54 + $offset)
       ->and($content->rows[$content->index]['action'])->toBe($action);
+    if ($action === 'battle_back') {
+      expect(implode('', $this->owner->terminalRows()))->toContain('Battle back', '[C] [c]');
+      $frame = ControlsMenuPresentation::compose($content, $theme);
+      expect(controlsPresentationText($frame))->toContain('Battle back', 'Return to the previous choice or character in battle.')
+        ->and(controlsLookupLine($frame))->toBe('Keyboard bindings: C c');
+    }
     if ($action === 'dialogue_auto') {
       expect(implode('', $this->owner->terminalRows()))->toContain('Dialogue auto', '[x] [X]');
       $frame = ControlsMenuPresentation::compose($content, $theme);

@@ -152,8 +152,10 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
         cellWidth: 10, cellHeight: 20), $transport);
     $this->runtime->start('Field zoom', 135, 36);
-    $game = $this->getStubBuilder(PassiveGame::class)->disableOriginalConstructor()->onlyMethods(['getRendererRuntime'])->getStub();
+    $game = $this->getStubBuilder(PassiveGame::class)->disableOriginalConstructor()->onlyMethods(['getRendererRuntime', 'getProjectConfiguration'])->getStub();
     $game->method('getRendererRuntime')->willReturn($this->runtime);
+    $settings = new PlaySettings(['graphics' => ['field' => ['zoom' => 2.0]]]);
+    $game->method('getProjectConfiguration')->willReturn($settings);
     $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
         ->onlyMethods(['getGame', 'getPresentationWorld'])->getStub();
     $scene->method('getGame')->willReturn($game);
@@ -181,7 +183,6 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     $field = makeBareScene(FieldState::class);
     new ReflectionProperty(GameScene::class, 'fieldState')->setValue($scene, $field);
     new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
-    ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 2.0]]]));
     $scene->synchronizeFieldViewport();
     // Retained presentation removes the old optional viewport-capability fallback.
     expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([14, 7]);
@@ -204,13 +205,16 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     Console::recomposeFrame(fn() => Console::write('Menu', 0, 0));
     $this->runtime->present($scene);
     expect(RetainedFrameState::getLatestFrame($transport->sent))->not->toHaveKey('viewport');
+    // A second project's bootstrap must not reframe this field when its menu closes.
+    ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 3.0]]]));
     new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
     $scene->synchronizeFieldViewport();
+    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([14, 7]);
     Console::recomposeFrame($camera->renderMap(...));
     expect($presentField()['viewport']['scale'])->toBe(2.0);
     // At 1x a field cell is still 48 x 48 pixels, not a 10 x 20 text cell: the camera shows 28 x 15 cells
     // and the field text needs the viewport transform to be drawn at the field pitch.
-    ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 1.0]]]));
+    $settings->set('graphics.field.zoom', 1.0);
     $scene->synchronizeFieldViewport();
     expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([28, 15]);
     Console::recomposeFrame($camera->renderMap(...));

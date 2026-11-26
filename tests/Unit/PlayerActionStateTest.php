@@ -770,8 +770,12 @@ it('reveals the live crisis technique only while semantic Right is held and conf
       ->and($turn->action)->toBeNull()->and($actor->stats->currentMp)->toBe(0);
     $input->release('physical-d'); $refresh();
     expect($state->getSelectionMode())->toBe('target');
-    $input->press('cancel', KeyCode::c); $refresh();
-    expect($state->getSelectionMode())->toBe('command');
+    expect(InputManager::setBinding('battle_back', [KeyCode::F6]))->toBeTrue();
+    $input->press('old-back', KeyCode::c); $refresh();
+    expect($state->getSelectionMode())->toBe('target');
+    $input->release('old-back')->press('rebound-back', KeyCode::F6); $refresh();
+    expect($state->getSelectionMode())->toBe('command')->and($turn->action)->toBeNull();
+    $input->release('rebound-back'); $refresh();
     expect($label())->toBe('Attack');
     InputManager::setInputSource(new FakeInputSource(KeyCode::d)); $refresh();
     new ReflectionMethod($state, 'beginSubmenuSelection')->invoke($state, $context);

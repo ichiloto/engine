@@ -3,9 +3,11 @@
 namespace Ichiloto\Engine\Messaging\Dialogue;
 
 use Exception;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
-use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
@@ -44,21 +46,23 @@ class Dialogue
    */
   public function show(): void
   {
-    show_text(
+    $this->showForGame(Console::getGame());
+  }
+
+  /** Present the page in the caller's Game. Specialized dialogue types override this entry point. */
+  public function showForGame(Game $game): void
+  {
+    $configuration = $game->getProjectConfiguration() ?? ConfigStore::get(ProjectConfig::class);
+    $game->getModalManager()->showText(
       $this->text,
       $this->name,
-      '',
-      config(ProjectConfig::class, 'ui.dialogue.window.position', null),
-      config(
-        ProjectConfig::class,
-        'ui.dialogue.speed',
-        config(ProjectConfig::class, 'ui.dialogue.message.speed', 20)
-      ),
+      position: $configuration->get('ui.dialogue.window.position'),
+      charactersPerSecond: $configuration->get('ui.dialogue.speed', $configuration->get('ui.dialogue.message.speed', 20)),
       presentation: $this->presentation,
     );
   }
 
-  /** Prepare the field separately so specialized dialogue/choice show() APIs retain their existing contract. */
+  /** Prepare field staging before presenting a page. */
   public function prepareFieldPresentation(GameScene $scene): void
   {
     $scene->cinematicController?->prepareDialogue($this->name, $this->fieldFacing);

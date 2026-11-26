@@ -49,7 +49,7 @@ require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 final class PlayerPromptMapManager extends MapManager
 {
     public ?PreparedMap $destination = null;
-    public function __construct(GameScene $scene) { $this->gameScene = $scene; }
+    public function __construct(GameScene $scene) { parent::__construct($scene->getGame(), $scene); }
     public function prepareMap(string $mapFilename): PreparedMap
     {
         return $this->destination ?? throw new RuntimeException('Missing prompt-test destination.');
@@ -67,7 +67,8 @@ final class PlayerPromptScene extends GameScene
 
 final class PlayerPromptGame extends Game
 {
-    public function __construct(private RendererRuntime $testRuntime) {}
+    public function __construct(private RendererRuntime $testRuntime, private PlaySettings $settings) {}
+    public function getProjectConfiguration(): PlaySettings { return $this->settings; }
     // PHPUnit can release a mock's configured destructor before scene cycles are collected.
     public function __destruct() {}
     public function getRendererRuntime(): ?RendererRuntime { return $this->testRuntime; }
@@ -114,11 +115,11 @@ beforeEach(function () {
     foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false] as $key => $value) {
         new ReflectionProperty(Console::class, $key)->setValue(null, $value);
     }
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
     Console::setTerminalOutputEnabled(false);
     Console::syncDimensions(80, 40);
-    ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 2.0]],
-        'ui' => ['hud' => ['location' => false]]]));
+    $projectSettings = new PlaySettings(['graphics' => ['field' => ['zoom' => 2.0]],
+        'ui' => ['hud' => ['location' => false]]]);
+    ConfigStore::put(ProjectConfig::class, $projectSettings);
     ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 40]));
     $this->root = \getTestTemporaryDirectory() . '/ichiloto-player-prompt-' . bin2hex(random_bytes(8));
     mkdir($this->root);
@@ -131,7 +132,7 @@ beforeEach(function () {
     $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']),
         $this->root, cellWidth: 24, cellHeight: 36), $this->transport);
     $this->runtime->start('Player prompt', 80, 40);
-    $game = new PlayerPromptGame($this->runtime);
+    $game = new PlayerPromptGame($this->runtime, $projectSettings);
     $this->scene = new PlayerPromptScene($game);
     new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($this->scene, makeBareScene(SceneManager::class));
     new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, new GameState());
@@ -165,7 +166,6 @@ beforeEach(function () {
 
 afterEach(function () {
     $this->runtime->shutdown();
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
     unset($this->runtime, $this->transport, $this->field, $this->scene, $this->camera, $this->player, $this->manager);
     gc_collect_cycles();
     foreach ($this->states as $class => $state) {

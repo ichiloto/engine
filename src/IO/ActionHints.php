@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\IO;
 
+use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\Localization\MessageCatalog;
 
 /** Shared display resolver. It does not poll, detect devices, cache bindings or handle input. */
 final class ActionHints
@@ -18,9 +21,13 @@ final class ActionHints
     self::$provider = $provider;
   }
 
-  public static function resolve(string $action, string $label, ?KeyCode $keyboardAlias = null): ActionHint
+  public static function resolve(string $action, string $label, ?KeyCode $keyboardAlias = null, ?Game $game = null): ActionHint
   {
-    return new ActionHint($action, $label, self::resolveControl($action, $keyboardAlias));
+    $control = self::resolveControl($action, $keyboardAlias, $game);
+    if ($control !== null && $action === PlayerDash::ACTION && PlayerDash::isAlwaysDashOn($game)) {
+      $label = MessageCatalog::getTerm('hint.dash.hold_to_walk');
+    }
+    return new ActionHint($action, $label, $control);
   }
 
   /**
@@ -28,12 +35,12 @@ final class ActionHints
    * (a dialogue's advance key). Every hint resolves its control here, so a rebound key or another
    * profile's control family shows the same way everywhere.
    */
-  public static function resolveControl(string $action, ?KeyCode $keyboardAlias = null): ?ControlHint
+  public static function resolveControl(string $action, ?KeyCode $keyboardAlias = null, ?Game $game = null): ?ControlHint
   {
-    if ($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) {
+    if ($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled($game)) {
       return null;
     }
-    $provider = self::$provider ?? new InputBindings();
+    $provider = self::$provider ?? new InputBindings($game);
     $control = $provider->controlForAction($action);
     // An owner can declare a real retained keyboard alias, never an invented general fallback.
     if ($control === null && $provider instanceof InputBindings && $keyboardAlias !== null) {

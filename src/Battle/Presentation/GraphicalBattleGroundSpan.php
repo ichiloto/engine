@@ -29,7 +29,7 @@ final class GraphicalBattleGroundSpan
    * @return array{strip: CanvasTextureStrip, flipX: bool, flipY: bool}
    */
   public static function createProjection(BattleEffectAnchorSnapshot $snapshot, SpriteSourceRect $crop,
-    array $source, PresentationSpritePivot $rear, bool $flipX = false, bool $flipY = false): array
+    array $source, PresentationSpritePivot $rear, bool $flipX = false, bool $flipY = false, ?int $recipient = null, float $revealProgress = 1): array
   {
     $definition = EffectGroundSpan::fromArray($source);
     $tip = $definition->tip->toArray();
@@ -37,7 +37,8 @@ final class GraphicalBattleGroundSpan
     $tipX = $flipX ? 1 - $tip['x'] : $tip['x']; $tipY = $flipY ? 1 - $tip['y'] : $tip['y'];
     $sourceX = ($tipX - $rearX) * $crop->width; $sourceY = ($tipY - $rearY) * $crop->height;
     $sourceReach = hypot($sourceX, $sourceY);
-    $start = $snapshot->getCasterGround(); $end = $snapshot->getGroundSpanEndpoint();
+    $start = $snapshot->getGroundSpanStart($definition->casterPoint);
+    $end = $snapshot->getGroundSpanEndpoint($recipient);
     $dx = $end->x - $start->x; $dy = $end->y - $start->y; $reach = hypot($dx, $dy);
     if ($sourceReach <= 0 || $reach <= 0) {
       throw new InvalidArgumentException('A captured ground span requires distinct source and destination endpoints.');
@@ -60,15 +61,24 @@ final class GraphicalBattleGroundSpan
       'axis' => [$cos, $sin], 'length' => $crop->width * $scale, 'height' => $crop->height * $scale,
       'knots' => [['u' => 0.0, 'offset' => 0.0], ['u' => 1.0, 'offset' => 0.0]],
     ]);
+    if ($revealProgress < 1) {
+      $normal = [$dx / $reach, $dy / $reach];
+      [$nx, $ny] = $normal;
+      // Move the clip edge across the rigid image. Its pose, scale and sampling stay fixed.
+      $clip = ['normal' => $normal, 'feather' => $definition->reveal?->featherPixels ?? 0,
+        'limit' => ($start->x - $strip->origin[0]) * $nx + ($start->y - $strip->origin[1]) * $ny + $reach * $revealProgress];
+      $strip = new CanvasTextureStrip([...$strip->toArray(), 'clipPlane' => $clip]);
+    }
     return ['strip' => $strip, 'flipX' => $flipX, 'flipY' => $flipY];
   }
 
   public static function compose(string $id, string $asset, SpriteSourceRect $crop,
-    BattleEffectAnchorSnapshot $snapshot, BattleCanvasLayout $arena, array $track): ?CanvasComposite
+    BattleEffectAnchorSnapshot $snapshot, BattleCanvasLayout $arena, array $track, ?int $recipient = null, float $revealProgress = 1): ?CanvasComposite
   {
     $projection = self::createProjection($snapshot, $crop, $track[EffectGroundSpan::FIELD],
-      PresentationSpritePivot::fromArray($track['pivot']), $track['flipX'] ?? false, $track['flipY'] ?? false);
+      PresentationSpritePivot::fromArray($track['pivot']), $track['flipX'] ?? false, $track['flipY'] ?? false, $recipient, $revealProgress);
     return GraphicalBattleStrip::composeStrip($id, $asset, $crop, $projection['strip'], $arena,
-      [...$track, 'flipX' => $projection['flipX'], 'flipY' => $projection['flipY']]);
+      [...$track, 'flipX' => $projection['flipX'], 'flipY' => $projection['flipY']],
+      opacity: $revealProgress < 1 ? (float)($track[EffectGroundSpan::FIELD]['reveal']['beforeContactOpacity'] ?? 1) : 1);
   }
 }

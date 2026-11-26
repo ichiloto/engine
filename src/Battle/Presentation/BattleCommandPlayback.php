@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Animations\ActionMovement;
 use Closure;
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
@@ -11,6 +12,8 @@ use Ichiloto\Engine\Animations\Timelines\EffectSegmentComposition;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackSession;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Animations\Timelines\EffectStraightFlightFallback;
+use Ichiloto\Engine\Animations\Timelines\EffectTrackType;
+use Ichiloto\Engine\Audio\AudioPlayback;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Throwable;
@@ -29,6 +32,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private Closure $presentCue;
   private bool $resolved = false;
   private bool $cancelled = false;
+  private readonly bool $hasAuthoredReactions;
   public private(set) string $phase = 'advance';
   public private(set) ?Throwable $presentationFailure = null;
   /** @var array<int, BattlePoseRole> Reactions from actual resolved outcomes, keyed by combatant instance. */
@@ -37,6 +41,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private array $recordedHits = [];
   /** @var array<int, BattlePoseRole> Resting presentation before the command changes combat state. */
   private array $initialRestRoles = [];
+  /** @var array<int, int> Vitals held until each selected recipient's contact. */
+  private array $initialContactHp = [];
   private array $reactionFrames = [];
   private ?int $impactFrame = null;
   public private(set) float $elapsedSeconds = 0;
@@ -49,7 +55,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   private array $detachedPosePoints = [];
   /** @var array<int, int> Selected combatant identity to command impact frame, in presentation order. */
   private array $fallbackHitFrames = [];
-  /** @var array<int, int> Graphical contact frames; gameplay and reactions keep their own impact. */
+  /** @var array<int, int> Graphical contact frames, independent of command resolution. */
   private array $targetContactFrames = [];
   /** @var ?Closure(self): (BattleEffectAnchorSnapshot|BattleEffectTargetGroup|null) */
   private ?Closure $captureTargetGroup = null;
@@ -58,11 +64,15 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   /** @var ?Closure(self): TerminalBattleLaneSnapshot */
   private ?Closure $captureTerminalLane = null;
   private ?TerminalBattleLaneSnapshot $terminalLaneSnapshot = null;
+  /** @var array<int, int> Captured recipient identity => delay in authored Terminal frames. */
+  private array $terminalContactDelays = [];
   /** @var array<int, array{battler: \Ichiloto\Engine\Entities\Enemies\Enemy, start: float, cleared: bool}> */
   private array $defeats = [];
   /** @var list<array{subject: int, start: float, timing: EffectPlaybackTiming, timeline: CompiledEffectTimeline, presentation: EffectPresentation}> */
   private array $resultEffects = [];
   private float $resultEffectsEnd = 0;
+  /** @var list<AudioPlayback> Players started by this command's authored cues. */
+  private array $authoredSounds = [];
 
   public bool $isCompleted { get => $this->cancelled || ($this->session->isCompleted
     && $this->elapsedSeconds >= $this->resultEffectsEnd
@@ -80,6 +90,8 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     foreach ([$actor, ...$targets] as $battler) {
       $this->initialRestRoles[spl_object_id($battler)] = BattlePoseRole::getRestingRole($battler);
     }
+    $this->hasAuthoredReactions = array_any($plan->timeline->playbackSegments,
+      static fn(array $segment): bool => $segment['layer'] === EffectTrackType::BATTLER_REACTION->value);
     $this->session = new EffectPlaybackSession($plan->timeline, false);
     $this->resolve = Closure::fromCallable($resolve);
     $this->presentCue = Closure::fromCallable($presentCue);
@@ -213,11 +225,27 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     return $sample;
   }
 
-  /** Abandonment removes visuals, never executes a command that has not hit. */
-  public function cancel(): void
+  public function retainAuthoredSound(AudioPlayback $sound): void
   {
+    if ($this->cancelled) { $sound->stop(); return; }
+    $this->authoredSounds[] = $sound;
+  }
+
+  /** Abandonment releases presentation resources without resolving a pending hit. */
+  public function cancel(bool $preserveCompletedSoundTails = false): void
+  {
+    $releaseNaturally = $preserveCompletedSoundTails && !$this->cancelled && $this->isCompleted;
+    $sounds = $this->authoredSounds;
+    $this->authoredSounds = [];
     $this->cancelled = true;
+    if (!$releaseNaturally) {
+      foreach ($sounds as $sound) {
+        try { $sound->stop(); }
+        catch (Throwable $error) { $this->recordPresentationFailure($error); }
+      }
+    }
     $this->targetContactFrames = [];
+    $this->initialContactHp = [];
     $this->recordedHits = [];
     $this->defeats = $this->detachedPosePoints = $this->fallbackHitFrames = [];
     $this->resultEffects = [];
@@ -227,6 +255,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->captureTargetGroup = null;
     $this->captureTerminalLane = null;
     $this->terminalLaneSnapshot = null;
+    $this->terminalContactDelays = [];
   }
 
   /** @param Closure(self, string, string, ?string, ?array, ?float, ?string, ?string): array<int, DetachedPosePoint> $capture */
@@ -285,6 +314,28 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   /** @return array<int, int> Selected identities in their captured front-crossing order. */
   public function getTargetContactFrames(): array { return $this->targetContactFrames; }
 
+  /** Use the same fixed clock as the captured contact schedule, independent of draw count. */
+  public function getGroundSpanRevealProgress(int $recipient, int $authoredStart): float
+  {
+    $contact = $this->targetContactFrames[$recipient] ?? null;
+    if ($contact === null) { return 0; }
+    $start = $this->getTargetContactTick($authoredStart);
+    if ($contact <= $start) { return $this->session->currentFrame < $contact ? 0 : 1; }
+    return clamp(($this->session->currentFrame - $start) / ($contact - $start), 0.0, 1.0);
+  }
+
+  /** @return array<int, int> The resolved result presentation schedule for selected recipients. */
+  public function getResultPresentationFrames(): array
+  {
+    return $this->plan->targetContactSequence?->presentsResults ? $this->targetContactFrames : $this->fallbackHitFrames;
+  }
+
+  private function isAwaitingContactResult(int $id, int $frame): bool
+  {
+    return !$this->cancelled && isset($this->initialContactHp[$id], $this->targetContactFrames[$id])
+      && $frame < $this->targetContactFrames[$id];
+  }
+
   public function isAwaitingFallbackHit(CharacterInterface $battler): bool
   {
     return ($this->fallbackHitFrames[spl_object_id($battler)] ?? 0) > $this->session->currentFrame;
@@ -342,8 +393,12 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   /** Historical HP while scheduled feedback owns it; null leaves ordinary vitals with their existing owner. */
   public function getPresentedHp(CharacterInterface $battler, ?int $frame = null): ?int
   {
-    $timeline = $this->recordedHits[spl_object_id($battler)] ?? null;
+    $id = spl_object_id($battler);
     $at = $frame ?? $this->session->currentFrame;
+    if (($frame !== null || !$this->isCompleted) && $this->isAwaitingContactResult($id, $at)) {
+      return $this->initialContactHp[$id];
+    }
+    $timeline = $this->recordedHits[$id] ?? null;
     if ($timeline === null || $this->cancelled || $at >= $this->plan->phases['return']['start']
       || ($frame === null && $this->isCompleted)) { return null; }
     return $timeline->getFeedbackAtFrame($at)['hit']->postEffectHp ?? $timeline->hits[0]->preEffectHp;
@@ -358,6 +413,11 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   public function getPoseRole(CharacterInterface $battler, ?BattlePoseSet $poses = null, bool $reducedMotion = false): BattlePoseRole
   {
     $rest = BattlePoseRole::getRestingRole($battler);
+    $id = spl_object_id($battler);
+    if (!$this->isCompleted && $this->isAwaitingContactResult($id, $this->session->currentFrame)) {
+      $rest = $this->initialRestRoles[$id];
+      if ($battler !== $this->actor) { return $rest; }
+    }
     if (isset($this->recordedHits[spl_object_id($battler)]) && !$this->cancelled && !$this->isCompleted
       && !in_array($this->phase, ['return', 'enter-return', 'exit-return', 'finish', 'effect-tail'], true)) {
       $rest = $this->initialRestRoles[spl_object_id($battler)];
@@ -376,6 +436,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     if ($rest === BattlePoseRole::KNOCKOUT && $this->isAwaitingFallbackHit($battler)) { return BattlePoseRole::IDLE; }
     if ($this->cancelled || $this->isCompleted || $rest === BattlePoseRole::KNOCKOUT || $rest === BattlePoseRole::CONCEDE) { return $rest; }
     if (!$reducedMotion && $this->plan->movementPoses && !$this->plan->resultsOnly && $battler === $this->actor
+      && $this->plan->movement !== ActionMovement::STATIONARY
       && !isset($this->reactions[spl_object_id($battler)])) {
       $movement = match ($this->phase) {
         'advance', 'enter-advance', 'exit-advance' => BattlePoseRole::MOVE,
@@ -401,6 +462,33 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       return $this->reactions[spl_object_id($battler)] ?? ($battler === $this->actor ? $this->pose : $rest);
     }
     return $rest;
+  }
+
+  /** @return array{role: BattlePoseRole, seconds: float}|null */
+  public function getAuthoredReaction(CharacterInterface $battler, bool $reducedMotion): ?array
+  {
+    if (!$this->hasAuthoredReactions || $reducedMotion || $this->cancelled || $this->isCompleted
+      || $this->plan->resultsOnly || !in_array($battler, $this->targets, true)) { return null; }
+
+    $frame = $this->session->currentFrame;
+    $active = $this->session->getActiveSegments($frame);
+    if ($this->plan->targetContactSequence !== null) {
+      $active = $this->getTargetContactSegments($active, $frame, false);
+    }
+    $sample = null;
+    $started = -1;
+    $identity = spl_object_id($battler);
+    foreach ($active as $segment) {
+      if ($segment['layer'] !== EffectTrackType::BATTLER_REACTION->value || $segment['startFrame'] < $started) { continue; }
+      foreach ($segment['drawCommands'] as $command) {
+        $payload = $command['payload'];
+        if (($payload['hitSubject'] ?? $identity) !== $identity) { continue; }
+        $started = $segment['startFrame'];
+        $sample = ['role' => BattlePoseRole::from($payload['role']),
+          'seconds' => (float) (($frame - $started) / BattleCommandTimeline::FPS)];
+      }
+    }
+    return $sample;
   }
 
   public function getBoundActionPose(CharacterInterface $battler, BattlePoseRole $role, bool $reducedMotion = false): ?BattlerPose
@@ -500,12 +588,26 @@ final class BattleCommandPlayback implements BattleEffectPlayback
   public function getPoseImpactSeconds(CharacterInterface $battler): ?float
   {
     if ($this->plan->flashStep !== null && $battler === $this->actor) { return 0.0; }
-    if ($battler !== $this->actor || isset($this->reactionFrames[spl_object_id($battler)])
-      || $this->plan->actionPoseAnchorFrame === null || !isset($this->plan->phases['announce'])) { return null; }
-    $start = $this->plan->actionPoseStartFrame;
+    $impact = $this->getPoseImpactClockFrame($battler);
+    if ($impact === null) { return null; }
+    $start = $this->plan->actionPoseStartFrame ?? $this->plan->phases['announce']['start'];
+    return max(0, ($impact - $start) / BattleCommandTimeline::FPS);
+  }
+
+  /** Subtract on the command clock before converting to seconds at the pose boundary. */
+  public function getPoseElapsedFromImpactSeconds(CharacterInterface $battler): ?float
+  {
+    if ($this->plan->flashStep !== null) { return null; }
+    $impact = $this->getPoseImpactClockFrame($battler);
+    return $impact === null ? null : ($this->getActorClockFrame() - $impact) / BattleCommandTimeline::FPS;
+  }
+
+  private function getPoseImpactClockFrame(CharacterInterface $battler): ?float
+  {
     $anchor = $this->plan->actionPoseAnchorFrame;
-    return max(0, ($start === null ? $anchor - $this->plan->phases['announce']['start']
-      : $this->plan->getActionPoseClockFrame($anchor) - $start) / BattleCommandTimeline::FPS);
+    if ($battler !== $this->actor || isset($this->reactionFrames[spl_object_id($battler)])
+      || $anchor === null || !isset($this->plan->phases['announce'])) { return null; }
+    return $this->plan->actionPoseStartFrame === null ? $anchor : $this->plan->getActionPoseClockFrame($anchor);
   }
 
   /** Drawing may hold a rest frame, but never seek the logical cue playhead. */
@@ -528,8 +630,11 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     }
     $fallback = $this->plan->terminalTarget;
     if ($terminal && $this->phase === 'target' && $fallback !== null) {
-      $sourceFrame = min(max(0, (int)($fallback->defaults['lengthFrames'] ?? 1) - 1),
-        $this->plan->terminalTiming->getFrameCountAt(($frame - $this->plan->phases['target']['start']) / BattleCommandTimeline::FPS));
+      $sourceFrame = $this->plan->terminalTiming->getFrameCountAt(
+        ($frame - $this->plan->phases['target']['start']) / BattleCommandTimeline::FPS);
+      if ($this->plan->terminalContacts === null) {
+        $sourceFrame = min($this->plan->terminalTiming->totalFrames - 1, $sourceFrame);
+      }
       $select = fn(int $sample): array => array_values(array_filter($this->plan->terminalSegments,
         static fn(array $segment): bool => EffectPresentation::TERMINAL->acceptsSegment($segment)
           && in_array($segment['layer'], ['glyph', 'glyph-lane', 'text'], true)
@@ -539,6 +644,10 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       array_push($segments, ...($reducedMotion
         ? self::getVisibleTerminalRestSegments($select($restFrame), $active, $this->plan->terminalSegments, ['target' => $restFrame])
         : $active));
+    }
+    if ($terminal && $this->phase === 'target' && $this->plan->terminalContacts !== null) {
+      array_push($segments, ...$this->plan->terminalContacts->sample($frame - $this->plan->phases['target']['start'],
+        $this->terminalContactDelays, $reducedMotion));
     }
     if (!$terminal && $reducedMotion && $this->plan->fallbackHitTrack !== null && $frame < $this->plan->impactFrame) {
       // A rest sample taken at impact must not show the hit during the approach.
@@ -608,13 +717,22 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       return array_values(array_filter($segments, static fn(array $segment): bool => $segment['drawCommands'] !== []));
     };
     $segments = $filter($active, false);
+    $usesAuthoredHolds = $reducedMotion && $this->plan->hasReducedMotionSamples('target');
+    if ($this->targetContactFrames === []
+      || ($usesAuthoredHolds && $this->plan->getAuthoredFrameAtCommandFrame('target', $frame) === null)) {
+      return $segments;
+    }
+    $firstFrame = $this->getTargetContactTick($sequence->firstFrame);
     foreach ($this->targetContactFrames as $id => $contactFrame) {
-      $delay = $contactFrame - $sequence->firstFrame;
+      $delay = $contactFrame - $firstFrame;
       $sample = $frame - $delay;
-      if ($sample < $sequence->firstFrame) { continue; }
-      foreach ($filter($this->session->getActiveSegments($sample), true) as $segment) {
+      if ($sample < $firstFrame) { continue; }
+      $contactSegments = $usesAuthoredHolds
+        ? ($this->plan->getReducedMotionSegments($sample, 'target') ?? [])
+        : $this->session->getActiveSegments($sample);
+      foreach ($filter($contactSegments, true) as $segment) {
         foreach ($segment['drawCommands'] as &$command) {
-          if ($reducedMotion) {
+          if ($reducedMotion && !$usesAuthoredHolds) {
             foreach ($this->plan->timeline->playbackSegments as $original) {
               $first = array_find($original['drawCommands'], static fn(array $draw): bool => $draw['trackId'] === $command['trackId']);
               if ($first !== null) { $command = $first; break; }
@@ -629,6 +747,12 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       }
     }
     return $segments;
+  }
+
+  private function getTargetContactTick(int $frame): int
+  {
+    return $this->plan->getCommandFrameForAuthoredFrame('target', $frame)
+      ?? throw new \LogicException('A target contact frame must be on its effect clock.');
   }
 
   /** Keep the ordinary lane and sample only its hit tracks on each recipient's own clock. */
@@ -830,8 +954,10 @@ final class BattleCommandPlayback implements BattleEffectPlayback
       if ($cue['type'] === 'commandCaptureTerminalLane') {
         // No Terminal consumer is required by a graphical command. A consuming lane diagnoses a missing capture.
         if ($this->captureTerminalLane !== null) {
-          try { $this->terminalLaneSnapshot = ($this->captureTerminalLane)($this->createPresentationSample($cue['frame'])); }
-          catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
+          try {
+            $this->terminalLaneSnapshot = ($this->captureTerminalLane)($this->createPresentationSample($cue['frame']));
+            $this->terminalContactDelays = $this->plan->terminalContacts?->getRecipientDelays($this->terminalLaneSnapshot) ?? [];
+          } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
         }
         continue;
       }
@@ -853,10 +979,14 @@ final class BattleCommandPlayback implements BattleEffectPlayback
           if ($usesSnapshot && !array_key_exists('snapshot', $this->targetGroups)) {
             throw new \RuntimeException('Target contacts have no authored body snapshot.');
           }
-          $group = $usesSnapshot ? $this->targetGroups['snapshot']
+          $capture = $usesSnapshot ? $this->targetGroups['snapshot']
             : ($this->captureTargetGroup)($this->createPresentationSample($cue['frame']));
-          if ($group instanceof BattleEffectAnchorSnapshot) { $group = $group->targets; }
-          if ($group !== null) { $this->targetContactFrames = $this->plan->targetContactSequence->getContactFrames($group); }
+          $group = $capture instanceof BattleEffectAnchorSnapshot ? $capture->targets : $capture;
+          $casterGround = $capture instanceof BattleEffectAnchorSnapshot ? $capture->getCasterGround() : null;
+          if ($group !== null) {
+            $this->targetContactFrames = $this->plan->targetContactSequence->getContactFrames($group, $casterGround,
+              $this->getTargetContactTick(...));
+          }
           elseif ($this->targets !== []) { throw new \RuntimeException('Target contact sequencing has no selected body capture.'); }
         } catch (Throwable $failure) { $this->recordPresentationFailure($failure); }
         continue;
@@ -931,6 +1061,7 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     $this->session = clone $this->session;
     $this->resolve = $this->presentCue = static function (): void {};
     $this->capturePosePoints = $this->captureTargetGroup = $this->captureTerminalLane = null;
+    $this->authoredSounds = [];
     $this->paused = false;
     $this->presentationFailure = null;
   }
@@ -957,6 +1088,13 @@ final class BattleCommandPlayback implements BattleEffectPlayback
     if ($this->resolved || $this->cancelled) { return; }
     // Set before calling gameplay so a failure is never mistaken for a retry.
     $this->resolved = true;
+    if ($this->plan->targetContactSequence?->presentsResults) {
+      foreach ($this->targets as $target) {
+        $id = spl_object_id($target);
+        $this->initialContactHp[$id] = $target->stats->currentHp;
+        $this->initialRestRoles[$id] = BattlePoseRole::getRestingRole($target);
+      }
+    }
     ($this->resolve)();
     $this->presentCue(['id' => 'command-resolved', 'type' => 'commandResolved',
       'frame' => $this->impactFrame ?? $this->session->currentFrame, 'payload' => []]);

@@ -192,7 +192,6 @@ beforeEach(function () {
     protected function load(): array { return ['audio' => ['music' => false, 'sfx' => false], 'accessibility' => ['reducedMotion' => false]]; }
   });
   ConfigStore::put(PlaySettings::class, new PlaySettings(['screenDimensions' => ['width' => 135, 'height' => 36]]));
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   InputManager::setInputSource(new TerminalInputSource());
   Console::setTerminalOutputEnabled(false);
   Console::syncDimensions(135, 36);

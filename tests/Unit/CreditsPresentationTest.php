@@ -44,7 +44,6 @@ beforeEach(function () {
   foreach (['width' => 80, 'height' => 24, 'buffer' => []] as $key => $value) {
     new ReflectionProperty(Console::class, $key)->setValue(null, $value);
   }
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 24]));
 });
 

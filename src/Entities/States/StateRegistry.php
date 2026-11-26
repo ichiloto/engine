@@ -22,9 +22,9 @@ class StateRegistry
    * @param string $stateId The state id.
    * @return State|null The state, or null when unknown.
    */
-  public static function get(string $stateId): ?State
+  public static function get(string $stateId, ?string $assetRoot = null): ?State
   {
-    return self::all()[trim($stateId)] ?? null;
+    return self::all($assetRoot)[trim($stateId)] ?? null;
   }
 
   /**
@@ -32,9 +32,10 @@ class StateRegistry
    *
    * @return array<string, State> The states.
    */
-  public static function all(): array
+  public static function all(?string $assetRoot = null): array
   {
-    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Data', 'states.php');
+    $assetRoot ??= Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+    $filename = Path::join($assetRoot, 'Data', 'states.php');
     if (isset(self::$states[$filename])) {
       return self::$states[$filename];
     }

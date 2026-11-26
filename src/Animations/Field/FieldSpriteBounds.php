@@ -42,8 +42,8 @@ final readonly class FieldSpriteBounds
     $grid = $view->grid;
     $tile = FieldViewport::TILE_SIZE * $view->zoom;
     $surface = self::place($definition, ($position->x + 0.5) * $grid->cellWidth, ($position->y + 1) * $grid->cellHeight);
-    $offsetX = ($grid->columns * $grid->cellWidth - $view->columns * $tile) / 2 - $origin['x'] * $tile;
-    $offsetY = ($grid->rows * $grid->cellHeight - $view->rows * $tile) / 2 - $origin['y'] * $tile;
+    $offsetX = $view->surfaceOffsetX - $origin['x'] * $tile;
+    $offsetY = $view->surfaceOffsetY - $origin['y'] * $tile;
 
     return new self(($surface->left - $offsetX) / $view->zoom, ($surface->top - $offsetY) / $view->zoom,
       ($surface->right - $offsetX) / $view->zoom, ($surface->bottom - $offsetY) / $view->zoom);
@@ -66,10 +66,8 @@ final readonly class FieldSpriteBounds
     }
     $cell = $camera->getScreenSpacePosition($position);
     $tile = FieldViewport::TILE_SIZE * $view->zoom;
-    $offsetX = max(0, ($grid->columns * $grid->cellWidth - $view->columns * $tile) / 2);
-    $offsetY = max(0, ($grid->rows * $grid->cellHeight - $view->rows * $tile) / 2);
-
-    return self::placeAtRest($definition, $offsetX + ($cell->x + 0.5) * $tile, $offsetY + ($cell->y + 1) * $tile, $view->zoom);
+    return self::placeAtRest($definition, $view->surfaceOffsetX + ($cell->x + 0.5) * $tile,
+      $view->surfaceOffsetY + ($cell->y + 1) * $tile, $view->zoom);
   }
 
   /** The smallest bounds holding all of these, or null for none. @param list<self|null> $bounds */

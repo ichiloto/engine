@@ -27,7 +27,9 @@ beforeEach(function () {
     }
   }
   ConfigStore::put(ProjectConfig::class, new PlaySettings([]));
-  (new ReflectionProperty(ClassStore::class, 'definitions'))->setValue(null, ['hero' => ['name' => 'Hero']]);
+  (new ReflectionProperty(ClassStore::class, 'definitions'))->setValue(null, [
+    getcwd() . '/assets/Data/classes.php' => ['hero' => ['name' => 'Hero']],
+  ]);
 });
 
 afterEach(function () {

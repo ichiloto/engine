@@ -35,7 +35,7 @@ final class BattleCommandCatalog
   /** @var array<int, true> */
   private static array $missingAnimationIds = [];
 
-  /** Scene-owned cache shared by command selection and action execution. */
+  /** Cache for standalone callers that have no battle scene or project owner. */
   public static function beginBattle(): void
   {
     self::$battleSummons = new SummonCutsceneLibrary(cacheForBattle: true);
@@ -91,17 +91,19 @@ final class BattleCommandCatalog
     BattleCommandType|string $commandName,
     array $reservedItemCounts = [],
     ?GameState $gameState = null,
+    ?BattleContent $content = null,
   ): array
   {
+    $content = self::resolveContent($character, $content);
     $type = $commandName instanceof BattleCommandType ? $commandName : BattleCommandType::fromCommandName($commandName);
     if ($character->battleCommandLoadout?->allowsCommand($type) === false) {
       return [];
     }
     return match ($type) {
-      BattleCommandType::ATTACK => self::buildAttackOptions($character, $party, $gameState),
-      BattleCommandType::SKILL => self::buildSkillOptions($character),
-      BattleCommandType::MAGIC => self::buildMagicOptions($character),
-      BattleCommandType::SUMMON => self::buildSummonOptions($character, $party, $gameState),
+      BattleCommandType::ATTACK => self::buildAttackOptions($character, $party, $gameState, $content),
+      BattleCommandType::SKILL => self::buildSkillOptions($character, $content),
+      BattleCommandType::MAGIC => self::buildMagicOptions($character, $content),
+      BattleCommandType::SUMMON => self::buildSummonOptions($character, $party, $gameState, $content),
       BattleCommandType::ITEM => self::buildItemOptions($party, $reservedItemCounts),
       default => [],
     };
@@ -118,11 +120,13 @@ final class BattleCommandCatalog
     Party $party,
     ?GameState $gameState = null,
     EscapePolicy $escapePolicy = EscapePolicy::ALLOWED,
+    ?BattleContent $content = null,
   ): array
   {
+    $content = self::resolveContent($character, $content);
     return array_values(array_filter(
       $character->commandAbilities,
-      static function (BattleCommand $command) use ($character, $party, $gameState, $escapePolicy): bool {
+      static function (BattleCommand $command) use ($character, $party, $gameState, $escapePolicy, $content): bool {
         $type = $command->type;
 
         if ($character->battleCommandLoadout?->allowsCommand($type) === false) {
@@ -137,7 +141,7 @@ final class BattleCommandCatalog
           return true;
         }
 
-        return self::buildSummonOptions($character, $party, $gameState) !== [];
+        return self::buildSummonOptions($character, $party, $gameState, $content) !== [];
       },
     ));
   }
@@ -147,7 +151,8 @@ final class BattleCommandCatalog
    *
    * @return BattleCommandOption[] The available attack options.
    */
-  protected static function buildAttackOptions(Character $character, ?Party $party = null, ?GameState $gameState = null): array
+  protected static function buildAttackOptions(Character $character, ?Party $party, ?GameState $gameState,
+    ?BattleContent $content): array
   {
     $skills = [];
     if ($character->attackSkill !== null) {
@@ -161,7 +166,7 @@ final class BattleCommandCatalog
       $skills[$skill->name] = $skill;
     }
 
-    $options = array_values(array_map(self::createSkillOption(...), $skills));
+    $options = array_values(array_map(static fn(Skill $skill): BattleCommandOption => self::createSkillOption($skill, content: $content), $skills));
     if ($character->attackSkill === null) {
       array_unshift($options, new BattleCommandOption(
         BattleCommandType::ATTACK->label(),
@@ -192,13 +197,14 @@ final class BattleCommandCatalog
    * @param Character $character The active character whose ability book should be inspected.
    * @return BattleCommandOption[] The available skill options.
    */
-  protected static function buildSkillOptions(Character $character): array
+  protected static function buildSkillOptions(Character $character, ?BattleContent $content): array
   {
     return array_values(array_map(
-      self::createSkillOption(...),
+      static fn(Skill $skill): BattleCommandOption => self::createSkillOption($skill, content: $content),
       array_filter(
         $character->abilityBook->getBattleUsableAbilities(),
-        static fn(Skill $skill): bool => $skill instanceof SpecialSkill && !self::isSummonActionId($skill->name),
+        static fn(Skill $skill): bool => $skill instanceof SpecialSkill
+          && !self::isSummonActionId($skill->name, $content?->getSummons()),
       ),
     ));
   }
@@ -209,10 +215,10 @@ final class BattleCommandCatalog
    * @param Character $character The active character whose spellbook should be inspected.
    * @return BattleCommandOption[] The available magic options.
    */
-  protected static function buildMagicOptions(Character $character): array
+  protected static function buildMagicOptions(Character $character, ?BattleContent $content): array
   {
     return array_values(array_map(
-      self::createSkillOption(...),
+      static fn(Skill $skill): BattleCommandOption => self::createSkillOption($skill, content: $content),
       $character->spellbook->getBattleUsableSpells(),
     ));
   }
@@ -231,45 +237,24 @@ final class BattleCommandCatalog
     Character $character,
     Party $party,
     ?GameState $gameState,
+    ?BattleContent $content,
   ): array
   {
     $options = [];
     $definitionsByActionId = [];
 
-    foreach (self::loadSummonDefinitions() as $definition) {
+    foreach (self::loadSummonDefinitions($content?->getSummons()) as $definition) {
       if ($definition->linkedActionId !== null) {
         $definitionsByActionId[$definition->linkedActionId] = $definition;
       }
     }
 
-    foreach (self::loadBattleSkills() as $skill) {
+    foreach (self::loadBattleSkills($content) as $skill) {
       $definition = $definitionsByActionId[$skill->name] ?? null;
 
-      if ($definition === null) {
-        continue;
+      if ($definition !== null && self::isSummonAvailable($character, $party, $definition, $gameState)) {
+        $options[] = self::createSkillOption($skill, content: $content);
       }
-
-      $policy = $definition->wielders;
-
-      if ($definition->availability !== null
-        && !$character->battleCommandLoadout?->grantsSummonAvailability($definition->id)
-        && ($gameState === null || ! $definition->isAvailable($gameState, $party))
-      ) {
-        continue;
-      }
-
-      if ($policy !== null && ! $policy->isValid()) {
-        continue;
-      }
-
-      if ($policy !== null && (! $policy->allowsCharacter($character) || ! $character->hasSummon($definition->id))) {
-        continue;
-      }
-      if ($policy?->isExclusive() && $party->getSummonHolders($definition->id) !== [$character]) {
-        continue;
-      }
-
-      $options[] = self::createSkillOption($skill);
     }
 
     return $options;
@@ -284,14 +269,18 @@ final class BattleCommandCatalog
     Party $party,
     string $actionId,
     ?GameState $gameState = null,
+    ?BattleContent $content = null,
   ): bool
   {
-    $definition = self::findSummonDefinitionByActionId($actionId);
+    $content = self::resolveContent($character, $content);
+    $definition = self::findSummonDefinitionByActionId($actionId, $content?->getSummons());
 
-    if (! $definition instanceof SummonCutsceneDefinition) {
-      return false;
-    }
+    return $definition !== null && self::isSummonAvailable($character, $party, $definition, $gameState);
+  }
 
+  private static function isSummonAvailable(Character $character, Party $party, SummonCutsceneDefinition $definition,
+    ?GameState $gameState): bool
+  {
     if ($character->battleCommandLoadout?->allowsCommand(BattleCommandType::SUMMON) === false) {
       return false;
     }
@@ -316,9 +305,9 @@ final class BattleCommandCatalog
   }
 
   /** Returns whether the action id belongs to an authored summon. */
-  public static function isSummonActionId(string $actionId): bool
+  public static function isSummonActionId(string $actionId, ?SummonCutsceneLibrary $summons = null): bool
   {
-    return self::findSummonDefinitionByActionId($actionId) instanceof SummonCutsceneDefinition;
+    return self::findSummonDefinitionByActionId($actionId, $summons) instanceof SummonCutsceneDefinition;
   }
 
   /** One semantic category serves command menus and execution presentation. */
@@ -328,7 +317,7 @@ final class BattleCommandCatalog
       $action instanceof CrisisSkillBattleAction => BattleCommandType::ATTACK,
       $action instanceof GuardAction => BattleCommandType::GUARD,
       $action instanceof ItemBattleAction => BattleCommandType::ITEM,
-      $action instanceof SkillBattleAction && self::isSummonSkill($action->skill) => BattleCommandType::SUMMON,
+      $action instanceof SkillBattleAction && self::isSummonActionId($action->skill->name, $action->getSummonLibrary()) => BattleCommandType::SUMMON,
       $action instanceof SkillBattleAction && $action->skill instanceof BasicSkill => BattleCommandType::ATTACK,
       $action instanceof SkillBattleAction && $action->skill instanceof MagicSkill => BattleCommandType::MAGIC,
       $action instanceof AttackAction, $action === null => BattleCommandType::ATTACK,
@@ -336,11 +325,16 @@ final class BattleCommandCatalog
     };
   }
 
-  protected static function findSummonDefinitionByActionId(string $actionId): ?SummonCutsceneDefinition
+  private static function resolveContent(Character $character, ?BattleContent $content): ?BattleContent
+  {
+    return $content ?? ($character->projectAssetRoot === null ? null : new BattleContent($character->projectAssetRoot));
+  }
+
+  protected static function findSummonDefinitionByActionId(string $actionId, ?SummonCutsceneLibrary $summons): ?SummonCutsceneDefinition
   {
     $normalized = trim($actionId);
 
-    foreach (self::loadSummonDefinitions() as $definition) {
+    foreach (self::loadSummonDefinitions($summons) as $definition) {
       if ($definition->linkedActionId === $normalized) {
         return $definition;
       }
@@ -355,7 +349,8 @@ final class BattleCommandCatalog
    * @param Skill $skill The skill to convert.
    * @return BattleCommandOption The submenu option.
    */
-  protected static function createSkillOption(Skill $skill, ?SkillBattleAction $action = null): BattleCommandOption
+  protected static function createSkillOption(Skill $skill, ?SkillBattleAction $action = null,
+    ?BattleContent $content = null): BattleCommandOption
   {
     $costs = [];
     if ($skill->cost > 0) {
@@ -366,6 +361,7 @@ final class BattleCommandCatalog
     }
     $costLabel = $costs === [] ? '' : ' (' . implode(', ', $costs) . ')';
     $action ??= new SkillBattleAction($skill);
+    if ($content !== null) { $action->bindSummonLibrary($content->getSummons()); }
     $scope = $action->targetScope;
 
     return new BattleCommandOption(
@@ -380,17 +376,6 @@ final class BattleCommandCatalog
       self::getActionType($action),
       $skill->apCost,
     );
-  }
-
-  /**
-   * Determines whether the given skill is backed by an authored summon cutscene.
-   *
-   * @param Skill $skill The skill being inspected.
-   * @return bool True when the skill is a summon.
-   */
-  protected static function isSummonSkill(Skill $skill): bool
-  {
-    return in_array($skill->name, self::loadSummonActionNames(), true);
   }
 
   /**
@@ -434,25 +419,14 @@ final class BattleCommandCatalog
   }
 
   /**
-   * @return string[]
-   */
-  protected static function loadSummonActionNames(): array
-  {
-    return array_values(array_filter(array_map(
-      static fn($definition): ?string => $definition->linkedActionId,
-      self::loadSummonDefinitions()
-    )));
-  }
-
-  /**
    * Loads all authored summon cutscene definitions.
    *
    * @return SummonCutsceneDefinition[] The authored summon definitions.
    */
-  protected static function loadSummonDefinitions(): array
+  protected static function loadSummonDefinitions(?SummonCutsceneLibrary $summons): array
   {
     try {
-      return (self::$battleSummons ?? new SummonCutsceneLibrary())->load();
+      return ($summons ?? self::getBattleSummonLibrary() ?? new SummonCutsceneLibrary())->load();
     } catch (Throwable) {
       return [];
     }
@@ -463,10 +437,11 @@ final class BattleCommandCatalog
    *
    * @return Skill[] The loaded skills.
    */
-  protected static function loadBattleSkills(): array
+  protected static function loadBattleSkills(?BattleContent $content): array
   {
+    $catalog = $content?->getSkillCatalog() ?? SkillCatalog::getProjectCatalog();
     return array_values(array_filter(
-      SkillCatalog::getProjectCatalog()->getSkills(),
+      $catalog->getSkills(),
       static fn(Skill $skill): bool =>
         in_array($skill->occasion, [Occasion::ALWAYS, Occasion::BATTLE_SCREEN], true)
     ));

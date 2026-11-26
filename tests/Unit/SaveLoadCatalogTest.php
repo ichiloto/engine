@@ -68,7 +68,8 @@ final class SaveCatalogSaveMenuProbe extends SaveMenuState
 
 final class SaveCatalogGame extends Game
 {
-  public function __construct(private readonly string $root) {}
+  public function __construct(private readonly string $root, private readonly ?ProjectConfig $ownedConfig = null) {}
+  public function getProjectConfiguration(): ?ProjectConfig { return $this->ownedConfig; }
   public function __destruct() {}
   public function getDataRoot(): string { return $this->root; }
   public function hasIsolatedDataRoot(): bool { return true; }
@@ -125,6 +126,7 @@ final class SaveCatalogTitleProbe extends TitleScene
         return new SaveCatalogScene();
       }
     };
+    $this->sceneManager->currentScene = $this;
   }
   public function selectSlot(int $index): void
   {
@@ -750,6 +752,44 @@ it('honors every developer save capability combination for writes catalog Contin
   if (!$quick) { expect(fn() => $this->manager->quickSave($this->scene))->toThrow(RuntimeException::class, 'disabled'); }
   expect(array_map(file_get_contents(...), $this->manager->getSaveFiles(true)))->toBe($bytes);
 })->with([false, true])->with([false, true]);
+
+it('keeps developer save rules and Quick Save input with the Game owning the campaign', function () {
+  $firstConfig = new SaveCatalogProjectConfig(['saves' => ['manual_slots' => 3],
+    'save' => ['autosave' => false, 'quicksave' => true, 'point_script' => 'first-checkpoint']]);
+  $secondConfig = new SaveCatalogProjectConfig(['saves' => ['manual_slots' => 7],
+    'save' => ['autosave' => true, 'quicksave' => false, 'point_script' => 'second-checkpoint']]);
+  ConfigStore::put(ProjectConfig::class, $firstConfig);
+  $first = new SaveCatalogGame(createTestDirectory('save-policy-first-'), $firstConfig);
+  $firstSaves = createSaveCatalogManager($first);
+  $first->registerProjectStateParticipant(new SaveCatalogParticipant());
+  $quick = $firstSaves->quickSave($this->scene);
+
+  ConfigStore::put(ProjectConfig::class, $secondConfig);
+  $second = new SaveCatalogGame(createTestDirectory('save-policy-second-'), $secondConfig);
+  $secondSaves = createSaveCatalogManager($second);
+  $second->registerProjectStateParticipant(new SaveCatalogParticipant());
+  $auto = $secondSaves->autoSave($this->scene);
+
+  expect(array_column($firstSaves->getLoadSlots(), 'slot'))->toBe([SaveManager::QUICK_SAVE_SLOT, 1, 2, 3])
+    ->and($firstSaves->getLatestLoadableSaveFile(true))->toBe($quick->path)
+    ->and(array_column($secondSaves->getLoadSlots(), 'slot'))->toBe([SaveManager::AUTO_SAVE_SLOT, 1, 2, 3, 4, 5, 6, 7])
+    ->and($secondSaves->getLatestLoadableSaveFile(true))->toBe($auto->path)
+    ->and(fn() => $firstSaves->autoSave($this->scene))->toThrow(RuntimeException::class, 'disabled')
+    ->and(fn() => $secondSaves->quickSave($this->scene))->toThrow(RuntimeException::class, 'disabled');
+
+  Console::setTerminalOutputEnabled(false);
+  Console::syncDimensions(80, 19);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 19]));
+  $title = new SaveCatalogTitleProbe($first, $firstSaves);
+  $title->openContinueMenu();
+  expect($title->getSlots()[$title->getSelectedIndex()]->path)->toBe($quick->path);
+
+  InputManager::setBindings(['quick_save' => ['description' => 'Quick Save', 'keys' => [KeyCode::q]]]);
+  InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(KeyCode::q));
+  InputManager::handleInput();
+  expect(\Ichiloto\Engine\IO\Input::isButtonDown('quick_save', $first))->toBeTrue()
+    ->and(\Ichiloto\Engine\IO\Input::isButtonDown('quick_save', $second))->toBeFalse();
+});
 
 it('refuses nonboolean developer save capabilities', function (mixed $value) {
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['save' => ['autosave' => $value, 'quicksave' => $value]]));

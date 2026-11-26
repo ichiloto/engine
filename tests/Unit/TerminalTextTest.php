@@ -25,8 +25,14 @@ it('measures already separated styled graphemes without changing cell widths', f
   foreach (TerminalText::visibleSymbols($text) as $symbol) {
     expect(TerminalText::getSymbolWidth($symbol))->toBe(TerminalText::displayWidth($symbol));
   }
-})->with(['ASCII', "\e[31mA界\e[0m", "e\u{0301}", '⚔️🗡🚶',
-  "\e[38;2;12;23;34;48;5;21m界\e[0m", '🏃🏽‍➡️']);
+})->with([
+  'ASCII' => 'ASCII',
+  'ANSI foreground around wide glyph' => "\e[31mA界\e[0m",
+  'combining letter' => "e\u{0301}",
+  'weapon and walking emoji' => '⚔️🗡🚶',
+  'truecolor and indexed background' => "\e[38;2;12;23;34;48;5;21m界\e[0m",
+  'runner emoji' => '🏃🏽‍➡️',
+]);
 
 it('pads ansi colored text using visible width', function () {
   $text = Color::apply('Rare', Color::YELLOW);
@@ -49,10 +55,16 @@ it('fits styled graphemes without changing truncation or alignment', function (s
       ->and(TerminalText::fit($text, $width, 'unknown'))->toBe(TerminalText::padRight($text, $width));
   }
 })->with([
-  '', 'ASCII', "\e[31;44mA界\e[39mB\e[0m", '<fg=blue>界</> X',
-  "e\u{0301} ⚔️🗡", '🏃🏽‍➡️ end', "\e[31m\e[999m\e[39mX\e[0m",
-  "\e[38;2;0;0;128m界\e[0mA",
-  "🇺\e[0m🇸", "👩\e[0m\u{200d}💻",
+  'empty' => '',
+  'ASCII' => 'ASCII',
+  'ANSI foreground and background resets' => "\e[31;44mA界\e[39mB\e[0m",
+  'formatter foreground' => '<fg=blue>界</> X',
+  'combining letter and weapons' => "e\u{0301} ⚔️🗡",
+  'runner emoji' => '🏃🏽‍➡️ end',
+  'unsupported SGR beside resets' => "\e[31m\e[999m\e[39mX\e[0m",
+  'ANSI truecolor' => "\e[38;2;0;0;128m界\e[0mA",
+  'flag split by reset' => "🇺\e[0m🇸",
+  'profession emoji split by reset' => "👩\e[0m\u{200d}💻",
 ]);
 
 it('remeasures graphemes joined by removal of formatting controls', function () {

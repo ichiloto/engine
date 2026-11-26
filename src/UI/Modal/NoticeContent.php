@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Modal;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\IO\ActionHints;
 use InvalidArgumentException;
@@ -43,8 +44,8 @@ final readonly class NoticeContent
   }
 
   /** @return list<ActionHint> One current-control snapshot for measurement and painting. */
-  public function getActionHints(): array
+  public function getActionHints(?Game $game = null): array
   {
-    return array_map(static fn(array $hint): ActionHint => ActionHints::resolve($hint['action'], $hint['label']), $this->hints);
+    return array_map(static fn(array $hint): ActionHint => ActionHints::resolve($hint['action'], $hint['label'], game: $game), $this->hints);
   }
 }

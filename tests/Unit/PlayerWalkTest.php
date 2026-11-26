@@ -9,7 +9,6 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
-use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
@@ -43,6 +42,7 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeHeldInputSource;
 use Tests\Support\Input\FakeInputSource;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\PassiveGame;
 
 require_once __DIR__ . '/../Support/Input/FakeHeldInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
@@ -453,8 +453,12 @@ it('refuses a speed multiplier below walking speed', function (float $multiplier
 /** A field whose Player records the validated moves it is asked to make. */
 final class WalkingFieldScene extends GameScene
 {
-  public function __construct()
+  public function __construct(?Game $game = null)
   {
+    $this->sceneManager = makeTestSceneManager($game ?? new class extends Game {
+      public function __construct() {}
+      public function __destruct() {}
+    });
     $this->gameState = new GameState();
     $this->camera = new class extends Camera { public function __construct() {} };
     $scene = $this;
@@ -526,6 +530,7 @@ it('does not resume pre-context or during-context walking presses after a yielde
     ->onlyMethods(['reconcileFieldPresentation', 'onEventSessionFinished'])->getMock();
   $scene->expects($this->once())->method('onEventSessionFinished')->with($this->isInstanceOf(EventExecutionSession::class), true);
   $manager = makeBareScene(SceneManager::class);
+  new ReflectionProperty(SceneManager::class, 'game')->setValue($manager, new PassiveGame());
   new ReflectionProperty(SceneManager::class, 'currentScene')->setValue($manager, $scene);
   new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene, $manager);
   new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
@@ -590,11 +595,9 @@ it('does not resume pre-context or during-context walking presses after a yielde
 
 it('keeps held walking cardinal at a blocked corner and applies effects once per committed cell', function (CollisionType $obstacle) {
   $configState = new ReflectionProperty(ConfigStore::class, 'store')->getValue();
-  $eventState = new ReflectionProperty(EventManager::class, 'instance')->getValue();
   $delta = new ReflectionProperty(Time::class, 'deltaTime');
   $previousDelta = $delta->getValue();
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub());
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   try {
     $game = new class extends Game {
       public function __construct() {}
@@ -672,7 +675,6 @@ it('keeps held walking cardinal at a blocked corner and applies effects once per
   } finally {
     $delta->setValue(null, $previousDelta);
     new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, $configState);
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $eventState);
   }
 })->with(['wall' => [CollisionType::SOLID], 'NPC occupancy' => [CollisionType::NPC], 'counter' => [CollisionType::COUNTER]]);
 
@@ -753,6 +755,68 @@ function withDash(DashSettings $settings, array $player, Closure $test): void
   }
 }
 
+it('uses the field project for Dash speed, story eligibility and its control hint', function () {
+  $root = createTestDirectory('ichiloto-dash-owner-');
+  mkdir($root . '/Data');
+  file_put_contents($root . '/Data/system.php', '<?php return ' . var_export(['dash' => [
+    'enabled' => true, 'speedMultiplier' => 2.0, 'conditions' => [['type' => 'event', 'name' => 'dash-earned']],
+  ]], true) . ';');
+  $playerSettings = new \Ichiloto\Engine\Util\Config\PlayerSettings(dataRoot: $root);
+  $configuration = new class extends \Ichiloto\Engine\Util\Config\AbstractConfig {
+    protected function load(): array { return ['field' => ['always_dash' => true]]; }
+    public function persist(): void {}
+  };
+  $game = new class($configuration, $playerSettings) extends Game {
+    public function __construct(private \Ichiloto\Engine\Util\Interfaces\ConfigInterface $settings,
+      private \Ichiloto\Engine\Util\Config\PlayerSettings $player) {}
+    public function __destruct() {}
+    public function getProjectConfiguration(): ?\Ichiloto\Engine\Util\Interfaces\ConfigInterface
+    {
+      return $this->settings;
+    }
+    public function getPlayerSettings(): \Ichiloto\Engine\Util\Config\PlayerSettings { return $this->player; }
+  };
+  $game->bindGameLoader(createTestGameLoader($game, assetRoot: $root));
+  withDash(new DashSettings(false), ['field' => ['always_dash' => false]], function () use ($game) {
+    $step = function (bool $earned) use ($game): float {
+      $scene = new WalkingFieldScene($game);
+      if ($earned) { $scene->gameState->recordStoryEvent('dash-earned'); }
+      $state = new WalkingFieldState(new SceneStateContext($scene));
+      InputManager::setInputSource($source = new FakeHeldInputSource());
+      $source->press('down', KeyCode::DOWN);
+      InputManager::handleInput();
+      $state->navigate($scene);
+      return $scene->player->moves[0][2];
+    };
+    expect($step(false))->toBe(WALK_STEP)->and($step(true))->toBe(WALK_STEP / 2);
+    $firstUse = \Ichiloto\Engine\Progression\WorldAbilityFirstUse::fromArray(['hints' => [['action' => 'dash', 'label' => 'Hold to run']]]);
+    $hint = $firstUse->getActionHints($game)[0];
+    expect($hint->label)->toBe('Hold to walk')->and($hint->control?->label)->toBe('Shift');
+
+    ConfigStore::put(\Ichiloto\Engine\Util\Config\PlaySettings::class, new \Ichiloto\Engine\Util\Config\PlaySettings(['width' => 135, 'height' => 36]));
+    $notice = new \Ichiloto\Engine\UI\Modal\NoticeContent('Run', 'Move faster.', hints: $firstUse->hints);
+    $modal = new \Ichiloto\Engine\UI\Modal\NoticeModal($game, $notice);
+    $pages = \Ichiloto\Engine\UI\Modal\NoticePageModel::paginateTerminal($modal->getModalPresentation(), 35, 4);
+    expect($pages->getModalPresentation()->noticeHints[0])->toEqual($hint);
+
+    $otherRoot = createTestDirectory('ichiloto-other-player-settings-');
+    $otherSettings = new \Ichiloto\Engine\Util\Config\PlayerSettings(dataRoot: $otherRoot);
+    $otherSettings->set('field.always_dash', true);
+    $otherSettings->persist();
+    $before = file_get_contents($otherRoot . '/player-settings.json');
+    ConfigStore::put(\Ichiloto\Engine\Util\Config\PlayerSettings::class, $otherSettings);
+    $settings = new \Ichiloto\Engine\Settings\SettingsCatalog($game);
+    expect($settings->all())->toHaveKey('always_dash')->and($settings->read('always_dash'))->toBeTrue();
+    $settings->write('always_dash', false);
+    $settings->persist();
+    expect($settings->read('always_dash'))->toBeFalse()
+      ->and($firstUse->getActionHints($game)[0]->label)->toBe('Hold to run')
+      ->and($step(true))->toBe(WALK_STEP)
+      ->and(new \Ichiloto\Engine\Util\Config\PlayerSettings(dataRoot: $game->getGameLoader()->assetRoot)->get('field.always_dash'))->toBeFalse()
+      ->and(file_get_contents($otherRoot . '/player-settings.json'))->toBe($before);
+  });
+});
+
 it('reads a live story unlock before timing each held field step', function () {
   withDash(new DashSettings(true, 2.0, [['type' => 'event', 'name' => 'dash-earned']]), [], function () {
     $scene = new WalkingFieldScene();
@@ -822,8 +886,6 @@ it('dashes the field step and its presentation while dash is held, and walks whe
 });
 
 it('counts one encounter step, trigger and movement per dashed cell, as walking does, and arrivals keep field pace', function () {
-  $eventState = new ReflectionProperty(EventManager::class, 'instance')->getValue();
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   try {
     withDash(new DashSettings(true, 2.0), [], function () {
       $walk = function (bool $dash): array {
@@ -885,7 +947,6 @@ it('counts one encounter step, trigger and movement per dashed cell, as walking 
         ->and($paces)->toBe([WALK_STEP]);
     });
   } finally {
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $eventState);
   }
 });
 

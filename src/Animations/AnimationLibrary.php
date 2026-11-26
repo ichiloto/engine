@@ -24,6 +24,7 @@ final class AnimationLibrary
   public function __construct(
     protected string $assetPath = 'Data/animations.php',
     protected bool $cacheForBattle = false,
+    private readonly ?string $assetRoot = null,
   )
   {
   }
@@ -51,7 +52,7 @@ final class AnimationLibrary
     }
 
     try {
-      $payload = asset($this->assetPath, true);
+      $payload = asset($this->assetPath, true, $this->assetRoot);
     } catch (Throwable $error) {
       Debug::warn(sprintf('Animation library %s could not be loaded: %s', $this->assetPath, $error->getMessage()));
       return $this->cacheForBattle ? ($this->battleAnimations = []) : [];

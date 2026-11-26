@@ -62,21 +62,15 @@ it('uses the shared selector in both shops and modal quantity selection', functi
   $shopMode = new PurchaseConfirmationMode($shopState);
   $shopSelector = (new ReflectionProperty($shopMode, 'quantitySelector'))->getValue($shopMode);
 
-  $eventManager = new ReflectionProperty(\Ichiloto\Engine\Events\EventManager::class, 'instance');
-  $previous = $eventManager->getValue();
-  try {
-    $game = new class extends Game {
-      public function __construct() {}
-      public function __destruct() {}
-    };
-    $modal = new QuantityModal($game, 'Choose amount', 14);
-    $modalSelector = new ReflectionProperty($modal, 'selector')->getValue($modal);
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+  $modal = new QuantityModal($game, 'Choose amount', 14);
+  $modalSelector = new ReflectionProperty($modal, 'selector')->getValue($modal);
 
-    expect($shopSelector)->toBeInstanceOf(QuantitySelector::class)
-      ->and($modalSelector)->toBeInstanceOf(QuantitySelector::class)
-      ->and($modal->maximum)->toBe(14)
-      ->and($modal->quantity)->toBe(1);
-  } finally {
-    $eventManager->setValue(null, $previous);
-  }
+  expect($shopSelector)->toBeInstanceOf(QuantitySelector::class)
+    ->and($modalSelector)->toBeInstanceOf(QuantitySelector::class)
+    ->and($modal->maximum)->toBe(14)
+    ->and($modal->quantity)->toBe(1);
 });

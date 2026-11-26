@@ -7,14 +7,9 @@ namespace Ichiloto\Engine\Core;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicLibrary;
-use Ichiloto\Engine\Entities\Troop;
-use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
-use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Stores\ActorStore;
-use Ichiloto\Engine\Util\Stores\ItemStore;
 use InvalidArgumentException;
 
 /** Project-backed validation before Game acquires native input or output. */
@@ -29,7 +24,7 @@ final class GameLaunchPreflight
 
     public static function validate(Game $game, GameLaunchContext $context): ?CinematicDefinition
     {
-        $assets = realpath(getcwd() . '/assets');
+        $assets = realpath($game->getProjectAssetRoot());
         if ($assets === false) {
             throw new InvalidArgumentException('The launch project has no real assets directory.');
         }
@@ -39,27 +34,24 @@ final class GameLaunchPreflight
             if (!$scene instanceof GameScene) {
                 throw new InvalidArgumentException('The launch project has no field scene.');
             }
-            $prepared = MapManager::getInstance($game, $scene)->prepareMap($context->start->mapId);
-            $initialConfig = GameLoader::getInstance($game)->loadNewGame($context->start);
-            $context->start->validatePreparedMap($prepared, $initialConfig);
+            $prepared = $scene->getMapManager()->prepareMap($context->start->mapId);
+            $loader = GameLoader::getInstance($game);
+            $initialConfig = $loader->loadNewGame($context->start);
+            $context->start->validatePreparedMap($prepared, $initialConfig, $loader->getWorldAbilities());
         }
         if ($context->battleTest !== null) {
-            $actors = ConfigStore::get(ActorStore::class);
-            $items = ConfigStore::get(ItemStore::class);
-            if (!$actors instanceof ActorStore || !$items instanceof ItemStore) {
-                throw new InvalidArgumentException('Battle launch requires the project actor and item stores.');
-            }
-            $setup = $context->battleTest->createSetup($actors);
-            $problems = $setup->getProblems($actors, $items);
+            $loader = $game->getGameLoader();
+            $setup = $loader->createBattleTestSetup($context->battleTest, $loader->loadSystemData());
+            $problems = $setup->getProblems($loader->actorStore, $loader->itemStore, assetRoot: $loader->assetRoot);
             if ($problems !== []) {
                 throw new InvalidArgumentException(implode("\n", $problems));
             }
             $troop = $context->battleTest->troop;
             if ($troop !== null) {
                 $found = false;
-                foreach ((array) asset('Data/troops.php', true) as $data) {
-                    if (is_array($data) && is_string($data['name'] ?? null) && strcasecmp($data['name'], $troop) === 0) {
-                        Troop::fromArray($data);
+                foreach ($loader->loadTroopData() as $data) {
+                    if (is_string($data['name'] ?? null) && strcasecmp($data['name'], $troop) === 0) {
+                        $loader->createTroop($data);
                         $found = true;
                         break;
                     }
@@ -75,7 +67,7 @@ final class GameLaunchPreflight
         }
         if ($context->cinematicId === null) { return null; }
         self::validateAssetDirectory($assets, $assets . '/Cutscenes/Cinematics/' . $context->cinematicId);
-        return (new CinematicLibrary())->load($context->cinematicId);
+        return (new CinematicLibrary($assets . '/Cutscenes/Cinematics', $game->getProjectScriptCommands()))->load($context->cinematicId);
     }
 
     /** Launch IDs must never select source files outside the project's assets. */

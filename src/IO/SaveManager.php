@@ -17,8 +17,6 @@ use Ichiloto\Engine\IO\Saves\SaveFeedback;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
-use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\LocalDataFiles;
 use InvalidArgumentException;
 use LogicException;
@@ -192,13 +190,7 @@ class SaveManager
    */
   public function getManualSlotCount(): int
   {
-    $count = ConfigStore::has(ProjectConfig::class)
-      ? ConfigStore::get(ProjectConfig::class)->get('saves.manual_slots', self::DEFAULT_SLOT_COUNT)
-      : self::DEFAULT_SLOT_COUNT;
-    if (!is_int($count) || $count < 1) {
-      throw new InvalidArgumentException('Project saves.manual_slots must be a positive integer.');
-    }
-    return $count;
+    return SaveFeatures::getManualSlotCount($this->game, self::DEFAULT_SLOT_COUNT);
   }
 
   /**
@@ -235,7 +227,7 @@ class SaveManager
   public function getLoadSlots(?int $slotCount = null): array
   {
     $slots = $this->getSaveSlots($slotCount);
-    if (SaveFeatures::isAutosaveEnabled()) {
+    if (SaveFeatures::isAutosaveEnabled($this->game)) {
       $candidates = array_values(array_filter($this->getSaveFiles(true), fn(string $path): bool =>
         dirname($path) === $this->quickSaveDirectory && $this->getDestinationSlot($path) === self::AUTO_SAVE_SLOT));
       $path = array_find($candidates, $this->canLoadSaveFile(...)) ?? ($candidates[0] ?? null);
@@ -244,7 +236,7 @@ class SaveManager
         : $this->inspectSaveSlot(self::AUTO_SAVE_SLOT, $path));
     }
     $quick = $this->getQuickSavePath(self::QUICK_SAVE_NAME);
-    if (SaveFeatures::isQuickSaveEnabled() && file_exists($quick)) {
+    if (SaveFeatures::isQuickSaveEnabled($this->game) && file_exists($quick)) {
       array_unshift($slots, $this->inspectSaveSlot(self::QUICK_SAVE_SLOT, $quick));
     }
     return $slots;
@@ -253,8 +245,8 @@ class SaveManager
   private function isEnabledSavePath(string $path): bool
   {
     return match ($this->getDestinationSlot($path)) {
-      self::AUTO_SAVE_SLOT => SaveFeatures::isAutosaveEnabled(),
-      self::QUICK_SAVE_SLOT => SaveFeatures::isQuickSaveEnabled(),
+      self::AUTO_SAVE_SLOT => SaveFeatures::isAutosaveEnabled($this->game),
+      self::QUICK_SAVE_SLOT => SaveFeatures::isQuickSaveEnabled($this->game),
       default => true,
     };
   }
@@ -296,7 +288,7 @@ class SaveManager
   public function quickSave(GameScene $scene): SaveSlot
   {
     $this->requireWritableStorage();
-    if (!SaveFeatures::isQuickSaveEnabled()) { throw new RuntimeException('Quick Save is disabled by this project.'); }
+    if (!SaveFeatures::isQuickSaveEnabled($this->game)) { throw new RuntimeException('Quick Save is disabled by this project.'); }
     return $this->writeSave($scene, self::QUICK_SAVE_SLOT, $this->getQuickSavePath(self::QUICK_SAVE_NAME));
   }
 
@@ -304,7 +296,7 @@ class SaveManager
   public function autoSave(GameScene $scene): SaveSlot
   {
     $this->requireWritableStorage();
-    if (!SaveFeatures::isAutosaveEnabled()) { throw new RuntimeException('Autosave is disabled by this project.'); }
+    if (!SaveFeatures::isAutosaveEnabled($this->game)) { throw new RuntimeException('Autosave is disabled by this project.'); }
     return $this->writeSave($scene, self::AUTO_SAVE_SLOT, $this->getQuickSavePath(self::AUTO_SAVE_NAME));
   }
 
@@ -379,7 +371,8 @@ class SaveManager
       throw new RuntimeException(sprintf('Save file not found: %s', $path));
     }
 
-    return $this->getCompatibilityPipeline()->load($this->decodeSavePayload($path), $path, $this->getDestinationSlot($path));
+    return $this->getCompatibilityPipeline()->load(
+      $this->decodeSavePayload($path), $path, $this->getDestinationSlot($path), $this->game->getBoundGameLoader());
   }
 
   /** Import one selected checkpoint into isolated slot 1; the source is never written. */
@@ -397,7 +390,8 @@ class SaveManager
     $destination = $this->getSlotPath(1);
     $contents = $this->readSaveFile($source);
     // Validate and migrate the captured bytes before creating a save or acquiring native resources.
-    $saved = $this->getCompatibilityPipeline()->load($this->decodeSaveContents($contents, $source), $destination, 1);
+    $saved = $this->getCompatibilityPipeline()->load(
+      $this->decodeSaveContents($contents, $source), $destination, 1, $this->game->getBoundGameLoader());
     $this->validateStoragePath($destination);
     LocalDataFiles::writeAtomically($destination, $contents);
     return $saved;

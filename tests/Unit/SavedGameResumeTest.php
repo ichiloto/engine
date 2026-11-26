@@ -178,7 +178,6 @@ beforeEach(function () {
     }
     $this->root = createTestDirectory('saved-game-resume-');
     $this->managers = [];
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
     Debug::configure(['log_directory' => $this->root . '/logs']);
     ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['audio' => ['music' => false, 'sfx' => false]]));
     ConfigStore::put(PlaySettings::class, new PlaySettings(['screenDimensions' => ['width' => 40, 'height' => 12]]));
@@ -238,6 +237,28 @@ it('restores a real saved campaign once and opens its recorded activity before a
     $game->sceneManager->update();
     expect($game->sceneManager->currentScene)->toBe($field)->and($field->player->automaticEvents)->toBe(1)
         ->and($field->fieldState->inputs)->toBe(2)->and(SavedResumeHandler::$contexts)->toHaveCount(1);
+});
+
+it('returns to the exact requesting menu after failed field hydration and accepts a subsequent load', function () {
+    [$game, $field, $otherMenu] = createSavedResumeWorld($this);
+    $manager = $game->sceneManager;
+    $source = new SavedResumeTarget($manager);
+    $manager->addScenes($source)->loadScene(2);
+
+    $field->failHydration = true;
+    expect(fn() => $manager->loadSavedGameFrom($source, createSavedResumeConfig(['failed' => true])))
+        ->toThrow(RuntimeException::class, 'Synthetic map hydration failed.');
+    expect($manager->currentScene)->toBe($source)->and($source->isStarted())->toBeTrue()
+        ->and($otherMenu->isStarted())->toBeFalse()->and($field->isStarted())->toBeFalse()
+        ->and(SavedResumeHandler::$contexts)->toBe([]);
+
+    expect(fn() => $manager->loadSavedGameFrom($otherMenu, createSavedResumeConfig()))
+        ->toThrow(LogicException::class)->and($manager->currentScene)->toBe($source);
+    $field->failHydration = false;
+    expect($manager->loadSavedGameFrom($source, createSavedResumeConfig(['restored' => true])))->toBe($field)
+        ->and($manager->currentScene)->toBe($field)->and($source->isStarted())->toBeFalse()
+        ->and($game->getProjectStateRegistry()->getState('synthetic/activity'))->toBe(['restored' => true])
+        ->and(SavedResumeHandler::$contexts)->toHaveCount(1);
 });
 
 it('resumes the exact registered field when several fields share a class', function () {

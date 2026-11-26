@@ -103,7 +103,6 @@ beforeEach(function () {
     // A wide Terminal leaves the graphical projection as the stricter capacity.
     ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 200, 'height' => 60]));
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['audio' => ['music' => false, 'sfx' => false, 'voice' => false]]));
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
     new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, null);
     Timers::setFrameTick(null);
     InputManager::setBindings(['confirm' => ['keys' => [KeyCode::ENTER]], 'cancel' => ['keys' => [KeyCode::ESCAPE]],

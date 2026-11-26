@@ -8,7 +8,6 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
 use Ichiloto\Engine\Entities\Interfaces\ActionInterface;
-use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
 use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
@@ -66,8 +65,6 @@ beforeEach(function () {
   \Ichiloto\Engine\Util\Debug::configure(['log_directory' => createTestDirectory('ichiloto-facing-') . '/logs']);
   $this->oldConfig = new ReflectionClass(\Ichiloto\Engine\Util\Config\ConfigStore::class)->getStaticProperties();
   putSceneAudioConfig(['ui' => ['hud' => ['location' => false]], 'audio' => ['music' => false, 'sfx' => false, 'voice' => false, 'master_volume' => 0]]);
-  $this->oldEvents = new ReflectionProperty(EventManager::class, 'instance')->getValue();
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   $game = new PassiveGame();
   $map = $this->getMockBuilder(MapManager::class)->disableOriginalConstructor()
     ->onlyMethods(['canMoveTo'])->getMock();
@@ -97,7 +94,6 @@ beforeEach(function () {
 afterEach(function () {
   foreach ($this->oldDebug as $name => $value) { new ReflectionProperty(\Ichiloto\Engine\Util\Debug::class, $name)->setValue(null, $value); }
   foreach ($this->oldConfig as $name => $value) { new ReflectionProperty(\Ichiloto\Engine\Util\Config\ConfigStore::class, $name)->setValue(null, $value); }
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $this->oldEvents);
 });
 
 it('validates authored facing names strictly and preserves the unrestricted default', function () {

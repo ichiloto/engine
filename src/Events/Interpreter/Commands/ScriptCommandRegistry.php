@@ -8,7 +8,7 @@ use RuntimeException;
 use Throwable;
 
 /**
- * The process-wide script command catalogue selected during game bootstrap.
+ * Reads project command declarations and retains the standalone runtime registration.
  *
  * A project declares its commands in `assets/Data/script-commands.php`, a
  * file returning a list of declarations. Without that file the project has
@@ -24,7 +24,7 @@ final class ScriptCommandRegistry
   private static ?ScriptCommandCatalog $catalog = null;
 
   /**
-   * Loads the project's declared commands, never retaining a prior project's.
+   * Loads declarations into the standalone registration, replacing the prior catalogue.
    *
    * @param string|null $assetRoot The project's asset root; the working directory's `assets` when omitted.
    * @throws RuntimeException When the declarations cannot be used.
@@ -32,11 +32,17 @@ final class ScriptCommandRegistry
   public static function configureFromProject(?string $assetRoot = null): void
   {
     self::reset();
+    self::configure(self::readProjectCatalog($assetRoot));
+  }
+
+  /** Reads a game’s command catalogue without changing the standalone registration. */
+  public static function readProjectCatalog(?string $assetRoot = null): ScriptCommandCatalog
+  {
     $assetRoot ??= Path::join(Path::getCurrentWorkingDirectory(), 'assets');
     $filename = Path::join($assetRoot, self::PROJECT_FILE);
 
     if (! file_exists($filename) && ! is_link($filename)) {
-      return;
+      return ScriptCommandCatalog::createEngineCatalog();
     }
 
     try {
@@ -46,7 +52,7 @@ final class ScriptCommandRegistry
 
       $catalog = ScriptCommandCatalog::fromDeclarations((static fn(): mixed => require $filename)(), $filename);
       $catalog->assertHandlersLoadable();
-      self::configure($catalog);
+      return $catalog;
     } catch (Throwable $exception) {
       throw new RuntimeException(sprintf(
         'Script commands %s could not be loaded: %s',

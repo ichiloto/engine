@@ -106,7 +106,7 @@ class ControlsMenuState extends GameSceneState implements CanvasProviderInterfac
     $this->resetMenuPresentation();
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
-    $this->bindings = new InputBindings();
+    $this->bindings = new InputBindings($this->getGameScene()->getGame());
     $this->activeIndex = 0;
     $this->scrollOffset = 0;
     $this->listening = false;

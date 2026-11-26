@@ -10,19 +10,20 @@ use InvalidArgumentException;
 enum ActionMovement: string
 {
   case STEP = 'step';
+  case STATIONARY = 'stationary';
   case RUN_TO_TARGET = 'run-to-target';
   case FLASH_STEP = 'flash-step';
 
   public function usesTargetRoute(): bool
   {
-    return $this !== self::STEP;
+    return $this === self::RUN_TO_TARGET || $this === self::FLASH_STEP;
   }
 
   /** A run binding requires one opposing recipient and a melee action, including its authored targeting shape. */
   public function validateAction(\Ichiloto\Engine\Battle\BattleAction $action,
     \Ichiloto\Engine\Entities\Interfaces\CharacterInterface $actor, array $targets): void
   {
-    if ($this === self::STEP) { return; }
+    if (!$this->usesTargetRoute()) { return; }
     $role = \Ichiloto\Engine\Battle\Presentation\BattlePoseRole::getForAction($action);
     $basic = $action instanceof \Ichiloto\Engine\Battle\Actions\AttackAction
       || ($action instanceof \Ichiloto\Engine\Battle\Actions\SkillBattleAction
@@ -44,6 +45,6 @@ enum ActionMovement: string
     if (!array_key_exists('movement', $data)) { return self::STEP; }
     $value = $data['movement'];
     return (is_string($value) ? self::tryFrom($value) : null)
-      ?? throw new InvalidArgumentException('Animation movement must be step, run-to-target or flash-step.');
+      ?? throw new InvalidArgumentException('Animation movement must be step, stationary, run-to-target or flash-step.');
   }
 }

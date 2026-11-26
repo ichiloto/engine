@@ -15,8 +15,13 @@ final readonly class TerminalBattleLaneSnapshot
   public array $targets;
   /** @var list<array{x:int,y:int,width:int,height:int}> */
   private array $obstacles;
+  /** @var array{x:int,y:int}|null */
+  public ?array $casterGround;
+  /** @var array<int,array{x:int,y:int}> */
+  private array $targetGrounds;
 
-  public function __construct(array $caster, array $targets, array $obstacles, private bool $casterPartySide)
+  public function __construct(array $caster, array $targets, array $obstacles, private bool $casterPartySide,
+    ?array $casterGround = null, array $targetGrounds = [])
   {
     $this->caster = self::copyPoint($caster);
     if ($targets === [] || count($targets) > 128) { throw new InvalidArgumentException('A Terminal lane needs selected identities.'); }
@@ -26,6 +31,12 @@ final readonly class TerminalBattleLaneSnapshot
       $copy[$id] = self::copyPoint($point);
     }
     $this->targets = $copy;
+    if ($casterGround === null ? $targetGrounds !== [] : (array_diff_key($targets, $targetGrounds) !== []
+      || array_diff_key($targetGrounds, $targets) !== [])) {
+      throw new InvalidArgumentException('Ground points must account for every captured participant.');
+    }
+    $this->casterGround = $casterGround === null ? null : self::copyPoint($casterGround);
+    $this->targetGrounds = array_map(self::copyPoint(...), $targetGrounds);
     if (!array_is_list($obstacles) || count($obstacles) > 256) { throw new InvalidArgumentException('Terminal lane obstacles exceed the battler bound.'); }
     $copy = [];
     foreach ($obstacles as $box) {
@@ -63,6 +74,31 @@ final readonly class TerminalBattleLaneSnapshot
     $midpoint = (min($xs) + max($xs)) / 2;
     return ($midpoint <=> $this->caster['x']) === 0 ? BattleEffectDirection::getOpponentsSign($this->casterPartySide)
       : ($midpoint < $this->caster['x'] ? -1 : 1);
+  }
+
+  public function getTargetGround(int $id): array
+  {
+    return $this->targetGrounds[$id] ?? throw new InvalidArgumentException('Terminal contact requires a captured recipient ground point.');
+  }
+
+  /** @return list<int> Nearest ground points first, preserving resolved order for ties. */
+  public function getTargetsByGroundDistance(): array
+  {
+    if ($this->casterGround === null) { throw new InvalidArgumentException('Terminal contacts require captured ground points.'); }
+    $distances = [];
+    foreach ($this->targetGrounds as $id => $ground) {
+      $dx = $ground['x'] - $this->casterGround['x'];
+      $dy = $ground['y'] - $this->casterGround['y'];
+      $distances[$id] = $dx * $dx + $dy * $dy;
+    }
+    asort($distances, SORT_NUMERIC);
+    return array_keys($distances);
+  }
+
+  public function getGroundDirectionSign(int $id): int
+  {
+    $sign = $this->getTargetGround($id)['x'] <=> $this->casterGround['x'];
+    return $sign === 0 ? BattleEffectDirection::getOpponentsSign($this->casterPartySide) : $sign;
   }
 
   /** Transparent omission at unrelated bodies is occlusion, never target selection or a second hit. */

@@ -157,9 +157,13 @@ class EncounterManager
     }
 
     try {
-      $troop = get_troop($troopName);
+      $troop = $this->gameScene->getGame()->getGameLoader()->loadTroop($troopName);
+      if ($troop === null) {
+        Debug::warn(sprintf('Encounter skipped, unknown troop "%s".', $troopName));
+        return;
+      }
     } catch (Throwable $exception) {
-      Debug::warn(sprintf('Encounter skipped, unknown troop "%s": %s', $troopName, $exception->getMessage()));
+      Debug::warn(sprintf('Encounter skipped, could not load troop "%s": %s', $troopName, $exception->getMessage()));
       return;
     }
 

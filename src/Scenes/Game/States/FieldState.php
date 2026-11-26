@@ -15,12 +15,10 @@ use Ichiloto\Engine\Field\Enumerations\StepOrigin;
 use Ichiloto\Engine\Field\PlayerDash;
 use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialFieldPrompt;
-use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Progression\WorldAbilityPrompts;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Field\PlayerWalk;
-use Ichiloto\Engine\Field\FieldActionRegistry;
 use Ichiloto\Engine\Field\SkitPrompt;
 use Ichiloto\Engine\Field\SkitPromptPresentation;
 use Ichiloto\Engine\IO\ActionHints;
@@ -224,9 +222,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             return;
         }
 
-        if ($this->worldAbilityPrompts === null
-            && ConfigStore::has(WorldAbilityCatalog::class)
-            && WorldAbilityCatalog::getProjectCatalog()->hasFirstUsePrompts) {
+        if ($this->worldAbilityPrompts === null && $scene->gameState->getWorldAbilities()?->hasFirstUsePrompts) {
             $this->worldAbilityPrompts = new WorldAbilityPrompts($scene->getGame());
         }
         if ($scene->tutorialDirector !== null && $scene->getUI()->getActivePresentations() === []) {
@@ -315,7 +311,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
 
         if (Input::isButtonDown('secondary_action')) {
             $context = new FieldActionContext($scene->player, $scene, $scene->player->position);
-            if (FieldActionRegistry::executeSecondaryAction($context)) {
+            if ($scene->getGame()->getBoundGameLoader()?->getFieldActions()->executeSecondaryAction($context)) {
                 if ($context->wasAccepted) {
                     $scene->recordPlayerActivity();
                 }
@@ -347,7 +343,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             return;
         }
 
-        if (Input::isButtonDown('quick_save')) {
+        if (Input::isButtonDown('quick_save', $scene->getGame())) {
             try {
                 $scene->sceneManager->saveManager->quickSave($scene);
                 play_sound(SystemSound::SAVE);
@@ -396,7 +392,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             $this->playerWalk->update(Time::getDeltaTime(), static fn(Vector2 $direction, float $seconds): bool
                 => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera, StepOrigin::PLAYER_INPUT)),
                 PlayerDash::getSpeedMultiplier($scene->mapManager?->isDashingDisabled ?? false,
-                    $scene->gameState, $scene->party));
+                    $scene->gameState, $scene->party, $scene->getGame()));
             return;
         }
 

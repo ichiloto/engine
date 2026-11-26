@@ -54,7 +54,7 @@ final class LeaderFieldAppearanceScene extends GameScene
 
 final class LeaderFieldAppearanceMap extends MapManager
 {
-  public function __construct(GameScene $scene) { $this->gameScene = $scene; }
+  public function __construct(GameScene $scene) { parent::__construct($scene->getGame(), $scene); }
   public function canMoveTo(int $x, int $y, ?CollisionType &$collisionType = null): bool
   {
     $collisionType = CollisionType::NONE;
@@ -84,7 +84,6 @@ beforeEach(function () {
   chdir($this->root);
   Debug::configure(['log_directory' => $this->root . '/logs']);
   putSceneAudioConfig(['ui' => ['hud' => ['location' => false]]]);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false,
     'output' => null, 'terminalOutputStream' => null] as $name => $value) {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);

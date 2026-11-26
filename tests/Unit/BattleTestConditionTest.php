@@ -126,6 +126,7 @@ function battleConditionScene(object $test, BattleTestSetup $setup, array &$part
     public function __destruct() {}
   };
   new ReflectionProperty(Game::class, 'sceneManager')->setValue($game, $manager);
+  $game->bindGameLoader(createTestGameLoader($game, ConfigStore::get(ActorStore::class), $test->items, $test->root . '/assets', $enemies));
   $scene = new class($game) extends ArenaScene {
     public function __construct(private Game $testGame) {}
     public function getGame(): Game { return $this->testGame; }

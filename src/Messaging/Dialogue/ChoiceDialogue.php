@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Messaging\Dialogue;
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use InvalidArgumentException;
 use Override;
@@ -42,11 +43,12 @@ class ChoiceDialogue extends Dialogue
    * @inheritDoc
    */
   #[Override]
-  public function show(): void
+  public function showForGame(Game $game): void
   {
+    $modals = $game->getModalManager();
     $this->selectedChoice = $this->kind === ChoiceKind::ANSWER
-      ? select_dialogue_answer($this->text, $this->choices, $this->name, $this->defaultChoice)
-      : select($this->text, $this->choices, $this->name, $this->defaultChoice);
+      ? $modals->selectDialogueAnswer($this->text, $this->choices, $this->name, $this->defaultChoice)
+      : $modals->select($this->text, $this->choices, $this->name, $this->defaultChoice);
   }
 
   /**

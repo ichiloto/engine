@@ -437,10 +437,11 @@ it('keeps battle artwork attached to explicit actor identity after an authored d
     ->and($party)->not->toBeEmpty()->and($party[0]->asset)->toBe($catalog->actors['Hero']->asset);
 });
 
-function graphicalBattleScene(BattleConfig $battle, ?GraphicalBattlePresentation $presentation, ?BattleCanvasLayout $ui = null): BattleScene
+function graphicalBattleScene(BattleConfig $battle, ?GraphicalBattlePresentation $presentation,
+  ?BattleCanvasLayout $ui = null, ?Ichiloto\Engine\Core\Game $game = null): BattleScene
 {
   $scene = new ReflectionClass(BattleScene::class)->newInstanceWithoutConstructor();
-  $game = graphicalBattleConfigurationScene(null)->getGame();
+  $game ??= graphicalBattleConfigurationScene(null)->getGame();
   new ReflectionProperty(Ichiloto\Engine\Scenes\SceneManager::class, 'game')->setValue($game->sceneManager, $game);
   new ReflectionProperty(AbstractScene::class, 'sceneManager')->setValue($scene, $game->sceneManager);
   new ReflectionProperty(BattleScene::class, 'config')->setValue($scene, $battle);
@@ -2085,12 +2086,11 @@ it('loads numeric animation source and target effects through actual command exe
     $playback = $scene->ui->fieldWindow->getCommandPlayback();
     expect($turnContext->getEffectTimelineLibrary())->toBe($turnContext->getEffectTimelineLibrary());
     if (!$broken) {
-      $terminalLength = (int)ceil($scene->ui->getPacing()->getTurnTimings($turn->action)->effectAnimation
-        * \Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline::FPS);
+      // The live graphical plan no longer includes the inactive legacy Terminal companion.
       expect($playback->plan->phases['source']['length'])->toBe(48)
-        ->and($playback->plan->phases['target']['length'])->toBe(max(48, $terminalLength))
-        ->and($playback->plan->terminalTiming?->durationSeconds)->toBe($terminalLength / 120)
-        ->and($playback->plan->terminalTarget?->sourceId)->toBe('legacy-7')
+        ->and($playback->plan->phases['target']['length'])->toBe(48)
+        ->and($playback->plan->terminalTiming)->toBeNull()
+        ->and($playback->plan->terminalTarget)->toBeNull()
         ->and(array_find($playback->plan->timeline->cueSchedule, fn($cue) => $cue['type'] === 'commandImpact')['frame'])
         ->toBe($playback->plan->phases['target']['start'] + 24);
     } else {
@@ -2114,7 +2114,7 @@ it('loads numeric animation source and target effects through actual command exe
   }
 })->with([false, true]);
 
-it('loads migrated paced terminal treatments without cells through either battle engine and presentation', function (bool $atb, bool $graphical, bool $reduced) {
+it('keeps paced Terminal treatments and removes their inactive companion from graphical commands in both battle modes', function (bool $atb, bool $graphical, bool $reduced) {
   $cwd = getcwd();
   $root = \getTestTemporaryDirectory() . '/ichiloto-paced-command-' . bin2hex(random_bytes(6));
   mkdir($root . '/assets/Data', 0777, true);
@@ -2150,15 +2150,18 @@ it('loads migrated paced terminal treatments without cells through either battle
       });
     $engine->run($context);
     $playback = $scene->ui->fieldWindow->getCommandPlayback();
-    $phaseLength = (int)ceil(max(.01, $scene->ui->getPacing()->getTurnTimings($turn->action)->effectAnimation) * 120 - 1e-9);
+    $phaseLength = $graphical ? (int)ceil(2 / 25 * 120)
+      : (int)ceil(max(.01, $scene->ui->getPacing()->getTurnTimings($turn->action)->effectAnimation) * 120 - 1e-9);
     expect($playback->plan->phases['target']['length'])->toBe($phaseLength)
-      ->and($playback->plan->terminalTarget?->sourceId)->toBe($graphical ? 'paced' : null)
+      ->and($playback->plan->terminalTarget)->toBeNull()
       ->and($playback->presentationFailure)->toBeNull();
     $targetStart = $playback->plan->phases['target']['start'];
     $playback->update(($targetStart + (int)ceil($phaseLength * 2 / 5)) / 120);
-    $glyphs = $playback->getActiveSegments($reduced, true);
-    expect(array_column($glyphs, 'layer'))->toContain('glyph')
-      ->and($glyphs[0]['drawCommands'][0]['payload']['anchor'])->toBe('target');
+    $segments = $playback->getActiveSegments($reduced, !$graphical);
+    expect(array_column($segments, 'layer'))->toContain($graphical ? 'image' : 'glyph');
+    if (!$graphical) {
+      expect($segments[0]['drawCommands'][0]['payload']['anchor'])->toBe('target');
+    }
     new ReflectionProperty(Ichiloto\Engine\Core\Time::class, 'deltaTime')->setValue(null, 10);
     $engine->run($context);
     expect($turn->battler->stats->currentMp)->toBe(8)->and($turn->targets[0]->stats->currentHp)->toBe(75)
@@ -3199,7 +3202,10 @@ it('places selected ally damage and healing feedback together clear of a visible
   }
   $scene->ui->fieldWindow->clearStatChangePopups();
   expect(array_map(fn($run) => $run->text, $presentation->frame($scene->ui->fieldWindow, $ui)->textLayers[0]->runs))->toBe(['Hero']);
-})->with([['50', Color::LIGHT_RED], ['+50', Color::LIGHT_GREEN]]);
+})->with([
+  'damage' => ['50', Color::LIGHT_RED],
+  'healing' => ['+50', Color::LIGHT_GREEN],
+]);
 
 it('reconciles authored battler metadata with the artwork on disk', function () {
   // Fits: the authored instance passes through untouched.
@@ -5121,7 +5127,8 @@ function createPhaseTravelPresentation(string $root, string $unsafe = ''): array
   $ink = imagecolorallocatealpha($atlas, 90, 120, 170, 0);
   imagefilledrectangle($atlas, 0, 60, 142, 239, $ink);
   imagefilledrectangle($atlas, 143, 0, 285, 159, $ink);
-  imagepng($atlas, $root . '/return.png'); imagedestroy($atlas);
+  imagepng($atlas, $root . '/return.png');
+  unset($atlas);
   $standing = 'graphical-canvas/synthetic-143x181.png';
   $move = $unsafe === 'move-exit'
     ? new BattlerPose('return.png', columns: 2, frames: [0], fps: 16, exitFrames: [1])
@@ -5485,3 +5492,85 @@ it('only prepares artwork for battle members the roster can put on the field', f
     expect($resources)->toHaveKey($prepared->getKey());
   }
 })->with([false, true]);
+
+it('scrubs opted-in contact poses per recipient without creating a combat result', function () {
+  [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  $pose = new BattlerPose('test-sprite.png', columns: 2, frames: [1, 0], fps: 20, loop: false);
+  $catalog = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, $catalog->enemies,
+    ui: $catalog->ui, defaultArena: $catalog->defaultArena, enemyPoses: ['Twin' => new BattlePoseSet(['damage' => $pose])]);
+  $source = ['fps' => 20, 'lengthFrames' => 10, 'restFrame' => 2,
+    'effectTiming' => ['mode' => 'frame', 'frame' => 2],
+    'targetContactSequence' => ['firstFrame' => 2, 'lastFrame' => 4, 'intervalFrames' => 2, 'tracks' => ['mark'],
+      'presentResults' => true, 'previewReaction' => 'damage'],
+    'tracks' => [['id' => 'mark', 'type' => 'image', 'asset' => 'test-sprite.png', 'presentation' => 'graphical',
+      'anchor' => 'target', 'keyframes' => [['frame' => 2, 'duration' => 1]]]],
+  ];
+  $library = new EffectTimelineLibrary($this->root);
+  $effect = $library->compile('contact-preview', $source, true);
+  $plan = new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1), target: $effect, targetCount: 2);
+  $preview = new \Ichiloto\Engine\Battle\Presentation\BattleCommandPreview($battle, $plan, $hero, $enemies,
+    BattlePoseRole::ATTACK, $catalog, $this->root);
+
+  foreach ([4 => 1, 1 => 0, 2 => 1, 3 => 0, 5 => 0] as $frame => $active) {
+    $tick = $plan->getCommandFrameForAuthoredFrame('target', $frame);
+    $canvas = $preview->getFrameAtIndex($tick)->canvas;
+    $bodies = array_map(static fn($enemy) => graphicalCombatantImage($canvas, $enemy), $enemies);
+    expect(array_filter($bodies, static fn($body) => $body->asset === 'test-sprite.png' && $body->sourceRect?->x > 0))
+      ->toHaveCount($active)
+      ->and(array_map(static fn($enemy) => $enemy->stats->currentHp, $enemies))->toBe([100, 100]);
+    $rest = $preview->getFrameAtIndex($tick, reducedMotion: true)->canvas;
+    expect(array_filter(array_map(static fn($enemy) => graphicalCombatantImage($rest, $enemy), $enemies),
+      static fn($body) => $body->asset === 'test-sprite.png' && $body->sourceRect?->x > 0))->toBe([]);
+  }
+
+  $source['targetContactSequence']['presentResults'] = false;
+  expect(fn() => $library->compile('invalid-contact-preview', $source, true))
+    ->toThrow(InvalidArgumentException::class, 'requires contact results');
+});
+
+it('takes battle screen pacing and selection from the battle owner after another project becomes current', function () {
+  [$battle] = graphicalBattleFixture();
+  $create = static function (array $settings): Ichiloto\Engine\Core\Game {
+    $game = graphicalBattleConfigurationScene(null)->getGame();
+    $configuration = new \Ichiloto\Engine\Util\Config\PlaySettings(['ui' => ['battle' => $settings]]);
+    new ReflectionProperty(Ichiloto\Engine\Core\Game::class, 'projectConfiguration')->setValue($game, $configuration);
+    return $game;
+  };
+  $first = $create(['message_pace' => 'fast', 'selection_color' => Color::YELLOW]);
+  $second = $create(['message_pace' => 'slow', 'selection_color' => Color::LIGHT_BLUE]);
+  $key = \Ichiloto\Engine\Util\Config\ProjectConfig::class;
+  $previous = ConfigStore::has($key) ? ConfigStore::get($key) : null;
+  ConfigStore::put($key, $second->getProjectConfiguration());
+  try {
+    $firstScreen = graphicalBattleScene($battle, null, game: $first)->ui;
+    $secondScreen = graphicalBattleScene($battle, null, game: $second)->ui;
+
+    expect($firstScreen->getPacing()->getAnimationPace())->toBe(\Ichiloto\Engine\Battle\Enumerations\BattlePace::FAST)
+      ->and($firstScreen->getSelectionColor())->toBe(Color::YELLOW)
+      ->and($secondScreen->getPacing()->getAnimationPace())->toBe(\Ichiloto\Engine\Battle\Enumerations\BattlePace::SLOW)
+      ->and($secondScreen->getSelectionColor())->toBe(Color::LIGHT_BLUE)
+      ->and(ConfigStore::get($key))->toBe($second->getProjectConfiguration());
+  } finally {
+    $previous === null ? ConfigStore::remove($key) : ConfigStore::put($key, $previous);
+  }
+});
+
+it('uses the supplied project’s own appearance for a conceded enemy', function () {
+  [$battle, $catalog, , $enemies] = graphicalBattleFixture();
+  expect($enemies[0]->concede())->toBeTrue();
+  $key = \Ichiloto\Engine\Util\Config\ProjectConfig::class;
+  $previous = ConfigStore::has($key) ? ConfigStore::get($key) : null;
+  $dark = new PlaySettings(['ui' => ['battle' => ['defeat' => ['concededOpacity' => .3]]]]);
+  $light = new PlaySettings(['ui' => ['battle' => ['defeat' => ['concededOpacity' => .8]]]]);
+  ConfigStore::put($key, $light);
+  try {
+    $darkFrame = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root, $dark)->frame();
+    $lightFrame = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root, $light)->frame();
+
+    expect(graphicalCombatantImage($darkFrame, $enemies[0])->opacity)->toBe(.3)
+      ->and(graphicalCombatantImage($lightFrame, $enemies[0])->opacity)->toBe(.8)
+      ->and(graphicalCombatantImage($darkFrame, $enemies[1])->opacity)->toBe(1.0);
+  } finally {
+    $previous === null ? ConfigStore::remove($key) : ConfigStore::put($key, $previous);
+  }
+});

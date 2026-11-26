@@ -19,13 +19,14 @@ final class NoticeModal extends PagedAlertModal
   public function getModalPresentation(): ?ModalPresentation
   {
     return new ModalPresentation($this->title, $this->message, $this->buttons, $this->activeIndex,
-      singleConfirmation: true, notice: $this->notice, sourceMessage: $this->sourceMessage);
+      singleConfirmation: true, notice: $this->notice, sourceMessage: $this->sourceMessage,
+      noticeHints: $this->notice->getActionHints($this->game));
   }
 
   /** @return list<string> The terminal renders the same semantic hints as readable bound controls. */
   protected function getSupplementalContent(int $columns): array
   {
-    $text = TerminalControlText::formatHints($this->notice->getActionHints());
+    $text = TerminalControlText::formatHints($this->notice->getActionHints($this->game));
     return $text === '' ? [] : ['', ...TerminalText::wrapParagraphsToWidth($text, $columns)];
   }
 

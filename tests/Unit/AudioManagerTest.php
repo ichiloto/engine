@@ -13,6 +13,7 @@ use Ichiloto\Engine\Audio\Backends\MpvBackend;
 use Ichiloto\Engine\Audio\Backends\PaplayBackend;
 use Ichiloto\Engine\Audio\Interfaces\AudioBackendInterface;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\IO\Console\Console;
 use Tests\Support\PassiveGame;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -144,6 +145,67 @@ it('reports a finished process as not running', function () {
 });
 
 /* AudioManager behavior */
+
+it('resolves a cue and its mute settings from the audio manager’s owning project', function () {
+  $ownRoot = createTestDirectory('own-audio-project-');
+  $foreignRoot = createTestDirectory('foreign-audio-project-');
+  foreach ([$ownRoot, $foreignRoot] as $root) {
+    mkdir($root . '/assets/Audio/SFX', 0777, true);
+    file_put_contents($root . '/assets/Audio/SFX/chime.wav', 'synthetic cue');
+  }
+  $owned = new AudioArrayConfigStub(['audio' => ['sfx' => false, 'master_volume' => 35]]);
+  $game = new class($owned) extends Game {
+    public function __construct(private ConfigInterface $settings) {}
+    public function __destruct() {}
+    public function getProjectConfiguration(): ?ConfigInterface { return $this->settings; }
+  };
+  $game->bindGameLoader(createTestGameLoader($game, assetRoot: $ownRoot . '/assets'));
+  $manager = new TestableAudioManager($game, [new FakeAudioBackend()]);
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 100]]);
+  $cwd = getcwd();
+  try {
+    chdir($foreignRoot);
+    $manager->startSoundEffect('chime');
+    expect($manager->spawnedCommands)->toBeEmpty();
+    $owned->set('audio.sfx', true);
+    $manager->startSoundEffect('chime');
+    expect($manager->spawnedCommands)->toBe([['fake-player', '0.35', 'once', $ownRoot . '/assets/Audio/SFX/chime.wav']]);
+  } finally {
+    $manager->shutdown();
+    chdir($cwd);
+  }
+});
+
+it('gives each game its own manager and routes shared sound helpers to the attached game', function () {
+  putAudioProjectConfig(['audio' => ['sfx' => true]]);
+  $game = makeAudioTestGame();
+  $other = makeAudioTestGame();
+  $audio = new TestableAudioManager($game, [new FakeAudioBackend()]);
+  $otherAudio = new TestableAudioManager($other, [new FakeAudioBackend()]);
+  $consoleOwner = new ReflectionProperty(Console::class, 'game');
+  $previous = $consoleOwner->getValue();
+  $legacy = new ReflectionProperty(AudioManager::class, 'instance');
+  $previousLegacy = $legacy->getValue();
+  try {
+    $legacy->setValue(null, $audio);
+    $other->bindAudioManager($otherAudio);
+    expect(AudioManager::getInstance($game))->toBe($audio)
+      ->and(AudioManager::getInstance($other))->toBe($otherAudio)
+      ->and(fn() => $other->bindAudioManager($audio))->toThrow(LogicException::class);
+    $file = makeAudioAssetsRoot(['hit.wav']) . '/hit.wav';
+    $consoleOwner->setValue(null, $other);
+    play_sound($file);
+    expect($audio->spawnedCommands)->toBeEmpty()->and($otherAudio->spawnedCommands)->toHaveCount(1);
+    $consoleOwner->setValue(null, $game);
+    play_sound($file);
+    expect($audio->spawnedCommands)->toHaveCount(1)->and($otherAudio->spawnedCommands)->toHaveCount(1);
+  } finally {
+    $audio->shutdown();
+    $otherAudio->shutdown();
+    $consoleOwner->setValue(null, $previous);
+    $legacy->setValue(null, $previousLegacy);
+  }
+});
 
 it('plays a sound effect when sound effects are enabled', function () {
   putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 50]]);

@@ -38,6 +38,13 @@ not add new G2 release gates.
 5. **Preview is the runtime.** The editor previews through the engine's own
    playback session, as the summon preview already does. Anything the preview
    fires, battle fires; anything battle honors, the preview shows.
+   Battle preview callers pass their canvas support through both `getFrameAtIndex()`
+   and `getFrameAtTime()`: `imageFlips`, `maskFlips`, `imageTones`, `imageClips`,
+   `bottomFade`, and the existing rotation, coverage-dab, texture-strip and
+   compositing flags. Use the same negotiated/session feature list as the host
+   canvas. The shared battle composer diagnoses unsupported authored features
+   and preserves the existing base-battle/Terminal behavior. Legacy omitted
+   arguments retain their previous values for API compatibility.
 
 ## Baseline audit (2026-09-20)
 
@@ -546,19 +553,31 @@ stopping before impact abandons the command without executing it. Presentation
 failures are diagnosed separately from gameplay failures.
 Scene teardown stops only the engine owned by that scene's battle screen and
 disposes its command; an obsolete screen cannot cancel a newer battle.
+The command retains the players started by its authored `playSound` cues
+until it finishes. Discarding the command stops those players. Normal
+completion lets their one-shot tails finish under the Effects bus.
 
 The existing numeric animation record may add `sourceEffect` and `targetEffect`
 timeline identities. Skills/items still reference that record by `animationId`.
 Timelines are loaded once per battle context from
-`Animations/<id>/<id>.timeline.php`; failed loads retain the legacy treatment.
-An image-only graphical target loads the explicit terminal sequence from the
-same timeline identity; meaningful legacy cells remain its compatibility
-fallback. An authored glyph/text track supersedes that fallback;
-neither inspection path can fire extra cues or resolve combat again. The target
-stage lasts long enough for both the graphical effect and any retained terminal
-treatment at their own authored frame rates. A shorter image sequence must not
-truncate later terminal strokes. Explicit target impact cues keep their authored
-time; absent a cue, resolution occurs after the complete shared target stage.
+`Animations/<id>/<id>.timeline.php`. The active presentation owns the source
+and target artwork lengths, capture, and authored cue timing. Graphical command
+setup no longer loads or waits for a separate Terminal target timeline.
+Terminal battles load the Terminal timeline directly. Meaningful legacy cells
+remain available when the selected presentation has no authored content.
+Explicit target impact cues keep their authored time. Without one, impact uses
+the selected target phase's completion boundary. Rendering and preview
+inspection never fire gameplay cues or resolve combat.
+
+Animation records may set `targetImpactSeconds` to make the combat resolution
+delay shared across presentations. The delay starts at the command's target
+phase, independent of the effect frame rate. The phase stays open through that
+boundary if the artwork finishes first. The selected artwork keeps its authored
+clock and cues. Remove any existing target `effectTiming` or `applyEffect` cue
+before assigning the impact to the animation record. Summons keep their own
+impact contract. Existing animation records without the field continue to use
+the selected effect's cue or end.
+
 Legacy cell-frame records are imported into the shared playhead without
 rewriting their source. Timeline-only numeric bindings no longer manufacture an
 empty one-frame compatibility delay. Authored blank multi-frame holds, populated
@@ -700,8 +719,7 @@ visibility. A renderer unable to rotate or clip an authored beam reports that
 capability gap instead of drawing a different ray. Use the independent Terminal
 presentation for its glyph/text drawing.
 
-A target effect can author an advancing graphical contact front independently
-of a projectile or the command's combat impact:
+A target effect can author an advancing graphical contact front:
 
 ```php
 'targetContactSequence' => [
@@ -720,14 +738,24 @@ do not change identity or select additional targets. This capture is independent
 of effect-start target-group anchors. A stage must restore before the first
 contact.
 
+By default contact tracks use this clock and combat feedback uses its usual
+impact. Set `presentResults => true` in the sequence to present each selected
+recipient's aggregate result, reaction pose and visible HP change at its
+captured contact. The first contact must coincide with the logical impact, and
+all contacts must fit before the command returns. This mode and individual
+hit feedback cannot share a target effect. Combat still resolves once in its
+original order, and Terminal uses its own presentation.
+
 For a shared earlier snapshot, author `targetCaptureFrame` on the graphical
 target timeline. It must be within a fixed once-playing sequence and at or
 before the first contact. The host captures selected bodies and ground points
 once on that frame, even while a cinematic covers the arena. Contact order uses
-that snapshot without recapturing at impact. A target-group ground image with
-`anchorLifetime => 'target-capture'` uses the same immutable placement; its keys
-must start at or after the capture. Other ground images retain follow or
-effect-start lifetimes. A detached release on the capture frame reuses the same
+that snapshot without recapturing at impact. Ground images can use
+`anchorLifetime => 'target-capture'` on `target-group` for the whole group or on
+`target` for each captured recipient's own ground point. Their keys start at or
+after the capture. A planted contact image retains that point through recoil.
+Image tracks without that lifetime continue to follow their existing anchors.
+A detached release on the capture frame reuses the same
 projected poses for route geometry. Ordinary effects and flat/paired summon
 sources preserve this field through their shared authoring boundary. Terminal
 content has its own source and never requires the graphical snapshot or files.
@@ -756,6 +784,38 @@ normalized source tip:
 'pivot' => ['x' => .9, 'y' => .5],
 'groundSpan' => ['tip' => ['x' => .1, 'y' => .5]],
 ```
+
+Set `anchor => 'target'` on that track to compose one rigid span per captured
+recipient, from the same caster ground to that recipient's own ground point.
+This variant uses each selected identity and its saved depth. Movement after
+capture does not change the endpoints. `target-group` retains the single span
+described above. To start at a specific point in the caster's artwork, set
+`groundSpan.casterPoint` to a named attachment on the caster's pose cell at
+capture. The shared pose projection applies the same current cell, placement
+and reflection as the battle image. The snapshot holds the projected point
+through later pose changes. An absent declared point is a presentation error
+in both preview and playback. Existing spans start at the captured caster
+ground when the field is omitted.
+
+A graphical recipient span can reveal toward each contact using
+`groundSpan.reveal`. Set `startFrame` on the authored target clock and
+before the first contact. Each recipient has its own end frame from the
+shared contact schedule. The reveal track has its own keyframes and stays
+outside the list of staggered contact tracks. Its keys can make the reveal
+visible after `startFrame`, so a cut can open on a partially revealed span.
+The target snapshot supplies the contact schedule at capture. The first
+contact track and combat impact keep their original clocks.
+
+`featherPixels` sets the optional edge feather in canvas pixels from 0 to
+256. `beforeContactOpacity` sets opacity from 0 to 1 during the reveal. Their
+defaults are 0 and 1. The shared clip plane passes through the advancing
+point with its normal along the captured ground ray. The whole source is
+visible at contact. A reduced-motion drawing selected by the existing motion
+variants and hold samples uses the full span. Authors can provide dedicated
+reduced-motion drawings through those variants. Clip coverage leaves the
+image transform and texel positions fixed. A partial reveal requires
+`canvas_texture_strip_clip` alongside `canvas_texture_strip`, and preview
+reports when the canvas has no clip capability.
 
 The enclosing battle timeline requires fixed once playback and an explicit
 `targetCaptureFrame`. Keys begin at or after capture and own visibility and
@@ -788,11 +848,21 @@ at20. Final Game bindings and Editor controls remain separate consumer work.
 The contact sequence refuses range/flight clocks and projectile fallback
 spacing on the same effect, with an authoring diagnostic.
 
+Set `intervalFrames` instead of `direction` for equal spacing. The captured
+caster and selected ground points determine nearest-first order. Selection
+order breaks equal distances. For example, first frame 30, last frame 36
+and interval 2 give four recipients frames 30, 32, 34 and 36. A smaller
+group uses the corresponding prefix. Reserve enough time in the contact
+window and its track tail for every supported formation. A larger group
+reports a presentation diagnostic and combat keeps its original resolution.
+
 Only the referenced tracks use the per-recipient sample clock. Other tracks,
 the command's single impact, actual outcomes, costs and reactions keep their
 existing clocks. Terminal content is independently compiled. Reduced motion
-holds each contact track's first drawing during its real visibility intervals;
-inspection and scrubbing never dispatch damage. Ordinary effects and summons
+uses authored held drawings and clears on each recipient's contact clock,
+bounded by the target lane. A timeline without an explicit sampling plan
+holds each contact track's first drawing during its real visibility intervals.
+Inspection and scrubbing never dispatch damage. Ordinary effects and summons
 use this same descriptor. Flat summon source round trips preserve it. Editor
 pickers and final Game bindings remain separate consumer work.
 
@@ -3123,7 +3193,12 @@ target as the lane. Physical selection and combat impact remain unchanged.
 Samples follow capture in ordered nonoverlapping intervals. Head and shaft have
 the same odd row count, one to nine rows; each stencil has equal row widths in
 one to32Terminalcells. Rows are printable UTF-8 without controls or embedded ANSI.
-Wide glyphs keep their complete cell spans. Optional named `color`, boolean
+Wide glyphs keep their complete cell spans. An optional numeric `payload.reach`
+holds the drawn tip at that fraction of the captured path for the sample. Use
+`0` to draw nothing and `1` to draw the full path. Omitting it draws the full
+path. Successive held samples can advance the tip toward each captured ground
+contact. The same captured geometry supplies the shaft, clipping and occlusion.
+The reach changes only drawing. Optional named `color`, boolean
 `visible` and neutral `zIndex => 0` are supported. Hidden samples and gaps clear
 the drawing. Reduced motion retains the existing static-rest rule and gates it
 by the track's live visibility, so a later rest sample cannot appear early or
@@ -3147,6 +3222,42 @@ omitted whole. The same pure renderer serves the live field and windowless
 presentation. A project supplies replaceable stencils and its final reviewed
 Terminal source; this capability does not install a Last Legend timeline.
 
+
+### Staggered Terminal target contacts
+
+A fixed, once-playing battle target timeline can stage its own contact glyphs
+and lanes per selected recipient. In a paired source the declaration belongs
+inside `presentations.terminal`:
+
+```php
+'terminalTargetContacts' => [
+  'intervalFrames' => 2,
+  'tracks' => ['fissure', 'eruption'],
+],
+```
+
+Use existing Terminal `glyph-lane` tracks for the individual ground paths and
+Terminal `glyph` tracks anchored to targets for the eruption drawings.
+Use separate, unlisted tracks for a banner or other drawings that play once.
+The first recipient plays the listed tracks at their authored frames. Each
+successive recipient starts that same sequence one interval later. The first
+track can start before the first eruption to give that recipient an approach.
+
+The Terminal field captures caster and recipient ground points once. Specify
+`targetCaptureFrame` by the first listed key when a glyph lane needs it.
+A glyph-only sequence can omit it and capture at the first listed key. Selected
+instances are ordered by ground-cell distance from the caster, with selection
+order breaking equal distances. Each fissure starts at the captured caster foot
+and ends at its recipient foot. Glyph offsets use the captured recipient foot
+as their origin. Reduced motion holds the nearest visible rest drawing for each
+track and uses its contact clock for visibility.
+
+The authored target phase runs at least as long as its last delayed drawing.
+The logical impact stays at its existing command tick and executes once.
+The Terminal live field and battle preview use the same capture and sampling.
+Source effects, screen-anchored glyphs, and field or looping effects cannot
+use recipient contacts. Graphical target contact ordering and timing have an
+independent contract.
 
 ### Ground-span authoring contract and direction
 

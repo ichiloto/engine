@@ -33,7 +33,6 @@ beforeEach(function () {
     $this->handoffStatics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   Timers::setFrameTick(null);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, null);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 24]));
   ConfigStore::put(ProjectConfig::class, new PlaySettings(['audio' => ['music' => false, 'sfx' => false,

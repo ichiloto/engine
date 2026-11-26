@@ -2,10 +2,19 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Engine\Battle\BattleClassification;
+use Ichiloto\Engine\Battle\Entry\BattleEntryContext;
 use Ichiloto\Engine\Core\Campaign\CampaignContextInterface;
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Core\WorldStateWriter;
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Progression\ProgressionSettings;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Progress\AchievementManager;
+use Ichiloto\Engine\Progression\WorldAbilityCatalog;
 use Ichiloto\Engine\Quests\QuestManager;
 use Tests\Support\PassiveGame;
 
@@ -116,6 +125,8 @@ it('routes inventory changes to their campaign and keeps detached or released ow
         $detached = new \Ichiloto\Engine\Entities\Inventory\Inventory();
         $detached->bindItemStore(new class extends \Ichiloto\Engine\Util\Stores\ItemStore { public function __construct() {} });
         $detached->addItems(clone $item);
+        $unbound = new \Ichiloto\Engine\Entities\Inventory\Inventory();
+        $unbound->addItems(clone $item);
         expect($b->changes)->toBe(0);
         $a->release();
         $inventory->addItems(clone $item);
@@ -203,4 +214,97 @@ it('restores inventory delivery to the preceding campaign owner after temporary 
         $context->party->inventory->removeItems($item);
         expect($b->changes)->toBe(1)->and($a->changes)->toBe(1);
     } finally { $b->release(); $a->release(); }
+});
+
+it('evaluates and accepts a quest only in the campaign that supplied the world state', function (): void {
+    $root = createTestDirectory('campaign-quest-owner-');
+    mkdir($root . '/Data');
+    file_put_contents($root . '/Data/quests.php', '<?php return ' . var_export([
+        ['id' => 'shared-quest', 'name' => 'Synthetic quest', 'objectives' => [['type' => 'flag', 'target' => 'done']]],
+    ], true) . ';');
+
+    $game = new PassiveGame();
+    $first = createDetachedProgressionContext();
+    $second = createDetachedProgressionContext();
+    $a = new class($game, $first, $root) extends QuestManager {
+        protected function notifyQuest(string $title, string $text,
+            \Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration $duration,
+            ?string $presentationRole = null): void {}
+    };
+    $b = new class($game, $second, $root) extends QuestManager {
+        protected function notifyQuest(string $title, string $text,
+            \Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration $duration,
+            ?string $presentationRole = null): void {}
+    };
+    try {
+        WorldStateWriter::applyAll([
+            ['type' => 'quest', 'name' => 'shared-quest', 'confirm' => false],
+        ], $first->gameState);
+        $active = [['type' => 'quest', 'name' => 'shared-quest', 'status' => 'active']];
+        expect($a->log->isActive('shared-quest'))->toBeTrue()
+            ->and($b->log->isActive('shared-quest'))->toBeFalse()
+            ->and(WorldConditionEvaluator::allHold($active, $first->gameState))->toBeTrue()
+            ->and(WorldConditionEvaluator::allHold($active, $second->gameState))->toBeFalse()
+            ->and(WorldConditionEvaluator::allHold($active, new GameState()))->toBeFalse();
+
+        $abilities = new WorldAbilityCatalog([['id' => 'track', 'name' => 'Track', 'conditions' => $active]]);
+        $tracking = [['type' => 'world_ability', 'name' => 'track']];
+        expect(WorldConditionEvaluator::allHold($tracking, $first->gameState, worldAbilities: $abilities))->toBeTrue()
+            ->and(WorldConditionEvaluator::allHold($tracking, $second->gameState, worldAbilities: $abilities))->toBeFalse();
+
+        $entry = BattleEntryContext::capture(
+            BattleClassification::ORDINARY, null, $first->party, $first->gameState, 'quest-owner',
+        );
+        $a->log->markCompleted('shared-quest');
+        expect($entry->conditionsHold($active))->toBeTrue()
+            ->and(WorldConditionEvaluator::allHold($active, $first->gameState))->toBeFalse();
+
+        $a->release();
+        expect(WorldConditionEvaluator::allHold(
+            [['type' => 'quest', 'name' => 'shared-quest', 'status' => 'completed']], $first->gameState,
+        ))->toBeFalse()->and($entry->conditionsHold($active))->toBeTrue();
+    } finally {
+        $b->release();
+        $a->release();
+    }
+});
+
+it('uses the quest game recovery rule when another project is current', function () {
+    $root = createTestDirectory('quest-recovery-owner-');
+    mkdir($root . '/Data');
+    file_put_contents($root . '/Data/system.php', "<?php return ['progression' => ['levelUpRecovery' => 'none']];");
+    $game = new PassiveGame();
+    $game->bindGameLoader(createTestGameLoader($game, assetRoot: $root));
+    $hero = new Character('Quest hero', 0, new Stats(currentHp: 1, currentMp: 0));
+    $facts = createDetachedProgressionContext();
+    $facts->party->addMember($hero);
+    $questId = 'recovery-reward';
+    file_put_contents($root . '/Data/quests.php', '<?php return ' . var_export([
+        ['id' => $questId, 'name' => 'Synthetic reward quest',
+            'objectives' => [['type' => 'flag', 'target' => 'reward-earned']],
+            'rewards' => ['experience' => $hero->getLevelExperienceThresholds()[2]]],
+    ], true) . ';');
+    $quests = new QuestManager($game, $facts, $root);
+
+    $otherRoot = createTestDirectory('quest-recovery-other-');
+    mkdir($otherRoot . '/Data');
+    file_put_contents($otherRoot . '/Data/system.php', "<?php return ['progression' => ['levelUpRecovery' => 'full']];");
+    $otherGame = new PassiveGame();
+    $otherGame->bindGameLoader(createTestGameLoader($otherGame, assetRoot: $otherRoot));
+    $previous = ConfigStore::has(ProgressionSettings::class) ? ConfigStore::get(ProgressionSettings::class) : null;
+    ConfigStore::put(ProgressionSettings::class, ProgressionSettings::fromSystemData($otherGame->getGameLoader()->loadSystemData()));
+    try {
+        $facts->gameState->setSwitch('reward-earned', true);
+        $quests->hydrate(['active' => [$questId => [0]]]);
+
+        expect($quests->log->isCompleted($questId))->toBeTrue()
+            ->and($hero->level)->toBe(2)
+            ->and($hero->stats->totalHp)->toBeGreaterThan(1)
+            ->and($hero->stats->currentHp)->toBe(1)
+            ->and($hero->stats->currentMp)->toBe(0);
+    } finally {
+        $quests->release();
+        ConfigStore::remove(ProgressionSettings::class);
+        if ($previous !== null) { ConfigStore::put(ProgressionSettings::class, $previous); }
+    }
 });

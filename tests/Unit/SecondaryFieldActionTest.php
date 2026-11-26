@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
@@ -16,6 +17,7 @@ use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Tests\Support\Input\FakeHeldInputSource;
 use Tests\Support\Input\FakeInputSource;
+use Tests\Support\PassiveGame;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeHeldInputSource.php';
@@ -41,13 +43,11 @@ class SecondaryFieldRequiredConstructor extends SecondaryFieldRecordingAction
 beforeEach(function () {
   $this->inputState = new ReflectionClass(InputManager::class)->getStaticProperties();
   new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, null);
-  FieldActionRegistry::reset();
   SecondaryFieldRecordingAction::$contexts = [];
   SecondaryFieldRecordingAction::$onExecute = null;
 });
 
 afterEach(function () {
-  FieldActionRegistry::reset();
   SecondaryFieldRecordingAction::$contexts = [];
   SecondaryFieldRecordingAction::$onExecute = null;
   foreach ($this->inputState as $name => $value) {
@@ -85,24 +85,29 @@ it('preserves explicit secondary bindings including an intentional unbinding', f
   'empty' => [[]],
 ]);
 
-it('loads only a project-owned handler and forgets it on another project', function () {
+it('retains a project handler when another game loads without one', function () {
   $root = createSecondaryFieldProject('<?php return ["secondary_action" => SecondaryFieldRecordingAction::class];');
-  FieldActionRegistry::configureFromProject($root);
+  $first = new PassiveGame();
+  $first->bindGameLoader(createTestGameLoader($first, assetRoot: $root));
   $scene = makeBareScene(GameScene::class);
   $context = new FieldActionContext(makeBareScene(Player::class), $scene, new Vector2(2, 3));
-  expect(FieldActionRegistry::executeSecondaryAction($context))->toBeTrue()
+  expect($first->getGameLoader()->getFieldActions()->executeSecondaryAction($context))->toBeTrue()
     ->and(SecondaryFieldRecordingAction::$contexts)->toBe([$context]);
-  FieldActionRegistry::configureFromProject(createSecondaryFieldProject(null));
-  expect(FieldActionRegistry::executeSecondaryAction($context))->toBeFalse()
-    ->and(SecondaryFieldRecordingAction::$contexts)->toHaveCount(1);
+  $second = new PassiveGame();
+  $second->bindGameLoader(createTestGameLoader($second, assetRoot: createSecondaryFieldProject(null)));
+  expect($second->getGameLoader()->getFieldActions()->secondaryHandler)->toBeNull()
+    ->and($first->getGameLoader()->getFieldActions()->executeSecondaryAction($context))->toBeTrue()
+    ->and(SecondaryFieldRecordingAction::$contexts)->toBe([$context, $context]);
 });
 
-it('rejects invalid declarations at bootstrap and clears the former project', function (string $contents) {
-  FieldActionRegistry::configure(SecondaryFieldRecordingAction::class);
+it('rejects invalid declarations without affecting a loaded project', function (string $contents) {
+  $first = new PassiveGame();
+  $valid = createSecondaryFieldProject('<?php return ["secondary_action" => SecondaryFieldRecordingAction::class];');
+  $first->bindGameLoader(createTestGameLoader($first, assetRoot: $valid));
+  $second = new PassiveGame();
   $root = createSecondaryFieldProject($contents);
-  expect(fn() => FieldActionRegistry::configureFromProject($root))->toThrow(RuntimeException::class, $root);
-  $context = new FieldActionContext(makeBareScene(Player::class), makeBareScene(GameScene::class), new Vector2());
-  expect(FieldActionRegistry::executeSecondaryAction($context))->toBeFalse();
+  expect(fn() => createTestGameLoader($second, assetRoot: $root)->getFieldActions())->toThrow(RuntimeException::class, $root);
+  expect($first->getGameLoader()->getFieldActions()->secondaryHandler)->toBe(SecondaryFieldRecordingAction::class);
 })->with([
   'list' => ['<?php return [SecondaryFieldRecordingAction::class];'],
   'scalar' => ['<?php return 12;'],
@@ -119,6 +124,7 @@ it('dispatches the remapped edge once without primary dialogue or continued fiel
     ->onlyMethods(['reconcileFieldPresentation', 'hasUnstableEventSession', 'recordPlayerActivity'])->getMock();
   $scene->expects($this->exactly($accepted ? 1 : 0))->method('recordPlayerActivity');
   $scene->expects($this->atLeastOnce())->method('hasUnstableEventSession')->willReturn(false);
+  new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
   $manager = makeBareScene(SceneManager::class);
   new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene, $manager);
   new ReflectionProperty(SceneManager::class, 'currentScene')->setValue($manager, $scene);
@@ -140,7 +146,10 @@ it('dispatches the remapped edge once without primary dialogue or continued fiel
       new ReflectionProperty(SceneManager::class, 'currentScene')->setValue($manager, makeBareScene(GameScene::class));
     }
   };
-  FieldActionRegistry::configure(SecondaryFieldRecordingAction::class);
+  $game = new PassiveGame();
+  $root = createSecondaryFieldProject('<?php return ["secondary_action" => SecondaryFieldRecordingAction::class];');
+  $game->bindGameLoader(createTestGameLoader($game, assetRoot: $root));
+  new ReflectionProperty(SceneManager::class, 'game')->setValue($manager, $game);
   InputManager::setBindings(['secondary_action' => ['keys' => [KeyCode::F2]]]);
   expect(ActionHints::resolve('secondary_action', 'Challenge')->control->label)->toBe('F2');
   $source = $held ? new FakeHeldInputSource() : new FakeInputSource(KeyCode::F2);

@@ -45,14 +45,27 @@ it('keeps graphical definitions and S4 presentation under the same structural va
   expect(fn() => new PresentationSprite('player', $asset, 0, 0, $width, $height, layer: $layer))
     ->toThrow(InvalidArgumentException::class);
 })->with([
-  ['', 32, 48, 0], ['/Hero.png', 32, 48, 0], ['//server/Hero.png', 32, 48, 0],
-  ['C:/Hero.png', 32, 48, 0], ['C:Hero.png', 32, 48, 0], ['Graphics\\Hero.png', 32, 48, 0],
-  ['https://example.com/Hero.png', 32, 48, 0], ['data:image/png;base64,abc', 32, 48, 0],
-  ['../Hero.png', 32, 48, 0], ['Graphics/../Hero.png', 32, 48, 0], ['Graphics/..', 32, 48, 0],
-  ["Hero\0.png", 32, 48, 0], ["Hero\xFF.png", 32, 48, 0],
-  ['Hero.png', 0, 48, 0], ['Hero.png', -1, 48, 0], ['Hero.png', 4097, 48, 0],
-  ['Hero.png', 32, 0, 0], ['Hero.png', 32, -1, 0], ['Hero.png', 32, 4097, 0],
-  ['Hero.png', 32, 48, -2147483649], ['Hero.png', 32, 48, 2147483648],
+  'empty asset' => ['', 32, 48, 0],
+  'absolute path' => ['/Hero.png', 32, 48, 0],
+  'network path' => ['//server/Hero.png', 32, 48, 0],
+  'drive absolute path' => ['C:/Hero.png', 32, 48, 0],
+  'drive relative path' => ['C:Hero.png', 32, 48, 0],
+  'backslash separator' => ['Graphics\\Hero.png', 32, 48, 0],
+  'web URL' => ['https://example.com/Hero.png', 32, 48, 0],
+  'data URL' => ['data:image/png;base64,abc', 32, 48, 0],
+  'parent path' => ['../Hero.png', 32, 48, 0],
+  'embedded parent path' => ['Graphics/../Hero.png', 32, 48, 0],
+  'parent segment without filename' => ['Graphics/..', 32, 48, 0],
+  'NUL in asset' => ["Hero\0.png", 32, 48, 0],
+  'invalid UTF-8 in asset' => ["Hero\xFF.png", 32, 48, 0],
+  'zero width' => ['Hero.png', 0, 48, 0],
+  'negative width' => ['Hero.png', -1, 48, 0],
+  'width over limit' => ['Hero.png', 4097, 48, 0],
+  'zero height' => ['Hero.png', 32, 0, 0],
+  'negative height' => ['Hero.png', 32, -1, 0],
+  'height over limit' => ['Hero.png', 32, 4097, 0],
+  'layer below limit' => ['Hero.png', 32, 48, -2147483649],
+  'layer above limit' => ['Hero.png', 32, 48, 2147483648],
 ]);
 
 it('sizes a field image in whole character frames, never authored pixels', function () {

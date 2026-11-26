@@ -95,6 +95,28 @@ it('uses independent themes and actor roles without a whole-scene dialogue backi
     expect($backing)->not->toBeNull()->and($backing->layer)->toBe(20);
 })->with([false, true]);
 
+it('keeps paginated field dialogue, portraits and current controls readable on a narrow surface', function (string $speaker) {
+    $catalogue = getDialogueTestCatalog($this->root);
+    InputManager::setBindings(['dialogue_auto' => ['keys' => [KeyCode::X]], 'confirm' => ['keys' => [KeyCode::F]]]);
+    $line = getDialogueTestLine($speaker, position: $speaker === '' ? WindowPosition::TOP : WindowPosition::BOTTOM);
+    $canvas = DialogueCanvasPresentation::compose($line, $catalogue, width: 280, height: 300);
+    $layers = array_column($canvas->textLayers, null, 'id');
+    $controls = array_filter($canvas->textLayers, static fn($layer) =>
+        str_starts_with($layer->id, 'dialogue-auto') || str_starts_with($layer->id, 'dialogue-advance'));
+    $labels = implode(' ', array_merge(...array_map(static fn($layer) => array_column($layer->runs, 'text'), $controls)));
+
+    expect($labels)->toContain('Auto Off', 'X', 'F')
+        ->and($layers['dialogue-page']->runs[0]->text)->toBe('1 / 2')
+        ->and($layers['dialogue-text']->runs[0]->text)->not->toBe('');
+    foreach ($canvas->getOverlayProtection() as $area) { $area->assertWithin(280, 300); }
+    if ($speaker !== '') {
+        $portrait = array_find($canvas->images, static fn($image) => $image->asset === 'hero.png');
+        expect($portrait)->not->toBeNull()
+            ->and($portrait->destination->x + $portrait->destination->width)
+            ->toBeLessThanOrEqual($layers['dialogue-text']->clipRect->x);
+    }
+})->with(['speaker with portrait' => 'Display Hero', 'narration with controls' => '']);
+
 it('preserves real dialogue and skit protection without treating the backdrop as a full-screen obstruction', function (bool $skit) {
     $catalogue = getDialogueTestCatalog($this->root);
     $context = $skit ? new DialogueContext(actorId: 'hero', skitId: 'sample', skitTitle: 'Short title',

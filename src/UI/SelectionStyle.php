@@ -2,8 +2,8 @@
 
 namespace Ichiloto\Engine\UI;
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\IO\Enumerations\Color;
-use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
@@ -45,16 +45,16 @@ final class SelectionStyle
    *
    * @return Color The resolved selection color.
    */
-  public static function resolveColor(): Color
+  public static function resolveColor(?Game $game = null): Color
   {
-    if (! ConfigStore::has(ProjectConfig::class)) {
+    $config = ProjectConfig::findForGame($game);
+    if ($config === null) {
       return Color::LIGHT_BLUE;
     }
 
-    $configuredColor = config(
-      ProjectConfig::class,
+    $configuredColor = $config->get(
       'ui.menu.selection_color',
-      config(ProjectConfig::class, 'ui.battle.selection_color', Color::LIGHT_BLUE)
+      $config->get('ui.battle.selection_color', Color::LIGHT_BLUE)
     );
 
     if ($configuredColor instanceof Color) {

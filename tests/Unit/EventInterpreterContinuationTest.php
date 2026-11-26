@@ -49,6 +49,7 @@ use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\SceneManager;
@@ -56,6 +57,7 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
@@ -278,10 +280,6 @@ class EventTestMapManager extends MapManager
   public bool $shouldScroll = false;
   public int $renderCount = 0;
 
-  public function __construct()
-  {
-  }
-
   public function canMoveTo(int $x, int $y, ?\Ichiloto\Engine\Events\Enumerations\CollisionType &$collisionType = null): bool
   {
     if (isset($this->blocked["{$x}:{$y}"])) {
@@ -413,7 +411,7 @@ class EventTestGameScene extends GameScene
     $this->hasDeferredAutoSave = false;
     $this->currentMapId = 'map-a';
     $this->camera = new EventTestCamera();
-    $this->mapManager = new EventTestMapManager();
+    $this->mapManager = new EventTestMapManager($this->getGame(), $this);
     $this->party = new Party();
     $this->bestiary = new Bestiary();
     $this->knowledge = new KnowledgeProgressService(new KnowledgeCatalog([
@@ -497,9 +495,15 @@ class EventTestGameScene extends GameScene
 }
 
 /** @return array{EventTestGameScene, EventInterpreter, EventTestPresentation} */
-function makeEventRuntime(): array
+function makeEventRuntime(?string $assetRoot = null): array
 {
   $scene = new EventTestGameScene();
+  if ($assetRoot !== null) {
+    $game = $scene->getGame();
+    $game->bindGameLoader(new GameLoader($game, new ActorStore(definitions: []),
+      new ReflectionClass(ItemStore::class)->newInstanceWithoutConstructor(), $assetRoot,
+      enemyStore: new ReflectionClass(EnemyStore::class)->newInstanceWithoutConstructor()));
+  }
   $presentation = new EventTestPresentation();
   $interpreter = new EventInterpreter($scene, $presentation);
   $scene->installInterpreter($interpreter);
@@ -509,7 +513,6 @@ function makeEventRuntime(): array
 
 it('reveals an adjacent sensed passage through Action and restores its opening from the normal saved event state', function () {
   [$scene, $interpreter] = makeEventRuntime();
-  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($scene->mapManager, $scene);
   $player = new EventTestPlayer(new Vector2(0, 0));
   $scene->installPlayer($player);
   $source = ['class' => \Ichiloto\Engine\Events\Triggers\PassageEventTrigger::class,
@@ -2031,6 +2034,43 @@ it('blocks manual saves and quicksaves while a session is unstable', function ()
     ->and(fn() => $manager->quickSave($scene))->toThrow(ActiveEventSaveException::class);
 });
 
+it('loads the owning project’s custom troop commands for scripted battles and encounters', function () {
+  $root = createTestDirectory('event-battle-project-');
+  mkdir($root . '/assets/Data', 0777, true);
+  $type = 'project_battle_cue';
+  $page = ['conditions' => ['turn' => 1], 'commands' => [['type' => $type]]];
+  $definition = ['name' => 'Technical Troop', 'enemies' => [], 'events' => [$page]];
+  file_put_contents($root . '/assets/Data/troops.php',
+    '<?php return ' . var_export(['troop.project' => $definition], true) . ';');
+  file_put_contents($root . '/assets/Data/script-commands.php', '<?php return ' . var_export([[
+    'type' => $type, 'class' => RegisteredTestCarriageCommand::class, 'label' => 'Battle Cue',
+    'scopes' => ['battle'],
+  ]], true) . ';');
+  [$scene, $interpreter] = makeEventRuntime($root . '/assets');
+  $previousDirectory = getcwd();
+  $previousStore = ConfigStore::has(EnemyStore::class) ? ConfigStore::get(EnemyStore::class) : null;
+  chdir($root);
+  ConfigStore::put(EnemyStore::class, $scene->getGame()->getGameLoader()->getEnemyStore());
+  try {
+    $session = $interpreter->run([['type' => 'start_battle', 'troop' => 'Technical Troop']]);
+    expect($session?->failureMessage)->toBeNull()
+      ->and($session?->status)->toBe(EventExecutionStatus::SUSPENDED)
+      ->and($scene->testSceneManager->lastTroop?->definitionId)->toBe('troop.project')
+      ->and($scene->testSceneManager->lastTroop?->eventPages[0]->commands)->toBe($page['commands']);
+    $encounter = new class($scene) extends \Ichiloto\Engine\Field\EncounterManager {
+      public function trigger(): void { $this->startEncounter(['Technical Troop' => 1]); }
+    };
+    chdir($previousDirectory);
+    $encounter->trigger();
+    expect($scene->testSceneManager->battleCount)->toBe(2)
+      ->and($scene->testSceneManager->lastTroop?->definitionId)->toBe('troop.project')
+      ->and($scene->testSceneManager->lastTroop?->eventPages[0]->commands)->toBe($page['commands']);
+  } finally {
+    $previousStore === null ? ConfigStore::remove(EnemyStore::class) : ConfigStore::put(EnemyStore::class, $previousStore);
+    chdir($previousDirectory);
+  }
+});
+
 it('suspends for battle and resumes later commands with an optional result variable', function () {
   $root = createTestDirectory('event-battle-');
   mkdir($root . '/assets/Data', 0o777, true);
@@ -2040,10 +2080,8 @@ it('suspends for battle and resumes later commands with an optional result varia
   PHP);
   $previousDirectory = getcwd();
   chdir($root);
-  ConfigStore::put(EnemyStore::class, (new ReflectionClass(EnemyStore::class))->newInstanceWithoutConstructor());
-
   try {
-    [$scene, $interpreter] = makeEventRuntime();
+    [$scene, $interpreter] = makeEventRuntime($root . '/assets');
     $session = $interpreter->run([
       [
         'type' => 'start_battle',
@@ -2076,7 +2114,7 @@ it('suspends for battle and resumes later commands with an optional result varia
       ->and((new BattleResult('Defeat', []))->outcome())->toBe('defeat')
       ->and((new BattleResult('Retreat', []))->outcome())->toBe('escape');
 
-    [$defeatScene, $defeatInterpreter] = makeEventRuntime();
+    [$defeatScene, $defeatInterpreter] = makeEventRuntime($root . '/assets');
     $defeatSession = $defeatInterpreter->run([
       [
         'type' => 'start_battle',
@@ -2097,7 +2135,6 @@ it('suspends for battle and resumes later commands with an optional result varia
       ->and($defeatScene->gameState->getVariable('scripted_defeat_result'))->toBe('defeat')
       ->and($defeatScene->gameState->getSwitch('continued_after_defeat'))->toBeTrue();
   } finally {
-    ConfigStore::remove(EnemyStore::class);
     chdir($previousDirectory);
   }
 });
@@ -2124,9 +2161,8 @@ it('forwards map encounter arenas and clears their binding when maps change', fu
   file_put_contents($root . '/assets/Data/troops.php', '<?php return [["name" => "Technical Troop", "enemies" => []]];');
   $previousDirectory = getcwd();
   chdir($root);
-  ConfigStore::put(EnemyStore::class, (new ReflectionClass(EnemyStore::class))->newInstanceWithoutConstructor());
   try {
-    [$scene] = makeEventRuntime();
+    [$scene] = makeEventRuntime($root . '/assets');
     $manager = new class($scene) extends Ichiloto\Engine\Field\EncounterManager {
       public function trigger(): void { $this->startEncounter($this->troopWeights); }
     };
@@ -2145,7 +2181,6 @@ it('forwards map encounter arenas and clears their binding when maps change', fu
     expect($scene->testSceneManager->lastBattleSettings)->not->toHaveKey('battleArena')
       ->and($scene->testSceneManager->battleCount)->toBe(3);
   } finally {
-    ConfigStore::remove(EnemyStore::class);
     chdir($previousDirectory);
   }
 });
@@ -2156,9 +2191,8 @@ it('dispatches selected encounter scenes without leaking row settings into other
   file_put_contents($root . '/assets/Data/troops.php', '<?php return [["name" => "Technical Troop", "enemies" => []], ["name" => "Other Troop", "enemies" => []]];');
   $previousDirectory = getcwd();
   chdir($root);
-  ConfigStore::put(EnemyStore::class, (new ReflectionClass(EnemyStore::class))->newInstanceWithoutConstructor());
   try {
-    [$scene] = makeEventRuntime();
+    [$scene] = makeEventRuntime($root . '/assets');
     $manager = new class($scene) extends Ichiloto\Engine\Field\EncounterManager {
       public string $choice = 'Technical Troop';
       public function trigger(): void { $this->startEncounter($this->troopWeights); }
@@ -2193,7 +2227,6 @@ it('dispatches selected encounter scenes without leaking row settings into other
     expect($manager->getWeights())->toBe([])
       ->and($scene->testSceneManager->battleCount)->toBe(4);
   } finally {
-    ConfigStore::remove(EnemyStore::class);
     chdir($previousDirectory);
   }
 });
@@ -2208,10 +2241,8 @@ it('runs the complete technical continuation route and saves its stable completi
   $previousDirectory = getcwd();
   chdir($root);
   putSceneAudioConfig(['save' => ['autosave' => true]]);
-  ConfigStore::put(EnemyStore::class, (new ReflectionClass(EnemyStore::class))->newInstanceWithoutConstructor());
-
   try {
-    [$scene, $interpreter, $presentation] = makeEventRuntime();
+    [$scene, $interpreter, $presentation] = makeEventRuntime($root . '/assets');
     $player = new EventTestPlayer(new Vector2(1, 1));
     $scene->installPlayer($player);
     $npcs = new NpcManager($scene);
@@ -2334,7 +2365,6 @@ it('runs the complete technical continuation route and saves its stable completi
       ->and($loaded->config->gameState['completedEvents'])->toHaveKey('map-a:S')
       ->and($loaded->config->gameState['variables']['technical_battle_result'])->toBe('victory');
   } finally {
-    ConfigStore::remove(EnemyStore::class);
     ConfigStore::remove(ProjectConfig::class);
     chdir($previousDirectory);
   }
@@ -3740,7 +3770,7 @@ final class InnTestConfirmDialogue extends ConfirmDialogue
     parent::__construct('Keeper', 'Rest for 30 G?');
   }
 
-  public function show(): void
+  public function showForGame(Game $game): void
   {
     $this->shown++;
     $this->selectedChoice = $this->answer;
@@ -3777,6 +3807,24 @@ it('runs a project command with its script context and continues in the same fra
     ->and(RegisteredTestCarriageCommand::$calls)->toBe([['npc:map-a:driver', 'driver', 'harbour']])
     ->and($scene->gameState->getSwitch('carriage_hired'))->toBeTrue()
     ->and($scene->gameState->hasStoryEvent('carriage_left'))->toBeTrue();
+});
+
+it('keeps strict cinematic command validation with the interpreter that will run the command', function () {
+  [$scene, $interpreter] = makeRegisteredCommandRuntime();
+  $otherCatalog = ScriptCommandCatalog::createEngineCatalog();
+  $previous = \Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry::getCatalog();
+  \Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry::configure($otherCatalog);
+  try {
+    $session = $interpreter->start([['type' => 'sequence', 'commands' => [
+      ['type' => 'hire_carriage', 'destination' => 'harbour'],
+    ]]], 'project-cinematic', strictCommands: true);
+    $interpreter->update(0.0);
+
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->gameState->getSwitch('carriage_hired'))->toBeTrue();
+  } finally {
+    \Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry::configure($previous);
+  }
 });
 
 it('waits on a project command operation one field tick at a time', function () {

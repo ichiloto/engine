@@ -10,7 +10,6 @@ use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
 
-use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Campaign\CampaignSession;
@@ -114,7 +113,6 @@ use Ichiloto\Engine\Scenes\Game\States\ShopState;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Debug;
@@ -230,7 +228,8 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
     public function synchronizeFieldViewport(): void
     {
         $context = $this->presentationContext;
-        $runtime = $context === null && isset($this->sceneManager) ? $this->getGame()->getRendererRuntime() : null;
+        $game = isset($this->sceneManager) ? $this->getGame() : null;
+        $runtime = $context === null ? $game?->getRendererRuntime() : null;
         $grid = $context !== null ? ($context->graphical ? $context->grid : null) : $runtime?->grid;
         $this->fieldEffects?->setCapabilities(
             $this->supportsScenePresentation(RendererSessionConfig::SPRITE_SOURCE_RECT)
@@ -239,8 +238,9 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
             $this->supportsScenePresentation(RendererSessionConfig::SPRITE_BOB),
             $this->supportsScenePresentation(RendererSessionConfig::FIELD_MOTION)
                 && $this->supportsScenePresentation(RendererSessionConfig::PINNED_SPRITE_MOTION));
-        $requested = ConfigStore::has(ProjectConfig::class)
-            ? config(ProjectConfig::class, 'graphics.field.zoom', FieldViewport::DEFAULT_ZOOM) : FieldViewport::DEFAULT_ZOOM;
+        $settings = $game?->getProjectConfiguration();
+        $requested = $settings === null ? FieldViewport::DEFAULT_ZOOM
+            : $settings->get('graphics.field.zoom', FieldViewport::DEFAULT_ZOOM);
         $zoom = FieldViewport::DEFAULT_ZOOM;
         if ((is_float($requested) || is_int($requested)) && is_finite((float)$requested)
             && $requested >= FieldViewport::MIN_ZOOM && $requested <= FieldViewport::MAX_ZOOM) {
@@ -764,7 +764,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
     public function __construct(SceneManager $sceneManager, string $name)
     {
         parent::__construct($sceneManager, $name);
-        $this->gameState = new GameState();
+        $this->gameState = new GameState($this->getGame()->getWorldAbilities());
         $this->knowledge = new KnowledgeProgressService(KnowledgeCatalog::empty());
     }
 
@@ -841,6 +841,12 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
      * @var MapManager|null The map manager.
      */
     protected(set) ?MapManager $mapManager = null;
+
+    /** The field scene owns its map state from launch preflight through gameplay. */
+    public function getMapManager(): MapManager
+    {
+        return $this->mapManager ??= new MapManager($this->getGame(), $this);
+    }
     /**
      * @var Player|null The player.
      */
@@ -1153,7 +1159,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
     /** Project state has been prepared and restored before any campaign consumer runs. */
     protected function configureCampaign(GameConfig $config): void
     {
-        $this->mapManager = MapManager::getInstance($this->getGame(), $this);
+        $this->getMapManager();
 
         $this->initializeGameSceneStates();
 
@@ -1166,8 +1172,10 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         $this->fieldMusicApplied = false;
         $this->fieldMusicPending = false;
         $this->fieldMusicHolds = 0;
-        $assetRoot = $this->getGame()->getProjectAssetRoot();
-        $this->tutorialCinematics = $this->tutorialDirector === null ? null : new CinematicLibrary($assetRoot . '/Cutscenes/Cinematics');
+        $game = $this->getGame();
+        $assetRoot = $game->getProjectAssetRoot();
+        $this->tutorialCinematics = $this->tutorialDirector === null ? null
+            : new CinematicLibrary($assetRoot . '/Cutscenes/Cinematics', $game->getProjectScriptCommands());
         $this->tutorialFollowOnDefinitions = [];
         Time::setElapsedTime($this->config->playTimeSeconds);
         $this->player = $this->createPlayer($this->config);
@@ -1181,7 +1189,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         $this->fieldEffects?->clear();
         $this->fieldEffects = new FieldEffectManager($assetRoot,
             Console::isTerminalOutputEnabled() ? EffectPresentation::TERMINAL : EffectPresentation::GRAPHICAL);
-        $this->eventInterpreter = new EventInterpreter($this);
+        $this->eventInterpreter = new EventInterpreter($this, scriptCommands: $game->getProjectScriptCommands());
         $this->hasDeferredAutoSave = false;
         $this->hasPendingAutomaticTriggerEvaluation = false;
         $this->skitManager = new SkitManager($this);
@@ -1263,9 +1271,9 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
         if ($mapMusic !== null) {
             $this->inheritedMapMusic = $mapMusic;
         }
-        $catalog = ConfigStore::has(FieldMusicCatalog::class) ? ConfigStore::get(FieldMusicCatalog::class) : null;
-        $rule = $catalog instanceof FieldMusicCatalog && isset($this->gameState)
-            ? $catalog->resolve($this->currentMapId, $this->gameState, $this->party)
+        $rule = isset($this->sceneManager, $this->gameState)
+            ? $this->getGame()->getBoundGameLoader()?->getFieldMusicCatalog()
+                ->resolve($this->currentMapId, $this->gameState, $this->party)
             : null;
         $this->fieldMusicIsExplicitSilence = $rule !== null && $rule->track === null;
         return $rule !== null ? $rule->track : $this->inheritedMapMusic;
@@ -2131,7 +2139,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
      */
     public function autoSave(): void
     {
-        if ($this->isStopping || ! SaveFeatures::isAutosaveEnabled()) {
+        if ($this->isStopping || ! SaveFeatures::isAutosaveEnabled($this->getGame())) {
             return;
         }
 
@@ -2256,11 +2264,13 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
             return null;
         }
 
-        $definition = is_string($cinematic)
-            ? (new CinematicLibrary())->load($cinematic)
-            : $cinematic;
+        if (is_string($cinematic)) {
+            $game = $this->getGame();
+            $cinematic = new CinematicLibrary($game->getProjectAssetRoot() . '/Cutscenes/Cinematics',
+                $game->getProjectScriptCommands())->load($cinematic);
+        }
 
-        return $this->cinematicController?->start($definition, $completionTarget);
+        return $this->cinematicController?->start($cinematic, $completionTarget);
     }
 
     /** Requests the active cinematic's authored safe skip path. */
@@ -2312,7 +2322,7 @@ class GameScene extends AbstractScene implements \Ichiloto\Engine\Core\Campaign\
      */
     public function arriveAtSavePoint(): void
     {
-        $script = SaveFeatures::getSavePointScript();
+        $script = SaveFeatures::getSavePointScript($this->getGame());
         if ($script !== null) {
             $this->eventInterpreter?->run([['type' => 'common_event', 'id' => $script]], 'save-point:' . $script);
             return;

@@ -10,7 +10,6 @@ use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
 use Ichiloto\Engine\Entities\Actions\RunScriptAction;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
-use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
@@ -75,11 +74,9 @@ final class ArrivalHandoffField extends FieldState
 beforeEach(function () {
   $this->consoleState = new ReflectionClass(Console::class)->getStaticProperties();
   $this->configState = new ReflectionProperty(ConfigStore::class, 'store')->getValue();
-  $this->eventState = new ReflectionProperty(EventManager::class, 'instance')->getValue();
   $this->inputState = new ReflectionClass(InputManager::class)->getStaticProperties();
   $this->debugState = new ReflectionClass(Debug::class)->getStaticProperties();
   $this->previousDelta = new ReflectionProperty(Time::class, 'deltaTime')->getValue();
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, null);
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub());
   Console::setTerminalOutputEnabled(false);
@@ -105,10 +102,9 @@ beforeEach(function () {
   new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, new GameState());
   $this->camera = new Camera($this->scene, 10, 10, worldSpace: array_fill(0, 10, str_repeat('.', 10)));
   new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
-  $this->map = $this->getMockBuilder(MapManager::class)->disableOriginalConstructor()
+  $this->map = $this->getMockBuilder(MapManager::class)->setConstructorArgs([$game, $this->scene])
     ->onlyMethods(['scrollMap', 'prepareMap', 'applyPreparedMap'])->getMock();
   $this->map->expects($this->atLeastOnce())->method('scrollMap')->willReturn(false);
-  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($this->map, $this->scene);
   new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($this->map,
     array_fill(0, 10, array_fill(0, 10, CollisionType::ENCOUNTER->value)));
   new ReflectionProperty(MapManager::class, 'layers')->setValue($this->map,
@@ -167,7 +163,6 @@ afterEach(function () {
     // setup or the local teardown failed, so this file's process-wide state never leaks into later files.
     new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, $this->previousDelta);
     new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, $this->configState);
-    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $this->eventState);
     foreach ([Console::class => $this->consoleState, InputManager::class => $this->inputState,
       Debug::class => $this->debugState] as $class => $state) {
       foreach ($state as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }

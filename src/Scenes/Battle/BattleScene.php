@@ -18,7 +18,6 @@ use Ichiloto\Engine\UI\Interfaces\StorybookReadingCapacityProviderInterface;
 use Ichiloto\Engine\UI\Modal\StorybookReadingCapacity;
 use Ichiloto\Engine\Events\Interpreter\ModalEventPresentation;
 use Ichiloto\Engine\Scenes\Battle\States\BattleEventState;
-use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\Presentation\BattleCanvasUiAdapter;
 use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
@@ -72,6 +71,7 @@ use Ichiloto\Engine\Rendering\Presentation\SceneFrameReadinessInterface;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
  * Represents a battle scene.
@@ -186,7 +186,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
       $this->endResults();
     } finally {
       $this->releaseBattleResources();
-      BattleCommandCatalog::endBattle();
+      $this->config?->releaseContent();
       parent::stop();
     }
   }
@@ -294,10 +294,11 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
   public function getBattleEffectResources(): ?\Ichiloto\Engine\Battle\Presentation\BattleEffectResources
   {
     $runtime = $this->getGame()->getRendererRuntime();
-    if ($runtime === null) { return null; }
+    $content = $this->config?->getContent();
+    if ($runtime === null || $content === null) { return null; }
     return $this->battleEffectResources ??= new \Ichiloto\Engine\Battle\Presentation\BattleEffectResources(
-      BattleCommandCatalog::getBattleAnimationLibrary() ?? new \Ichiloto\Engine\Animations\AnimationLibrary(cacheForBattle: true),
-      new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($runtime->getAssetRoot()));
+      $content->getAnimations(), new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($content->assetRoot),
+      $content->getSummons());
   }
 
   /** Readiness has no deadline: slow preparation never starts foreground decoding or advances combat. */
@@ -641,7 +642,8 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
         $uiAssetPaths = [...($catalog->ui?->skin?->getAssetPaths() ?? []),
           ...($catalog->pause?->getAssetPaths() ?? []), ...($catalog->results?->getAssetPaths($actorIds) ?? []),
           ...($this->findControlsTheme($runtime->getAssetRoot())?->getControlAssetPaths() ?? [])];
-        $presentation = GraphicalBattlePresentation::prepare($config, $catalog, $runtime->getAssetRoot());
+        $presentation = GraphicalBattlePresentation::prepare($config, $catalog, $runtime->getAssetRoot(),
+          ProjectConfig::findForGame($this->getGame()));
         $layout = $presentation?->layout ?? $catalog->ui;
         $resultsSkin = $catalog->results;
         $pauseSkin = $catalog->pause;
@@ -729,15 +731,18 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
     if ($this->pauseState?->hasOwnedResources()) { $this->pauseState->exit(); }
     $this->endResults();
 
+    $config->bindContent($this->getGame()->getProjectAssetRoot());
     $this->config = $config;
     $this->result = null;
     $this->resultWindow = null;
     $this->shouldLoadGameOver = false;
     $gameScene = $this->getGame()->sceneManager->findScene(GameScene::class);
-    $worldState = $config->testWorldState ?? ($gameScene instanceof GameScene ? $gameScene->gameState : new GameState());
-    $catalog = ConfigStore::has(BattleEntryRuleCatalog::class)
+    $worldState = $config->testWorldState ?? ($gameScene instanceof GameScene
+      ? $gameScene->gameState : new GameState($this->getGame()->getWorldAbilities()));
+    $loader = $this->getGame()->getBoundGameLoader();
+    $catalog = $loader?->getBattleEntryRules() ?? (ConfigStore::has(BattleEntryRuleCatalog::class)
       ? ConfigStore::get(BattleEntryRuleCatalog::class)
-      : BattleEntryRuleCatalog::empty();
+      : BattleEntryRuleCatalog::empty());
 
     if (! $catalog instanceof BattleEntryRuleCatalog) {
       throw new RuntimeException('The configured battle-entry rule catalog is invalid.');
@@ -746,13 +751,12 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface, Play
     (new BattleEntryRuleRunner($catalog))->apply($config, $worldState);
     $this->battleEvents = $config->troop->eventPages === [] || !$gameScene instanceof GameScene ? null
       : new BattleEventRunner($config->troop, fn(): array => $this->partyBattlers, $gameScene, $config->party,
-        new ModalEventPresentation($this), fn() => $this->ui?->refreshField());
+        new ModalEventPresentation($this), fn() => $this->ui?->refreshField(), $loader?->getScriptCommands());
     $this->initializeBattleSceneStates();
-    BattleCommandCatalog::beginBattle();
     try {
       $this->setState($this->startState);
     } catch (Throwable $error) {
-      BattleCommandCatalog::endBattle();
+      $config->releaseContent();
       throw $error;
     }
   }

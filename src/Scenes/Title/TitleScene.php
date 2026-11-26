@@ -11,6 +11,7 @@ use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\NewGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenTitleOptionsCommand;
 use Ichiloto\Engine\Settings\GameSetting;
+use Ichiloto\Engine\Settings\SettingsCatalog;
 use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\ShowCreditsCommand;
 use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
@@ -152,7 +153,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     $this->headerContent = $this->loadHeaderContent();
     $this->headerLines = explode("\n", $this->headerContent);
     $this->headerHeight = count($this->headerLines);
-    $this->optionsManager = new TitleOptionsSettingsManager();
+    $this->optionsManager = new TitleOptionsSettingsManager(new SettingsCatalog($this->getGame()));
     $this->options = $this->optionsManager->getOptions();
 
     $leftMargin = intval((get_screen_width() - self::TITLE_MENU_WIDTH) / 2);
@@ -948,9 +949,9 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     }
 
     try {
-      $sceneManager->loadSavedGame($gameConfig);
+      $sceneManager->loadSavedGameFrom($this, $gameConfig);
     } catch (Throwable $error) {
-      $sceneManager->loadScene(self::class);
+      if ($sceneManager->currentScene !== $this) { throw $error; }
       $this->openContinueMenu();
       Debug::warn('Could not resume selected save: ' . $error->getMessage());
       $this->continueStatusMessage = SaveFeedback::describeLoadFailure($error);

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
 use Assegai\Util\Path;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use RuntimeException;
 
 /** Discovers folder-based cinematic assets without booting a game scene. */
@@ -10,6 +11,7 @@ final class CinematicLibrary
 {
   public function __construct(
     protected ?string $root = null,
+    private readonly ?ScriptCommandCatalog $scriptCommands = null,
   )
   {
     $this->root ??= Path::join(
@@ -62,7 +64,7 @@ final class CinematicLibrary
       throw new RuntimeException(sprintf('Cinematic "%s" source files must return arrays.', $id));
     }
 
-    $definition = CinematicDefinition::fromArrays($data, $script);
+    $definition = CinematicDefinition::fromArrays($data, $script, $this->scriptCommands);
 
     if ($definition->id !== $id) {
       throw new RuntimeException(sprintf(

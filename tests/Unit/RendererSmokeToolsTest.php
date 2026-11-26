@@ -3,18 +3,18 @@
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
+use Tests\Support\Rendering\RendererPipePeer;
 use Tests\Support\Rendering\RetainedFrameState;
 
+require_once __DIR__ . '/../Support/Rendering/RendererPipePeer.php';
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 it('runs native smoke entry points on protocol two using a silent PHP pipe peer', function (string $tool, bool $recover) {
   $directory = \getTestTemporaryDirectory() . '/retained-smoke-' . bin2hex(random_bytes(6));
   mkdir($directory);
-  $executable = $directory . '/renderer'; $capture = $directory . '/wire.ndjson';
-  $stub = __DIR__ . '/../Fixtures/Renderer/renderer-stub.php';
-  file_put_contents($executable, '#!' . PHP_BINARY . "\n<?php\n\$argv = "
-    . var_export([$executable, $recover ? 'retained_smoke_recovery' : 'retained_smoke', $capture], true) . ";\nrequire " . var_export($stub, true) . ";\n");
-  chmod($executable, 0755);
+  $executable = RendererPipePeer::getExecutablePath();
+  $capture = $directory . '/wire.ndjson';
+  $environment = RendererPipePeer::getEnvironment($recover ? 'retained_smoke_recovery' : 'retained_smoke', $capture);
   $process = null;
   try {
     $command = [PHP_BINARY, dirname(__DIR__, 2) . '/tools/' . $tool,
@@ -22,7 +22,7 @@ it('runs native smoke entry points on protocol two using a silent PHP pipe peer'
     // The healthy frame run remains unchanged beyond the ACK timeout, without a spurious reset.
     $command[] = $tool === 'gpui-frame-smoke.php' ? ($recover ? '--duration=0.3' : '--duration=2.5') : '--duration=0';
     if ($tool === 'gpui-frame-smoke.php') { $command[] = '--change-after=0.15'; $command[] = '--sprite=synthetic.png'; }
-    $process = proc_open($command, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $process = proc_open($command, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, env_vars: $environment);
     expect(is_resource($process))->toBeTrue();
     $stdout = stream_get_contents($pipes[1]); $stderr = stream_get_contents($pipes[2]);
     fclose($pipes[1]); fclose($pipes[2]);

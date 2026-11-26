@@ -332,15 +332,14 @@ beforeEach(function () {
   $this->previousDirectory = getcwd();
   Debug::configure(['log_directory' => $this->logDirectory]);
   putSceneAudioConfig(['save' => ['autosave' => true]]);
-  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false,
     'output' => null, 'terminalOutputStream' => null] as $name => $value) {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);
   }
   ob_start();
-  Console::syncDimensions(24, 8);
   Console::setTerminalOutputEnabled(false);
   $this->game = new TeardownGame();
+  Console::init($this->game, ['width' => 24, 'height' => 8]);
 });
 
 afterEach(function () {
@@ -531,7 +530,8 @@ function startTeardownBattle(TeardownGame $game, string $directory, bool $cinema
   mkdir($directory . '/assets/Data', 0777, true);
   file_put_contents($directory . '/assets/Data/troops.php', '<?php return [["name" => "Teardown Troop", "enemies" => []]];');
   chdir($directory);
-  ConfigStore::put(EnemyStore::class, makeBareScene(EnemyStore::class));
+  $game->bindGameLoader(createTestGameLoader($game, assetRoot: $directory . '/assets',
+    enemies: makeBareScene(EnemyStore::class)));
   $scene = new TeardownField($game);
   $battle = new TeardownBattle($game);
   $game->sceneManager->addScenes($battle, new TeardownGameOver(), new TeardownTitle());
