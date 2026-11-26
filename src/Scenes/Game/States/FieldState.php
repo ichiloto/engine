@@ -17,7 +17,6 @@ use Ichiloto\Engine\Progression\TutorialDirector;
 use Ichiloto\Engine\Progression\TutorialFieldPrompt;
 use Ichiloto\Engine\Progression\WorldAbilityPrompts;
 use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Field\PlayerWalk;
 use Ichiloto\Engine\Field\SkitPrompt;
 use Ichiloto\Engine\Field\SkitPromptPresentation;
@@ -230,7 +229,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
                 return;
             }
             $scene->tutorialDirector->updateInStableField(
-                (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
+                TutorialDirector::allowsAutomaticPrompts($scene->getGame()),
                 $scene->party,
                 $scene->questManager?->log,
             );

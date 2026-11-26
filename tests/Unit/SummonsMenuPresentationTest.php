@@ -441,6 +441,10 @@ it('offers contract guidance on a voluntary visit when a held contract can be re
     public function __construct() {}
     public function __destruct() {}
   };
+  $ownedConfig = new class extends ProjectConfig {
+    protected function load(): array { return ['ui' => ['tutorials' => ['automatic_prompts' => false]]]; }
+  };
+  new ReflectionProperty(Game::class, 'projectConfiguration')->setValue($game, $ownedConfig);
   $manager = makeBareScene(SceneManager::class);
   new ReflectionProperty($manager, 'game')->setValue($manager, $game);
   new ReflectionProperty($scene, 'sceneManager')->setValue($scene, $manager);
@@ -470,6 +474,11 @@ it('offers contract guidance on a voluntary visit when a held contract can be re
     expect($director->getActiveTutorial())->toBeNull();
     $state->exit();
     $state->party->addMember(new Character('Other', 1, new Stats(currentHp: 100), actorId: 'actor.other'));
+    $state->enter();
+    expect($director->getActiveTutorial())->toBeNull()
+      ->and($scene->gameState->getTutorialPhase('guide.library'))->toBe(TutorialPhase::PENDING);
+    $state->exit();
+    $ownedConfig->set(TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true);
     $state->enter();
     expect($director->getActiveTutorial()?->id)->toBe('guide.library');
     $step = $director->getStepForView('summons', 'list');

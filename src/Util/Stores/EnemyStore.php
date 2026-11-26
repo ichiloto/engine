@@ -25,9 +25,9 @@ class EnemyStore implements ConfigInterface
   /**
    * Creates a new instance of the enemy store.
    */
-  public function __construct()
+  public function __construct(?string $assetRoot = null)
   {
-    $enemies = asset('Data/enemies.php');
+    $enemies = $assetRoot === null ? asset('Data/enemies.php') : self::readProjectEnemies($assetRoot);
 
     foreach ($enemies as $enemy) {
       if ($enemy instanceof Enemy) {
@@ -35,6 +35,15 @@ class EnemyStore implements ConfigInterface
         $this->enemies[$key] = $enemy;
       }
     }
+  }
+
+  private static function readProjectEnemies(string $assetRoot): iterable
+  {
+    $source = $assetRoot . '/Data/enemies.php';
+    if (! is_file($source)) { return []; }
+    $enemies = require $source;
+    if (! is_iterable($enemies)) { throw new InvalidArgumentException('Enemy definitions must be iterable.'); }
+    return $enemies;
   }
 
   /**

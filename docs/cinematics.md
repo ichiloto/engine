@@ -569,17 +569,18 @@ cast selection and its diagnostics.
 
 ## Dialogue-safe camera framing
 
-Active field cinematics reserve the actual dialogue body, nameplate and portrait
-area through `DialoguePageGeometry`, shared with the drawing path. The scene
-fits the current conversation participants and visible staged actors into a clear
-horizontal band. Semantic speaker groups retain their existing source and real
-subject identities; ordinary room population remains map-owned.
+Active field cinematics reserve the dialogue body, nameplate and portrait area
+through `DialoguePageGeometry`, shared with the drawing path. The graphical
+camera fits the required subjects together in a clear rectangle. It prefers
+wider areas and can use the space beside a nameplate when vertical space is
+limited. Terminal uses a clear full-width band. Semantic speaker groups use
+their authored subject identities. The map owns ordinary room population.
 
 `DialogueCameraFraming` reads current graphical sprite pivots, lifts and size,
-including the previous ground position while a retained step slides. Terminal
-framing uses its own text-box footprint, sprite rows and display widths, including
-the player’s shape clipping. Graphical scale and
-artwork never determine Terminal geometry. Skits own their full presentation.
+including the previous ground position when the renderer presents step slides.
+Terminal framing uses its own text-box footprint, sprite rows and display
+widths, including the player’s shape clipping. Graphical scale and artwork
+never determine Terminal geometry. Skits own their full presentation.
 
 The Camera owns a transient, signed projection origin for this frame. Empty
 space at map edges and small maps provides framing room without adding physical

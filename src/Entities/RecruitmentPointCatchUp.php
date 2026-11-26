@@ -16,7 +16,8 @@ final readonly class RecruitmentPointCatchUp
     private function __construct(public int $points, private array $histories) {}
 
     /** @param list<Character> $members */
-    public static function prepare(array $members, RecruitmentPointPolicy $policy, ?MasteryCatalog $catalog = null): ?self
+    public static function prepare(array $members, RecruitmentPointPolicy $policy, ?MasteryCatalog $catalog = null,
+        ?string $assetRoot = null): ?self
     {
         if ($policy === RecruitmentPointPolicy::AUTHORED) { return null; }
         $pointsLabel = MasteryVocabulary::getPointsLabel();
@@ -31,7 +32,7 @@ final readonly class RecruitmentPointCatchUp
                 if ($policy !== RecruitmentPointPolicy::PARTY_AVERAGE_ESTIMATED_EARNED) {
                     throw new InvalidArgumentException("{$member->name} has unknown historical {$pointsLabel} spending; select an explicit legacy estimate policy or migrate that history.");
                 }
-                $catalog ??= MasteryCatalog::getProjectCatalog();
+                $catalog ??= MasteryCatalog::getProjectCatalog($assetRoot);
                 $map = $catalog->findMap($member->actorId)
                     ?? throw new InvalidArgumentException("{$member->name} needs a current Mastery map to estimate historical {$pointsLabel} spending.");
                 $spent = $progress->pendingSpentPoints;

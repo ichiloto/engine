@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Localization;
 
-use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /** Project-owned display terms; semantic command and resource IDs stay unchanged. */
@@ -71,34 +71,36 @@ final class Vocabulary
   ];
 
   /** A term as the game words it, else the default given, else the Engine's own ({@see DEFAULTS}), else nothing. */
-  public static function getTerm(string $path, ?string $default = null): string
+  public static function getTerm(string $path, ?string $default = null, ?Game $game = null): string
   {
     $default ??= self::DEFAULTS[$path] ?? '';
-    if (!ConfigStore::has(ProjectConfig::class)) { return $default; }
-    $locale = MessageCatalog::locale();
+    $config = ProjectConfig::findForGame($game);
+    if ($config === null) { return $default; }
+    $locale = MessageCatalog::locale($game);
     if ($locale !== '') {
-      $term = config(ProjectConfig::class, "vocab.$locale.$path");
+      $term = $config->get("vocab.$locale.$path");
       if (is_string($term)) { return $term; }
     }
-    $term = config(ProjectConfig::class, "vocab.$path", $default);
+    $term = $config->get("vocab.$path", $default);
     return is_string($term) ? $term : $default;
   }
 
   /** A term that names a label/value field. A field cannot have a blank label, so a blank term keeps the default. */
-  public static function getLabel(string $path, string $default): string
+  public static function getLabel(string $path, string $default, ?Game $game = null): string
   {
-    $term = trim(self::getTerm($path, $default));
+    $term = trim(self::getTerm($path, $default, $game));
     return $term !== '' ? $term : $default;
   }
 
   /** Resolve a map of terms, retaining base entries not translated by the active locale. */
-  public static function getTerms(string $path): array
+  public static function getTerms(string $path, ?Game $game = null): array
   {
-    if (!ConfigStore::has(ProjectConfig::class)) { return []; }
-    $terms = config(ProjectConfig::class, "vocab.$path", []);
+    $config = ProjectConfig::findForGame($game);
+    if ($config === null) { return []; }
+    $terms = $config->get("vocab.$path", []);
     $terms = is_array($terms) ? array_filter($terms, 'is_string') : [];
-    $locale = MessageCatalog::locale();
-    $localized = $locale !== '' ? config(ProjectConfig::class, "vocab.$locale.$path", []) : [];
+    $locale = MessageCatalog::locale($game);
+    $localized = $locale !== '' ? $config->get("vocab.$locale.$path", []) : [];
     return is_array($localized) ? array_replace($terms, array_filter($localized, 'is_string')) : $terms;
   }
 }

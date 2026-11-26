@@ -2,6 +2,8 @@
 
 use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Enumerations\WeaponType;
+use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\RecruitmentLevelPolicy;
 use Ichiloto\Engine\Entities\RecruitmentPointPolicy;
@@ -19,6 +21,8 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Stores\ActorStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
+use Tests\Support\PassiveGame;
 
 beforeEach(function () {
   $this->previousActors = ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null;
@@ -27,6 +31,9 @@ beforeEach(function () {
   $this->party = new Party();
   $this->scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
   new ReflectionProperty(GameScene::class, 'party')->setValue($this->scene, $this->party);
+  $game = new PassiveGame();
+  $game->bindGameLoader(createTestGameLoader($game, actors: $this->actors));
+  new ReflectionProperty($this->scene, 'sceneManager')->setValue($this->scene, makeTestSceneManager($game));
 });
 afterEach(function () {
   $this->previousActors === null ? ConfigStore::remove(ActorStore::class) : ConfigStore::put(ActorStore::class, $this->previousActors);
@@ -168,6 +175,55 @@ it('grants the roster average earned SP once, including reserves and members awa
   expect($loaded->recruitActor($this->actors->require('actor.hero', 'repeat point recruitment'),
     spPolicy: RecruitmentPointPolicy::PARTY_AVERAGE_EARNED))->toBeFalse()
     ->and($loaded->members->toArray()[4]->toArray())->toBe($saved);
+});
+
+it('recruits the playing campaign’s actor, equipment and legacy mastery prices', function (): void {
+  $source = $this->actors->require('actor.hero', 'recruitment ownership fixture')->data();
+  $definition = static fn(string $name): ActorDefinition => ActorDefinition::fromArray([...$source,
+    'name' => $name, 'initialEquipment' => ['weapon' => 'equipment.test-bow']]);
+  $ownedActors = new ActorStore(definitions: [$definition('Campaign Hero')]);
+  $otherActors = new ActorStore(definitions: [$definition('Foreign Hero')]);
+  $ownedItems = makeBareScene(ItemStore::class);
+  $otherItems = makeBareScene(ItemStore::class);
+  foreach ([[$ownedItems, 'Campaign Bow'], [$otherItems, 'Foreign Bow']] as [$items, $name]) {
+    $items->set('equipment.test-bow', new Weapon($name, '', '', 100, equipmentType: WeaponType::BOW, id: 'equipment.test-bow'));
+  }
+  $owned = createTestDirectory('recruit-campaign');
+  $other = createTestDirectory('recruit-foreign');
+  foreach ([[$owned, 30], [$other, 90]] as [$project, $price]) {
+    mkdir($project . '/assets/Data', 0700, true);
+    file_put_contents($project . '/assets/Data/mastery.php', '<?php return ' . var_export([
+      'regions' => [['id' => 'arts', 'name' => 'Arts']],
+      'branches' => [['id' => 'path', 'region' => 'arts', 'name' => 'Path', 'kind' => 'element', 'element' => 'Flame',
+        'nodes' => [['id' => 'learned', 'kind' => 'foundation', 'name' => 'Learned', 'cost' => $price]]]],
+    ], true) . ';');
+  }
+  $game = new PassiveGame();
+  $game->bindGameLoader(createTestGameLoader($game, actors: $ownedActors, items: $ownedItems, assetRoot: $owned . '/assets'));
+  new ReflectionProperty($this->scene, 'sceneManager')->setValue($this->scene, makeTestSceneManager($game));
+  $legacy = new Character('Legacy member', 0, new Stats());
+  $legacy->mastery = MasteryProgress::fromArray(['points' => 60, 'learned' => ['learned']]);
+  $this->party->addMember($legacy);
+
+  $previous = getcwd();
+  try {
+    chdir($other);
+    ConfigStore::withOverrides([ActorStore::class => $otherActors, ItemStore::class => $otherItems], function (): void {
+      (new RecruitActorCommand())->execute(new ScriptCommandContext($this->scene), [
+        'actor' => 'actor.hero', 'spPolicy' => 'partyAverageEstimatedEarned',
+      ]);
+    });
+    $recruit = $this->party->members->toArray()[1];
+    expect($recruit->name)->toBe('Campaign Hero')
+      ->and($recruit->equipment[0]->equipment?->name)->toBe('Campaign Bow')
+      ->and($recruit->projectAssetRoot)->toBe(realpath($owned . '/assets'))
+      ->and($legacy->mastery->spentPoints)->toBe(30)
+      ->and($recruit->mastery->points)->toBe(90)
+      ->and($this->party->leader)->toBe($legacy);
+  } finally {
+    chdir($previous);
+    MasteryCatalog::forgetProjectCatalogs();
+  }
 });
 
 it('initializes explicitly estimated legacy SP once and preserves it across repricing and future recruits', function () {

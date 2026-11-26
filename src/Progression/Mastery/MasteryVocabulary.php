@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Progression\Mastery;
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
@@ -22,9 +23,9 @@ final class MasteryVocabulary
   }
 
   /** The short label shown beside every amount: "SP" unless the project words it otherwise. */
-  public static function getPointsLabel(): string
+  public static function getPointsLabel(?Game $game = null): string
   {
-    return Vocabulary::getLabel(self::POINTS, Vocabulary::DEFAULTS[self::POINTS]);
+    return Vocabulary::getLabel(self::POINTS, Vocabulary::DEFAULTS[self::POINTS], $game);
   }
 
   /** The spelled-out name, used once in help: "Skill Points" unless the project words it otherwise. */

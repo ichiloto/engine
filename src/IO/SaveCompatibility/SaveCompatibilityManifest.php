@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO\SaveCompatibility;
 
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Exceptions\InvalidSaveCompatibilityManifestException;
 use Ichiloto\Engine\Exceptions\MissingSaveMigrationException;
 use Ichiloto\Engine\Exceptions\TombstonedSaveReferenceException;
@@ -45,9 +46,41 @@ final readonly class SaveCompatibilityManifest
   ): self
   {
     $projectRoot = rtrim($projectRoot, DIRECTORY_SEPARATOR);
-    $projectPath = $projectRoot . DIRECTORY_SEPARATOR . 'ichiloto.json';
     $manifestPath = $projectRoot . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'Data'
       . DIRECTORY_SEPARATOR . 'save-compatibility.php';
+
+    $projectId = self::readProjectId($projectRoot);
+
+    if (! is_file($manifestPath)) {
+      throw new InvalidSaveCompatibilityManifestException(sprintf(
+        'Save compatibility manifest not found: %s.',
+        $manifestPath
+      ));
+    }
+
+    try {
+      $data = require $manifestPath;
+    } catch (Throwable $throwable) {
+      throw new InvalidSaveCompatibilityManifestException(
+        sprintf('Could not load save compatibility manifest %s: %s', $manifestPath, $throwable->getMessage()),
+        previous: $throwable
+      );
+    }
+
+    if (! is_array($data)) {
+      throw new InvalidSaveCompatibilityManifestException(sprintf(
+        'Save compatibility manifest %s must return an array.',
+        $manifestPath
+      ));
+    }
+
+    return self::fromArray($projectId, $data, $manifestPath, $migrationResolution);
+  }
+
+  /** Reads the stable save identity for a manifest supplied by a host. */
+  public static function readProjectId(string $projectRoot): string
+  {
+    $projectPath = rtrim($projectRoot, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'ichiloto.json';
 
     if (! is_file($projectPath)) {
       throw new InvalidSaveCompatibilityManifestException(sprintf(
@@ -74,30 +107,7 @@ final readonly class SaveCompatibilityManifest
       ));
     }
 
-    if (! is_file($manifestPath)) {
-      throw new InvalidSaveCompatibilityManifestException(sprintf(
-        'Save compatibility manifest not found: %s.',
-        $manifestPath
-      ));
-    }
-
-    try {
-      $data = require $manifestPath;
-    } catch (Throwable $throwable) {
-      throw new InvalidSaveCompatibilityManifestException(
-        sprintf('Could not load save compatibility manifest %s: %s', $manifestPath, $throwable->getMessage()),
-        previous: $throwable
-      );
-    }
-
-    if (! is_array($data)) {
-      throw new InvalidSaveCompatibilityManifestException(sprintf(
-        'Save compatibility manifest %s must return an array.',
-        $manifestPath
-      ));
-    }
-
-    return self::fromArray($projectId, $data, $manifestPath, $migrationResolution);
+    return $projectId;
   }
 
   /**
@@ -133,6 +143,78 @@ final readonly class SaveCompatibilityManifest
     $migrations = self::normalizeMigrations($data['migrations'] ?? [], $rawVersion, $source, $migrationResolution);
 
     return new self($projectId, $rawVersion, $aliases, $tombstones, $migrations, $source);
+  }
+
+  /**
+   * Positions from the project's recorded save-producing layouts, in current map coordinates.
+   * The authoring host supplies the saved layouts when it needs to check an edit.
+   *
+   * @return array<string, array<string, array{int, int}>> Map ID, then "x,y" key.
+   */
+  public function projectSavePositions(mixed $history, string $historySource): array
+  {
+    $layouts = self::normalizePositionHistory($history, $this->contentVersion, $historySource);
+    $protected = [];
+    foreach ($layouts as ['version' => $version, 'maps' => $maps]) {
+      $steps = [];
+      for ($before = $version; $before < $this->contentVersion; ++$before) {
+        if (! is_array($this->migrations[$before] ?? null)) {
+          throw new InvalidSaveCompatibilityManifestException(sprintf(
+            '%s cannot project save position history through content migration %d to %d. Record the carried positions after that migration.',
+            $historySource, $before, $before + 1,
+          ));
+        }
+        $steps[] = new DeclaredPositionContentMigration($this->migrations[$before], $this->aliasesFor(ContentReferenceCategory::MAP));
+      }
+
+      foreach ($maps as $mapId => $cells) {
+        foreach ($cells as $cell) {
+          $place = ['mapId' => (string) $mapId, 'position' => new Vector2(...$cell)];
+          foreach ($steps as $step) {
+            $place = $step->movePlace($place['mapId'], $place['position']);
+          }
+          $map = $this->resolve(ContentReferenceCategory::MAP, $place['mapId'], $this->source);
+          $x = (int) $place['position']->x;
+          $y = (int) $place['position']->y;
+          $protected[$map]["$x,$y"] = [$x, $y];
+        }
+      }
+    }
+
+    return $protected;
+  }
+
+  /** @return list<array{version: int, maps: array<string, list<array{int, int}>>}> */
+  private static function normalizePositionHistory(mixed $history, int $version, string $source): array
+  {
+    if (! is_array($history) || ! array_is_list($history) || $history === []) {
+      throw new InvalidSaveCompatibilityManifestException(sprintf('%s positionHistory must be a non-empty list of recorded layouts.', $source));
+    }
+
+    foreach ($history as $index => $layout) {
+      $layoutVersion = $layout['version'] ?? null;
+      $maps = $layout['maps'] ?? null;
+      if (! is_int($layoutVersion) || $layoutVersion < 0 || $layoutVersion > $version || ! is_array($maps)) {
+        throw new InvalidSaveCompatibilityManifestException(sprintf('%s positionHistory[%d] needs a supported content version and maps.', $source, $index));
+      }
+
+      foreach ($maps as $map => $cells) {
+        if (trim((string) $map) === '' || ! is_array($cells) || ! array_is_list($cells)) {
+          throw new InvalidSaveCompatibilityManifestException(sprintf('%s positionHistory[%d] map "%s" needs a cell list.', $source, $index, $map));
+        }
+        foreach ($cells as $cell) {
+          if (! is_array($cell) || ! array_is_list($cell) || count($cell) !== 2
+            || ! is_int($cell[0]) || ! is_int($cell[1]) || $cell[0] < 0 || $cell[1] < 0) {
+            throw new InvalidSaveCompatibilityManifestException(sprintf(
+              '%s positionHistory[%d] map "%s" cells must be non-negative integer [x, y] pairs.', $source, $index, $map,
+            ));
+          }
+        }
+      }
+    }
+
+    /** @var list<array{version: int, maps: array<string, list<array{int, int}>>}> $history */
+    return $history;
   }
 
   /**

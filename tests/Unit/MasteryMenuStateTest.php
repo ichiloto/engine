@@ -303,6 +303,20 @@ it('opens on the discipline of the first skill the character can learn, with the
     ->and(masteryMenuTerminal($this->state, 'listPanel')[0])->toMatch('/^\s+Sky\s+0 \/ 4 learned$/');
 });
 
+it('opens and learns from the owning game’s mastery board outside its project directory', function () {
+  $root = $this->root . '/assets';
+  $this->game->bindGameLoader(createTestGameLoader($this->game, assetRoot: $root));
+  masteryMenuHero($this->hero, 60);
+  chdir($this->cwd);
+
+  $this->state->enter();
+  $content = $this->state->getPresentationContent();
+  expect($content?->selection->name)->toBe('Storms');
+  masteryMenuKey($this->state, KeyCode::ENTER, KeyCode::ENTER, KeyCode::ENTER, KeyCode::ENTER);
+  expect($this->hero->mastery->points)->toBe(10)
+    ->and($this->hero->mastery->hasLearned('spark-1'))->toBeTrue();
+});
+
 it('goes down a level on Confirm and back one on Cancel, leaving from the disciplines, with only that level\'s bindings', function () {
   masteryMenuHero($this->hero, 60);
   $this->state->enter();

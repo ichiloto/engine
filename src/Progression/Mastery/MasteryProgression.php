@@ -35,9 +35,9 @@ final readonly class MasteryProgression
   }
 
   /** The progression for a character's map in the running project, or null when the project has no mastery tree. */
-  public static function forCharacter(Character $character): ?self
+  public static function forCharacter(Character $character, ?string $assetRoot = null): ?self
   {
-    $assetRoot = $character->projectAssetRoot;
+    $assetRoot ??= $character->projectAssetRoot;
     $map = MasteryCatalog::getProjectCatalog($assetRoot)->findMap($character->actorId);
 
     return $map === null ? null : new self($map, SkillCatalog::getProjectCatalog($assetRoot));

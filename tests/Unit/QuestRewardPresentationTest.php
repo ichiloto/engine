@@ -66,6 +66,40 @@ it('describes stable and alias references with the same quantities as granting w
     ->and($quest->rewards['items'])->toBe($references);
 });
 
+it('uses the owning campaign names in quest offers and completion summaries', function () {
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+  $game->bindGameLoader(createTestGameLoader($game, items: $this->store));
+  new ReflectionProperty(Game::class, 'projectConfiguration')->setValue($game, new SceneAudioConfigStub([
+    'locale' => 'test',
+    'vocab' => [
+      'test' => ['currency' => ['symbol' => 'Tokens'], 'battle' => ['rewards' => 'Payout'], 'stats' => ['level' => 'Rank']],
+      'stats' => ['exp' => 'XP'],
+      'mastery' => ['points' => 'JP'],
+    ],
+    'messages' => ['test' => ['quest' => ['level_gained' => '%1 advanced to %2 %3.']]],
+  ]));
+  putSceneAudioConfig(['locale' => 'other', 'vocab' => ['currency' => ['symbol' => 'Coins']]]);
+  $foreign = makeBareScene(ItemStore::class);
+  $foreign->set('item.tonic', new Item('Foreign Tonic', 'Foreign reward.', '!', 1, id: 'item.tonic'));
+  ConfigStore::put(ItemStore::class, $foreign);
+
+  $quest = new Quest('owner', 'Owning quest', 'Quest description.', rewards: [
+    'gold' => 20, 'experience' => 30, 'skillPoints' => 5, 'items' => ['item.tonic'],
+  ]);
+  $result = new ExperienceAwardResult(new Character('Hero', 0, new Stats()), 30, 1, 2);
+  $manager = new QuestCompletionPresentationProbe($game, [$result], $quest);
+  $manager->finishQuest($quest);
+  $modals = ModalManager::getInstance($game);
+  $pending = new ReflectionProperty($modals, 'pendingAlerts')->getValue($modals);
+
+  expect($pending[0]['message'])->toBe("Payout: 20 Tokens, 30 XP, 5 JP, Current Tonic\nHero advanced to Rank 2.")
+    ->and($quest->describeOffer($game))->toBe("Quest description.\nReward: 20 Tokens, 30 XP, 5 JP, Current Tonic\nAccept this quest?")
+    ->and($quest->describeRewards())->toBe('20 Coins, 30 EXP, 5 SP, Foreign Tonic');
+});
+
 it('bounds large-quantity snapshots by reward entry count without loading or instantiating items', function () {
   $store = new class extends ItemStore {
     public array $resolved = [];

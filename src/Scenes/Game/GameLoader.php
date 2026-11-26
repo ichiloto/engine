@@ -46,7 +46,7 @@ class GameLoader
     public readonly ItemStore $itemStore,
     string $assetRoot,
     private ?WorldAbilityCatalog $worldAbilities = null,
-    private readonly ?EnemyStore $enemyStore = null,
+    private ?EnemyStore $enemyStore = null,
     private ?ScriptCommandCatalog $scriptCommands = null,
     private ?DashSettings $dashSettings = null,
     private ?ProgressionSettings $progressionSettings = null,
@@ -134,7 +134,7 @@ class GameLoader
 
   public function getEnemyStore(): EnemyStore
   {
-    return $this->enemyStore ?? throw new \LogicException('Battle Test requires its project enemy store.');
+    return $this->enemyStore ??= new EnemyStore($this->assetRoot);
   }
 
   public function getScriptCommands(): ScriptCommandCatalog

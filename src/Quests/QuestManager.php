@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Localization\MessageCatalog;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
@@ -441,6 +442,11 @@ class QuestManager
     return $objective->displayDescription($this->gameScene->gameState, $this->gameScene->party, $this->log);
   }
 
+  public function describeRewards(Quest $quest): string
+  {
+    return $quest->describeRewards($this->game);
+  }
+
   /**
    * Re-evaluates objectives that mirror world state — held items, the
    * current map, and already-set flags — so accepting a quest the player
@@ -627,15 +633,16 @@ class QuestManager
    */
   protected function showRewardSummary(Quest $quest, array $results): void
   {
-    $lines = ($rewards = $quest->describeRewards()) === '' ? [] : [Vocabulary::getTerm('battle.rewards', 'Rewards') . ': ' . $rewards];
+    $rewards = $this->describeRewards($quest);
+    $lines = $rewards === '' ? [] : [Vocabulary::getTerm('battle.rewards', 'Rewards', $this->game) . ': ' . $rewards];
 
     foreach ($results as $result) {
       if (! $result->levelledUp()) {
         continue;
       }
 
-      $line = get_engine_message('quest.level_gained', $result->character->name,
-        Vocabulary::getTerm('stats.level'), $result->newLevel);
+      $line = MessageCatalog::format(MessageCatalog::resolveTerm('quest.level_gained', game: $this->game),
+        $result->character->name, Vocabulary::getTerm('stats.level', game: $this->game), $result->newLevel);
       $learned = $result->learnedSkills();
 
       if ($learned !== []) {
@@ -694,7 +701,7 @@ class QuestManager
   protected function confirmAcceptance(Quest $quest): bool
   {
     try {
-      return ModalManager::getInstance($this->game)->confirm($quest->describeOffer(), $quest->name);
+      return ModalManager::getInstance($this->game)->confirm($quest->describeOffer($this->game), $quest->name);
     } catch (Throwable $exception) {
       Debug::warn(sprintf('Quest offer prompt failed: %s', $exception->getMessage()));
 

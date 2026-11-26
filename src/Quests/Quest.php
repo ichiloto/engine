@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Quests;
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Progression\Mastery\MasteryVocabulary;
@@ -62,7 +63,7 @@ class Quest
    *
    * @return string The offer prompt.
    */
-  public function describeOffer(): string
+  public function describeOffer(?Game $game = null): string
   {
     $parts = [];
 
@@ -70,7 +71,7 @@ class Quest
       $parts[] = trim($this->description);
     }
 
-    if (($rewards = $this->describeRewards()) !== '') {
+    if (($rewards = $this->describeRewards($game)) !== '') {
       $parts[] = sprintf('Reward: %s', $rewards);
     }
 
@@ -84,23 +85,23 @@ class Quest
    *
    * @return string The reward summary; empty when the quest has none.
    */
-  public function describeRewards(): string
+  public function describeRewards(?Game $game = null): string
   {
     $parts = [];
 
     if (($gold = intval($this->rewards['gold'] ?? 0)) > 0) {
-      $parts[] = trim(sprintf('%d %s', $gold, Vocabulary::getTerm('currency.symbol', 'G')));
+      $parts[] = trim(sprintf('%d %s', $gold, Vocabulary::getTerm('currency.symbol', 'G', $game)));
     }
 
     if (($experience = intval($this->rewards['experience'] ?? 0)) > 0) {
-      $parts[] = sprintf('%d %s', $experience, Vocabulary::getTerm('stats.exp', 'EXP'));
+      $parts[] = sprintf('%d %s', $experience, Vocabulary::getTerm('stats.exp', 'EXP', $game));
     }
 
     if (($skillPoints = intval($this->rewards['skillPoints'] ?? 0)) > 0) {
-      $parts[] = sprintf('%d %s', $skillPoints, MasteryVocabulary::getPointsLabel());
+      $parts[] = sprintf('%d %s', $skillPoints, MasteryVocabulary::getPointsLabel($game));
     }
 
-    $itemStore = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
+    $itemStore = $game?->itemStore ?? (ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null);
 
     foreach ((array) ($this->rewards['items'] ?? []) as $itemReference) {
       if (is_array($itemReference)) {

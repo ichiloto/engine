@@ -18,7 +18,6 @@ use Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\SkipTutorialCommand;
 use Ichiloto\Engine\UI\Presentation\TutorialTerminalPresentation;
 use Ichiloto\Engine\Progression\TutorialStep;
-use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Core\Menu\Commands\OpenPartyOrderCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuitMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSaveMenuCommand;
@@ -326,6 +325,7 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
      */
     protected function initializeMenuUI(): void
     {
+        $scene = $this->getGameScene();
         $this->borderPack = new DefaultBorderPack();
         $this->settingsManager = new MainMenuSettingsManager(new SettingsCatalog($this->getGameScene()->getGame()));
         $infoWidth = min(self::MAIN_MENU_WIDTH, max(1, Console::getWidth() - $this->leftMargin));
@@ -352,24 +352,24 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             ->addItem(new OpenMagicMenuCommand($this->mainMenu));
 
         // Each character's own skills are learned on their Mastery Map, when the project gives them one.
-        if (MasteryMenuState::projectHasMaps()) {
+        if (MasteryMenuState::projectHasMaps($scene->getGame()->getProjectAssetRoot())) {
             $this->mainMenu->addItem(new OpenMasteryMenuCommand($this->mainMenu));
         }
 
         // Only currently available summons belong in player management.
-        if (! empty(SummonsMenuState::loadSummons($this->getGameScene()->gameState, $this->party))) {
+        if (SummonsMenuState::loadSummons($scene->gameState, $this->party, $scene->getGame()->getProjectAssetRoot()) !== []) {
             $this->mainMenu->addItem(new OpenSummonsMenuCommand($this->mainMenu));
         }
 
         // The journal appears whenever the project authors quests, even
         // before any are accepted, so players always know where to look.
-        if (QuestManager::projectHasQuests()) {
+        if (($scene->questManager?->quests ?? []) !== []) {
             $this->mainMenu->addItem(new OpenQuestsMenuCommand($this->mainMenu));
         }
 
         // Records collect achievements and the bestiary; the entry appears
         // as soon as a project authors either.
-        if ($this->getGameScene()->tutorialDirector !== null || RecordsMenuState::projectHasRecords()) {
+        if (RecordsMenuState::projectHasRecords($scene)) {
             $this->mainMenu->addItem(new OpenRecordsMenuCommand($this->mainMenu));
         }
 
@@ -382,7 +382,6 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
         if ($this->canSave) {
             $this->mainMenu->addItem(new OpenSaveMenuCommand($this->mainMenu));
         }
-        $scene = $this->getGameScene();
         if ($scene->tutorialDirector?->getSkippableTutorial($scene->party, $scene->questManager?->log) !== null) {
             $this->mainMenu->addItem(new SkipTutorialCommand($this->mainMenu));
         }

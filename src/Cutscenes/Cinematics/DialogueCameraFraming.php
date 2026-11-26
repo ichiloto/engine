@@ -23,7 +23,8 @@ final class DialogueCameraFraming
   private ?string $assetRoot = null;
   private array $notes = [];
   private ?object $scope = null;
-  private ?FieldSpriteBounds $safeArea = null;
+  /** @var list<FieldSpriteBounds> */
+  private array $safeAreas = [];
   /** @var array{?FieldViewport, int, int}|array{} */
   private array $viewportLayout = [];
   private string $diagnosticKey = '';
@@ -37,7 +38,7 @@ final class DialogueCameraFraming
   {
     $this->scene->camera->clearFraming($this, $this->getMotionSeconds());
     $this->diagnostic = null;
-    $this->safeArea = null;
+    $this->safeAreas = [];
   }
 
   public function reset(): void
@@ -54,6 +55,7 @@ final class DialogueCameraFraming
   private function collectSubjectBounds(array $subjects, ?FieldViewport $view): array
   {
     $bounds = $next = [];
+    $slides = $view !== null && $this->scene->canPresentFieldMotion();
     foreach ($subjects as $subject) {
       $position = $view === null ? $subject->position : $subject->getGraphicalSpriteWorldPosition();
       $drawn = $view === null ? null : FieldSpriteBounds::findBounds($subject, $view, $this->scene->camera->getWorldOrigin());
@@ -62,8 +64,7 @@ final class DialogueCameraFraming
         : new FieldSpriteBounds($drawn->left / FieldViewport::TILE_SIZE, $drawn->top / FieldViewport::TILE_SIZE,
             $drawn->right / FieldViewport::TILE_SIZE, $drawn->bottom / FieldViewport::TILE_SIZE));
       $id = $subject->getGraphicalSpriteId(); $prior = $this->samples[$id] ?? null; $sweep = null;
-      if ($view !== null && !\Ichiloto\Engine\UI\Accessibility::prefersReducedMotion()
-        && $subject->getGraphicalSpriteMotion() !== null && $prior !== null) {
+      if ($slides && $subject->getGraphicalSpriteMotion() !== null && $prior !== null) {
         $dx = $prior['position']->x - $position->x; $dy = $prior['position']->y - $position->y;
         $sweep = $dx !== 0.0 || $dy !== 0.0
           ? new FieldSpriteBounds($drawn->left + $dx, $drawn->top + $dy, $drawn->right + $dx, $drawn->bottom + $dy)
@@ -98,7 +99,6 @@ final class DialogueCameraFraming
     if ($scene->cinematicController?->active() === null) { $this->reset(); return; }
     $scope = $scene->cinematicController->dialogueFramingScope;
     if ($scope !== $this->scope) { $this->clear(); $this->scope = $scope; }
-    $context = $scene->getPresentationContext();
     $owners = $scene->getActiveFieldPresentations();
     $owners = array_values(array_filter($owners, static fn($owner): bool => $owner instanceof DialoguePresentationProviderInterface));
     $lines = array_map(static fn($owner) => $owner->getDialogueSnapshot(), $owners);
@@ -138,10 +138,10 @@ final class DialogueCameraFraming
       || $subjects === []) { $this->clear(); return; }
     $hasOverlay = $scene->cinematicPresentation?->overlayPresentation !== null;
     if ($line === null && !$hasOverlay) {
-      if ($scene->cinematicController->getCurrentFramingScope() !== null && $this->safeArea === null) {
-        $this->safeArea = $visible;
+      if ($scene->cinematicController->getCurrentFramingScope() !== null && $this->safeAreas === []) {
+        $this->safeAreas = [$visible];
       }
-      if ($this->safeArea !== null) { $this->frameSubjects($bounds, $this->safeArea, $visible); }
+      if ($this->safeAreas !== []) { $this->frameSubjects($bounds, $visible); }
       return;
     }
     if ($line !== null) { $this->diagnosticKey .= ':' . $line->speaker; }
@@ -162,12 +162,12 @@ final class DialogueCameraFraming
       array_push($protected, ...($scene->cinematicPresentation?->getProtectedOverlayBounds(
         $width, $height, $root, $view->grid) ?? []));
       $tile = FieldViewport::TILE_SIZE * $view->zoom;
-      $safe = self::findSafeArea($protected, $width, $height);
-      // Keep the pixel edges. Camera::frameBounds chooses an integer origin
-      // against the real artwork bounds, which can straddle whole field rows.
-      $top = $safe === null ? 0 : ($safe->y - $view->surfaceOffsetY) / $tile;
-      $bottom = $safe === null ? 0 : ($safe->y + $safe->height - $view->surfaceOffsetY) / $tile;
-
+      // Preserve pixel edges for the camera's integer-cell origin calculation.
+      $this->safeAreas = array_map(static fn(CanvasRectangle $area): FieldSpriteBounds => new FieldSpriteBounds(
+        ($area->x - $view->surfaceOffsetX) / $tile, ($area->y - $view->surfaceOffsetY) / $tile,
+        ($area->x + $area->width - $view->surfaceOffsetX) / $tile,
+        ($area->y + $area->height - $view->surfaceOffsetY) / $tile),
+        self::findGraphicalSafeAreas($protected, $width, $height));
     } else {
       // Terminal text footprints are independent of graphical assets and scale.
       $protected = array_map(static function ($owner): CanvasRectangle {
@@ -176,12 +176,11 @@ final class DialogueCameraFraming
       }, $owners);
       array_push($protected, ...($scene->cinematicPresentation?->getProtectedOverlayBounds($screenWidth, $screenHeight) ?? []));
       $safe = self::findSafeArea($protected, $screenWidth, $screenHeight);
-      $top = $safe?->y ?? 0; $bottom = $safe === null ? 0 : $safe->y + $safe->height;
-
+      $this->safeAreas = $safe === null ? [] : [
+        new FieldSpriteBounds($visible->left, $safe->y, $visible->right, $safe->y + $safe->height),
+      ];
     }
-    if ($bottom <= $top) { $this->reportFailure(); return; }
-    $this->safeArea = new FieldSpriteBounds($visible->left, $top, $visible->right, $bottom);
-    $this->frameSubjects($bounds, $this->safeArea, $visible);
+    $this->frameSubjects($bounds, $visible);
   }
 
   private function getMotionSeconds(): float
@@ -189,10 +188,10 @@ final class DialogueCameraFraming
     return $this->scene->canPresentCameraMotion() ? self::TRANSITION_SECONDS : 0.0;
   }
 
-  private function frameSubjects(array $bounds, FieldSpriteBounds $safeArea, FieldSpriteBounds $visible): void
+  private function frameSubjects(array $bounds, FieldSpriteBounds $visible): void
   {
     $group = FieldSpriteBounds::join($bounds);
-    if ($group === null || !$this->scene->camera->frameBounds($this, $group, $safeArea, $this->getMotionSeconds(),
+    if ($group === null || !$this->scene->camera->frameBoundsInAreas($this, $group, $this->safeAreas, $this->getMotionSeconds(),
         visibleArea: $visible)) {
       $this->reportFailure();
     } else { $this->diagnostic = null; }
@@ -205,6 +204,42 @@ final class DialogueCameraFraming
     if (!isset($this->notes[$this->diagnosticKey])) {
       Debug::warn($this->diagnostic); $this->notes[$this->diagnosticKey] = true;
     }
+  }
+
+  /**
+   * @param list<CanvasRectangle> $protected
+   * @return list<CanvasRectangle>
+   */
+  private static function findGraphicalSafeAreas(array $protected, int $width, int $height): array
+  {
+    $tops = [0]; $bottoms = [$height]; $obstacles = [];
+    foreach ($protected as $rect) {
+      $left = max(0, $rect->x); $right = min($width, $rect->x + $rect->width);
+      $top = max(0, $rect->y); $bottom = min($height, $rect->y + $rect->height);
+      if ($left >= $right || $top >= $bottom) { continue; }
+      $obstacles[] = [$left, $top, $right, $bottom];
+      $tops[] = $bottom; $bottoms[] = $top;
+    }
+    usort($obstacles, static fn(array $a, array $b): int => $a[0] <=> $b[0]);
+    $areas = [];
+    // A clear rectangle can extend vertically until it meets an obstacle or the viewport edge.
+    $bottoms = array_unique($bottoms);
+    foreach (array_unique($tops) as $top) {
+      foreach ($bottoms as $bottom) {
+        if ($top >= $bottom) { continue; }
+        $start = 0;
+        foreach ($obstacles as [$left, $blockedTop, $right, $blockedBottom]) {
+          if ($blockedTop >= $bottom || $blockedBottom <= $top) { continue; }
+          if ($left > $start) { $areas[] = new CanvasRectangle($start, $top, $left - $start, $bottom - $top); }
+          $start = max($start, $right);
+        }
+        if ($start < $width) { $areas[] = new CanvasRectangle($start, $top, $width - $start, $bottom - $top); }
+      }
+    }
+    // Keep the established preference for broad shots, with a stable order for equal areas.
+    usort($areas, static fn(CanvasRectangle $a, CanvasRectangle $b): int =>
+      [-$a->width, -$a->height, $a->y, $a->x] <=> [-$b->width, -$b->height, $b->y, $b->x]);
+    return $areas;
   }
 
   /** Largest full-width horizontal band clear of every actual UI protected rectangle. */

@@ -2,7 +2,7 @@
 
 namespace Ichiloto\Engine\Localization;
 
-use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
@@ -49,13 +49,9 @@ final class MessageCatalog
    *
    * @return string The locale key; empty when the project sets none.
    */
-  public static function locale(): string
+  public static function locale(?Game $game = null): string
   {
-    if (! ConfigStore::has(ProjectConfig::class)) {
-      return '';
-    }
-
-    return trim(strval(config(ProjectConfig::class, 'locale', '')));
+    return trim(strval(ProjectConfig::findForGame($game)?->get('locale', '') ?? ''));
   }
 
   /**
@@ -78,9 +74,9 @@ final class MessageCatalog
   }
 
   /** Resolves an Engine term without substituting its placeholders. */
-  public static function resolveTerm(string $path, bool $allowEmpty = false): string
+  public static function resolveTerm(string $path, bool $allowEmpty = false, ?Game $game = null): string
   {
-    return self::resolve($path, EngineMessageTerms::getDefault($path), $allowEmpty);
+    return self::resolve($path, EngineMessageTerms::getDefault($path), $allowEmpty, $game);
   }
 
   /**
@@ -89,25 +85,27 @@ final class MessageCatalog
    * @param string $path The dot path under `messages.`.
    * @param string $default The string used when the path is not authored.
    * @param bool $allowEmpty Whether an explicitly empty localized value overrides the base message.
+   * @param Game|null $game The game whose configuration supplies the translation.
    * @return string The raw message.
    */
-  public static function resolve(string $path, string $default = '', bool $allowEmpty = false): string
+  public static function resolve(string $path, string $default = '', bool $allowEmpty = false, ?Game $game = null): string
   {
-    if (! ConfigStore::has(ProjectConfig::class)) {
+    $config = ProjectConfig::findForGame($game);
+    if ($config === null) {
       return $default;
     }
 
-    $locale = self::locale();
+    $locale = self::locale($game);
 
     if ($locale !== '') {
-      $localized = config(ProjectConfig::class, "messages.$locale.$path", null);
+      $localized = $config->get("messages.$locale.$path");
 
       if (is_string($localized) && ($allowEmpty || $localized !== '')) {
         return $localized;
       }
     }
 
-    $message = config(ProjectConfig::class, "messages.$path", $default);
+    $message = $config->get("messages.$path", $default);
 
     return is_string($message) ? $message : $default;
   }

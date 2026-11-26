@@ -151,9 +151,9 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     /** Whether the running project gives any character a Mastery Map. */
-    public static function projectHasMaps(): bool
+    public static function projectHasMaps(?string $assetRoot = null): bool
     {
-        return MasteryCatalog::getProjectCatalog()->hasNodes();
+        return MasteryCatalog::getProjectCatalog($assetRoot)->hasNodes();
     }
 
     protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
@@ -1361,7 +1361,7 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
     /** The board of the running project's tree, built once for each tree read. */
     protected function getBoard(): ?MasteryBoard
     {
-        $catalog = MasteryCatalog::getProjectCatalog();
+        $catalog = MasteryCatalog::getProjectCatalog($this->getGameScene()->getGame()->getProjectAssetRoot());
         if (! $catalog->hasNodes()) {
             return null;
         }
@@ -1374,11 +1374,13 @@ class MasteryMenuState extends GameSceneState implements CanvasProviderInterface
 
     protected function getProgression(): ?MasteryProgression
     {
-        return $this->character === null ? null : MasteryProgression::forCharacter($this->character);
+        return $this->character === null ? null
+            : MasteryProgression::forCharacter($this->character, $this->getGameScene()->getGame()->getProjectAssetRoot());
     }
 
     protected function getMap(): ?MasteryMap
     {
-        return $this->character === null ? null : MasteryCatalog::getProjectCatalog()->findMap($this->character->actorId);
+        return $this->character === null ? null
+            : MasteryCatalog::getProjectCatalog($this->getGameScene()->getGame()->getProjectAssetRoot())->findMap($this->character->actorId);
     }
 }

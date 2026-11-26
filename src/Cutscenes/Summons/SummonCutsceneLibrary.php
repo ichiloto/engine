@@ -24,7 +24,7 @@ final class SummonCutsceneLibrary
     protected string $assetPath = 'Cutscenes/Summons',
     protected ?SummonCutsceneCompiler $compiler = null,
     protected bool $cacheForBattle = false,
-    ?string $assetRoot = null,
+    private readonly ?string $assetRoot = null,
   )
   {
     $this->compiler ??= new SummonCutsceneCompiler(assetRoot: $assetRoot);
@@ -171,6 +171,7 @@ final class SummonCutsceneLibrary
       return $this->assetPath;
     }
 
-    return getcwd() . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . $this->assetPath;
+    $root = $this->assetRoot ?? getcwd() . DIRECTORY_SEPARATOR . 'assets';
+    return $root . DIRECTORY_SEPARATOR . $this->assetPath;
   }
 }

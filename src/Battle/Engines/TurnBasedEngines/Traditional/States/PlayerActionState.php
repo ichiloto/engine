@@ -29,7 +29,6 @@ use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Progression\{TutorialDirector, TutorialStartContext};
-use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
  * Handles player-side command, submenu, and target selection for the round.
@@ -393,7 +392,7 @@ class PlayerActionState extends TurnState
 
     $director->enterContext(
       TutorialStartContext::BATTLE_COMMAND,
-      (bool) config(ProjectConfig::class, TutorialDirector::CONFIG_AUTOMATIC_PROMPTS, true),
+      TutorialDirector::allowsAutomaticPrompts($context->game),
       $context->party,
       $context->getQuestLog(),
       $canPresent,
